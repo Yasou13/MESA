@@ -189,7 +189,7 @@ async def _seed_legal_assertion(
         "literal_value": literal_value,
         "evidence_span": evidence_span,
     }
-    await dao.project_v4_graph_triplet(mutation=mut, triplet=triplet)
+    await dao.project_v4_sql_assertion(mutation=mut, triplet=triplet)
     assertions = await dao.list_v4_assertions_for_mutation(str(mut["mutation_id"]))
     assert len(assertions) >= 1
     assertion = assertions[0]
@@ -218,13 +218,8 @@ async def test_phase3_downstream_same_article_disambiguation(tmp_path):
         upsert=AsyncMock(),
         search=AsyncMock(),
     )
-    graph = SimpleNamespace(
-        insert_node=AsyncMock(),
-        insert_assertion=AsyncMock(),
-        link_assertions=AsyncMock(),
-    )
 
-    dao = MemoryDAO(engine, vector, graph)
+    dao = MemoryDAO(engine, vector)
     tenant_id = "tenant-p3"
     agent_id = "agent-p3"
     dataset_id = "dataset-p3"
@@ -313,12 +308,7 @@ async def test_phase3_ingestion_uses_structural_legal_identity(tmp_path):
         upsert=AsyncMock(),
         search=AsyncMock(return_value=[]),
     )
-    graph = SimpleNamespace(
-        insert_node=AsyncMock(),
-        insert_assertion=AsyncMock(),
-        link_assertions=AsyncMock(),
-    )
-    dao = MemoryDAO(engine, vector, graph)
+    dao = MemoryDAO(engine, vector)
 
     try:
         assertion = await _seed_legal_assertion(

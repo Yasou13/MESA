@@ -176,7 +176,6 @@ def test_documented_quickstarts_match_the_fail_closed_compose_profile() -> None:
     assert "MESA_PRINCIPAL_ID" in quickstart
     assert "docker compose up --build -d" in quickstart
     assert "docker-compose up" not in quickstart
-    assert ".kuzu/" not in readme
     assert "requirements-core.txt" not in readme
     assert "requirements-ml.txt" not in readme
     assert "MESA_MODEL_ENABLED=false" in quickstart

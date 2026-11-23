@@ -27,7 +27,6 @@ async def test_health_stays_responsive_while_scoring_large_memories(
 ):
     async with model_runtime(
         MESA_MODEL_ENABLED=False,
-        MESA_GRAPH_ENABLED=False,
         MESA_RATE_LIMIT_PER_MINUTE=100000,
     ) as env:
         for index in range(count):
@@ -66,7 +65,7 @@ async def test_health_stays_responsive_while_scoring_large_memories(
 async def test_public_health_probes_storage_and_keeps_full_diagnostics_available(
     model_runtime, monkeypatch
 ):
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         statements = []
         original = env.dao._sql._apply_pragmas
 

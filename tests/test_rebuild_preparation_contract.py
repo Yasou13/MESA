@@ -85,7 +85,7 @@ def test_preflight_requires_drain_capacity_and_safe_nonoverlapping_paths(
     with StorageWriterLock.acquire(storage, owner="rebuild-runner") as writer_lock:
         preflight = _inspect(trusted, storage, work, writer_lock)
         assert preflight.source_generation_id == "legacy"
-        assert preflight.source_manifest["alembic_head"] == "f8b9c0d1e2f3"
+        assert preflight.source_manifest["alembic_head"] == "f9c0d1e2f3a4"
 
         connection = sqlite3.connect(database)
         connection.execute(
@@ -256,7 +256,7 @@ async def test_preparer_creates_valid_backup_generation_and_fenced_checkpoint(
         return_value=ProjectionPaths(
             generation_id="legacy",
             vector_path=storage / "vector.lance",
-            graph_path=storage / "kuzu_db",
+            graph_path=storage / "graph_unused",
             runtime_fencing_token=0,
             previous_generation_id="retained-older",
         )
@@ -278,7 +278,7 @@ async def test_preparer_creates_valid_backup_generation_and_fenced_checkpoint(
         return_value=ProjectionPaths(
             generation_id=result.target_generation_id,
             vector_path=storage / "projection-generations" / "target" / "vector.lance",
-            graph_path=storage / "projection-generations" / "target" / "kuzu_db",
+            graph_path=storage / "projection-generations" / "target" / "graph_unused",
             runtime_fencing_token=1,
             previous_generation_id="legacy",
         )

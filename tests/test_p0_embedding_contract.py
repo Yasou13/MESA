@@ -35,7 +35,7 @@ async def test_embedding_contract_and_dimension_validation(tmp_path):
     mock_graph.insert_node = AsyncMock()
 
     dao = MemoryDAO(
-        sqlite_engine=engine, vector_engine=mock_vec, graph_provider=mock_graph
+        sqlite_engine=engine, vector_engine=mock_vec
     )
 
     tenant_id = "tenant_embed"

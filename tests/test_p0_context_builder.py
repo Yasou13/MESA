@@ -28,7 +28,7 @@ async def test_context_builder_integration(tmp_path):
     mock_graph.insert_node = AsyncMock()
     mock_graph.insert_assertion = AsyncMock()
 
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=mock_vec, graph_provider=mock_graph)
+    dao = MemoryDAO(sqlite_engine=engine, vector_engine=mock_vec)
 
     tenant_id = "tenant_ctx"
     agent_id = "agent_ctx"
@@ -81,7 +81,7 @@ async def test_context_builder_integration(tmp_path):
     await dao.project_v4_sql_entity(mutation=mut, entity_name="Alice")
 
     t = {"head": "Alice", "relation": "ROLE", "literal_value": "Chief Architect", "confidence": 1.0}
-    await dao.project_v4_graph_triplet(mutation=mut, triplet=t)
+    await dao.project_v4_sql_assertion(mutation=mut, triplet=t)
     await dao.record_mutation_extraction(agent_id, mut["mutation_id"], [t])
     assert await dao.set_mutation_state(agent_id, mut["mutation_id"], "VALIDATED")
     async with engine.transaction() as db:

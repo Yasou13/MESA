@@ -16,7 +16,7 @@ from mesa_storage.sqlite_engine import AsyncEngine
 
 # Explicitly anchor the expected HEAD migration to prevent unreviewed schema drift
 # Update this ONLY when a new migration has been peer-reviewed.
-HEAD = "f8b9c0d1e2f3"
+HEAD = "f9c0d1e2f3a4"
 PREVIOUS_093_HEAD = "e6f7a8b9c0d1"
 PREVIOUS_HEAD = "fd4e5f6a7b8c"
 ROUND7_PREDECESSOR = "0a7b8c9d0e1f"
@@ -132,7 +132,7 @@ def test_previous_head_upgrades_with_legacy_projection_generation(
         "LEGACY",
         "ACTIVE",
         "vector.lance",
-        "kuzu_db",
+        "graph_unused",
     )
     runtime = connection.execute(
         "SELECT runtime_id, active_generation_id, previous_generation_id, "
@@ -424,7 +424,7 @@ def test_operation_schema_enforces_single_active_rebuild_and_append_only_events(
             "generation_id, generation_kind, lifecycle_state, "
             "vector_relative_path, graph_relative_path"
             ") VALUES ('escaped', 'REBUILD', 'STAGING', "
-            "'/absolute/vector.lance', 'generations/escaped/kuzu_db')"
+            "'/absolute/vector.lance', 'generations/escaped/graph_unused')"
         )
     connection.close()
 

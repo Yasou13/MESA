@@ -26,7 +26,7 @@ async def test_jurisdiction_reaches_sqlite_and_formatted_context(
     engine = AsyncEngine(str(tmp_path / "jurisdiction.sqlite"))
     await engine.initialize()
     await initialize_schema(engine)
-    dao = MemoryDAO(engine, None, None)
+    dao = MemoryDAO(engine, None)
     session = {
         "tenant_id": "tenant",
         "workspace_id": "workspace",

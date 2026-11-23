@@ -1,7 +1,7 @@
 """Cross-tenant RBAC and storage isolation proof across V4 retrieval surfaces.
 
 Proves that tenant/agent B cannot read, search, or traverse tenant/agent A's
-canonical V4 SQLite rows, BM25 FTS index, LanceDB vector index, or Kùzu graph.
+canonical V4 SQLite rows, BM25 FTS index, or LanceDB vector index.
 """
 
 from __future__ import annotations
@@ -12,8 +12,6 @@ import pytest_asyncio
 from mesa_memory.config import QueueAdmissionPolicy
 from mesa_memory.embedding.service import EmbeddingIdentity, EmbeddingService
 from mesa_storage.dao import MemoryDAO
-from mesa_storage.kuzu_provider import KuzuGraphProvider
-from mesa_storage.kuzu_setup import initialize_schema_artifact
 from mesa_storage.repositories.catalog import CatalogIdentityNotFoundError
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
@@ -36,7 +34,6 @@ SENTINEL_CONTENT = (
 async def dao_env(tmp_path):
     db_path = tmp_path / "rbac_leak.db"
     vec_path = tmp_path / "vec.lance"
-    graph_path = tmp_path / "graph"
     sql = AsyncEngine(str(db_path), max_connections=2)
     identity = EmbeddingIdentity(
         provider="test", model="rbac-vec", version="v1", dimension=8, normalized=True
@@ -49,24 +46,18 @@ async def dao_env(tmp_path):
             provider_fn=lambda _text: list(VEC8),
         ),
     )
-    initialize_schema_artifact(str(graph_path))
-    graph = KuzuGraphProvider(db_path=str(graph_path), max_workers=1)
     await sql.initialize()
     await initialize_schema(sql)
     await vec.initialize()
-    await graph.initialize()
     dao = MemoryDAO(
         sqlite_engine=sql,
         vector_engine=vec,
-        graph_provider=graph,
         embedding_enabled=True,
-        graph_enabled=True,
     )
     await dao.initialize()
     try:
         yield dao, identity
     finally:
-        await graph.close()
         await vec.close()
         await sql.close()
 
@@ -138,7 +129,6 @@ async def _seed_tenant_a(dao: MemoryDAO, identity: EmbeddingIdentity) -> dict[st
         dataset_ids=["ds-a"],
         query=SENTINEL_ENTITY,
         limit=10,
-        graph_enabled=True,
     )
     assert control, "Control failed: tenant A seed data not searchable"
     return {"session_id": session["session_id"], "mutation_id": mutation_id}
@@ -174,8 +164,7 @@ class TestCrossTenantIsolation:
             dataset_ids=["ds-b"],
             query=SENTINEL_ENTITY,
             limit=10,
-            rrf_weights={"vector": 0.0, "bm25": 1.0, "assertion": 0.0, "graph": 0.0},
-            graph_enabled=False,
+            rrf_weights={"vector": 0.0, "bm25": 1.0, "assertion": 0.0},
         )
         assert b_res == []
 
@@ -191,8 +180,7 @@ class TestCrossTenantIsolation:
             dataset_ids=["ds-b"],
             query=SENTINEL_CONTENT,
             limit=10,
-            rrf_weights={"vector": 8.0, "bm25": 0.0, "assertion": 0.0, "graph": 0.0},
-            graph_enabled=False,
+            rrf_weights={"vector": 8.0, "bm25": 0.0, "assertion": 0.0},
         )
         assert b_res == []
 
@@ -208,8 +196,7 @@ class TestCrossTenantIsolation:
             dataset_ids=["ds-b"],
             query=SENTINEL_ENTITY,
             limit=10,
-            rrf_weights={"vector": 8.0, "bm25": 1.0, "assertion": 1.0, "graph": 1.0},
-            graph_enabled=True,
+            rrf_weights={"vector": 8.0, "bm25": 1.0, "assertion": 1.0},
         )
         assert b_all == [], "Cross-tenant leak on tenant B dataset"
         with pytest.raises(CatalogIdentityNotFoundError):
@@ -219,6 +206,5 @@ class TestCrossTenantIsolation:
                 dataset_ids=["ds-a"],
                 query=SENTINEL_ENTITY,
                 limit=10,
-                rrf_weights={"vector": 8.0, "bm25": 1.0, "assertion": 1.0, "graph": 1.0},
-                graph_enabled=True,
+                rrf_weights={"vector": 8.0, "bm25": 1.0, "assertion": 1.0},
             )

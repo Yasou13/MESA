@@ -78,7 +78,7 @@ async def scope_env(tmp_path, monkeypatch):
     sql, vector, graph, dao = await _environment(tmp_path)
     await _seed(dao, 1)
     await _seed(dao, 2)
-    uncached = MemoryDAO(sql, vector, graph, search_scope_cache_enabled=False)
+    uncached = MemoryDAO(sql, vector, search_scope_cache_enabled=False)
     try:
         yield sql, dao, uncached
     finally:
@@ -226,7 +226,7 @@ async def test_lifecycle_and_grant_changes_cannot_serve_stale_results(model_runt
     from tests.test_document_ingestion import _add
     from tests.test_model_optional_runtime import _consume
 
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
 
         async def search():
             return await env.client.post(
@@ -453,22 +453,6 @@ async def test_active_vector_graph_and_query_options_remain_identical(scope_env)
     cached._vec.search.return_value = [
         {"node_id": assertion["assertion_id"], "_distance": 0.042}
     ]
-    cached._graph.search_v4_graph.return_value = [
-        {
-            "entity_id": assertion["object_entity_id"],
-            "paths": [
-                {
-                    "assertion_ids": [assertion["assertion_id"]],
-                    "entity_ids": [
-                        assertion["subject_id"],
-                        assertion["object_entity_id"],
-                    ],
-                    "seed_id": assertion["subject_id"],
-                    "score": 0.8,
-                }
-            ],
-        }
-    ]
     for query in QUERIES[:5]:
         for options in [
             {},
@@ -479,10 +463,8 @@ async def test_active_vector_graph_and_query_options_remain_identical(scope_env)
                     "bm25": 0.0,
                     "vector": 1.0,
                     "assertion": 1.0,
-                    "graph": 2.0,
                 },
             },
-            {"graph_enabled": False},
         ]:
             on_meta, off_meta = {}, {}
             result = await _search(
@@ -493,15 +475,11 @@ async def test_active_vector_graph_and_query_options_remain_identical(scope_env)
             )
             assert on_meta == off_meta
             assert on_meta["vector_lane"]["search_executed"]
-            if options.get("graph_enabled", True):
-                assert any(
-                    "graph" in row["retrieval_provenance"]["origins"] for row in result
-                )
 
 
 def test_dao_search_scope_cache_enabled_parameter():
-    dao_enabled = MemoryDAO(None, None, None, search_scope_cache_enabled=True)  # type: ignore[arg-type]
+    dao_enabled = MemoryDAO(None, None, search_scope_cache_enabled=True)  # type: ignore[arg-type]
     assert dao_enabled._search_scope_cache_enabled is True
-    dao_disabled = MemoryDAO(None, None, None, search_scope_cache_enabled=False)  # type: ignore[arg-type]
+    dao_disabled = MemoryDAO(None, None, search_scope_cache_enabled=False)  # type: ignore[arg-type]
     assert dao_disabled._search_scope_cache_enabled is False
 

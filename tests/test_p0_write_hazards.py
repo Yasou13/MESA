@@ -47,7 +47,6 @@ async def test_canonical_sql_intent_established_before_secondary_writes(tmp_path
         sqlite_engine=engine,
         vector_engine=mock_vec,
         embedding_enabled=True,
-        graph_enabled=False,
     )
     await dao.ensure_v4_catalog_scope(
         tenant_id="tenant-hazard", workspace_id="ws-h", dataset_id="ds-h"

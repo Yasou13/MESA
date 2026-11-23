@@ -138,7 +138,7 @@ async def test_active_generation_paths_are_relative_and_symlink_safe(
 
     assert active.generation_id == "legacy"
     assert active.vector_path == storage / "vector.lance"
-    assert active.graph_path == storage / "kuzu_db"
+    assert active.graph_path == storage / "graph_unused"
 
     outside = tmp_path / "outside"
     outside.mkdir()

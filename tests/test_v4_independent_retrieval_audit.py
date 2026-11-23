@@ -1,4 +1,4 @@
-"""Independent production-path proofs for evidence fusion and graph materialization."""
+"""Independent production-path proofs for evidence fusion and scope isolation."""
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -11,14 +11,12 @@ from test_v4_retrieval_hardening_phase1 import (
 
 from mesa_memory.context_builder import ContextBuilder
 from mesa_storage.dao import MemoryDAO
-from mesa_storage.kuzu_provider import KuzuGraphProvider
-from mesa_storage.kuzu_setup import initialize_schema_artifact
 from mesa_storage.retrieval_scope import rrf_fuse_lanes
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 
 
-async def make_env(tmp_path, *, real_graph=False):
+async def make_env(tmp_path):
     sql = AsyncEngine(str(tmp_path / "audit.sqlite"))
     await sql.initialize()
     await initialize_schema(sql)
@@ -29,20 +27,7 @@ async def make_env(tmp_path, *, real_graph=False):
         upsert=AsyncMock(),
         search=AsyncMock(return_value=[]),
     )
-    if real_graph:
-        path = str(tmp_path / "graph")
-        initialize_schema_artifact(path)
-        graph = KuzuGraphProvider(path, max_workers=1)
-        await graph.initialize()
-    else:
-        graph = SimpleNamespace(
-            insert_node=AsyncMock(),
-            insert_assertion=AsyncMock(),
-            link_assertions=AsyncMock(),
-            search_v4_graph=AsyncMock(return_value=[]),
-            is_operational=True,
-        )
-    return sql, vector, graph, MemoryDAO(sql, vector, graph)
+    return sql, vector, MemoryDAO(sql, vector)
 
 
 async def add(dao, n, subject, target, *, evidence="", **kwargs):
@@ -74,13 +59,13 @@ async def search(dao, query="Alice"):
 
 
 def test_rrf_duplicate_lane_hits_do_not_vote_twice():
-    expected = rrf_fuse_lanes({"vector": ["a", "b"], "graph": ["a"]})
-    assert rrf_fuse_lanes({"graph": ["a"], "vector": ["a", "a", "b"]}) == expected
+    expected = rrf_fuse_lanes({"vector": ["a", "b"], "bm25": ["a"]})
+    assert rrf_fuse_lanes({"bm25": ["a"], "vector": ["a", "a", "b"]}) == expected
 
 
 @pytest.mark.asyncio
-async def test_real_four_lanes_fuse_once_and_repeat_deterministically(tmp_path):
-    sql, vector, graph, dao = await make_env(tmp_path, real_graph=True)
+async def test_real_three_lanes_fuse_once_and_repeat_deterministically(tmp_path):
+    sql, vector, dao = await make_env(tmp_path)
     try:
         fact = await add(dao, 1, "Alice", "Aurora", evidence="Alice knows Aurora")
         aid = fact["assertion_id"]
@@ -92,144 +77,11 @@ async def test_real_four_lanes_fuse_once_and_repeat_deterministically(tmp_path):
             "vector": 1,
             "bm25": 1,
             "assertion": 1,
-            "graph": 1,
         }
-        assert first[0]["rrf_score"] == pytest.approx(4 / 61)
+        assert first[0]["rrf_score"] == pytest.approx(3 / 61)
         for _ in range(3):
             assert await search(dao) == first
     finally:
-        await graph.close()
-        await sql.close()
-
-
-@pytest.mark.asyncio
-async def test_graph_primary_source_and_parallel_paths_remain_aligned(tmp_path):
-    sql, vector, graph, dao = await make_env(tmp_path)
-    try:
-        ab = await add(dao, 1, "Alice", "Bridge", evidence="first supporting evidence")
-        xb = await add(
-            dao, 2, "Xavier", "Bridge", evidence="second supporting evidence"
-        )
-        bd = await add(dao, 3, "Bridge", "Destination", evidence="primary evidence")
-        a, b, x, d = (
-            ab["subject_id"],
-            ab["object_entity_id"],
-            xb["subject_id"],
-            bd["object_entity_id"],
-        )
-        p1, p2, primary = ab["assertion_id"], xb["assertion_id"], bd["assertion_id"]
-        graph.search_v4_graph.return_value = [
-            dict(
-                entity_id=d,
-                matched_assertion_id=primary,
-                path_assertion_ids=[p1, primary],
-                path_entity_ids=[a, b, d],
-                score=2.0,
-                hops=2,
-                seed_id=a,
-                direction="forward",
-            ),
-            dict(
-                entity_id=d,
-                matched_assertion_id=primary,
-                path_assertion_ids=[p2, primary],
-                path_entity_ids=[x, b, d],
-                score=1.0,
-                hops=2,
-                seed_id=x,
-                direction="forward",
-            ),
-        ]
-        results = await search(dao, "Alice primary")
-        hit = next(row for row in results if row["evidence_id"] == primary)
-        assert hit["source_chunk_id"] == "chunk-3"
-        assert hit["document_id"] == "doc-3"
-        assert hit["evidence_span"] == "primary evidence"
-        assert [p["assertion_id"] for p in hit["matched_assertions"]] == [primary]
-        assert {p["assertion_id"] for p in hit["supporting_assertions"]} == {p1, p2}
-        meta = hit["retrieval_provenance"]
-        assert meta["graph_support_count"] == 2
-        assert meta["graph_distinct_seed_count"] == 2
-        assert len(meta["graph_paths"]) == 2
-        for path in meta["graph_paths"]:
-            assert len(path["assertion_ids"]) + 1 == len(path["entity_ids"])
-            assert path["edge_directions"] == ["forward", "forward"]
-        assert len(meta["graph_path_assertion_ids"]) + 1 == len(
-            meta["graph_path_entity_ids"]
-        )
-        assert len(meta["graph_edge_directions"]) == len(
-            meta["graph_path_assertion_ids"]
-        )
-        context = await ContextBuilder(dao).build_context(
-            tenant_id="tenant",
-            agent_id="agent",
-            dataset_ids=["dataset"],
-            query="Alice primary",
-            token_budget=2000,
-        )
-        assert "primary evidence" in context["formatted_context"]
-        full_visible = next(
-            visible
-            for visible in context["canonical_memories"]
-            if visible["evidence_id"] == primary
-        )
-        assert {p["evidence_span"] for p in full_visible["provenance"]} == {
-            "primary evidence",
-            "first supporting evidence",
-            "second supporting evidence",
-        }
-        for budget in (1, 60, 160, 300, 2000):
-            context = await ContextBuilder(dao).build_context(
-                tenant_id="tenant",
-                agent_id="agent",
-                dataset_ids=["dataset"],
-                query="Alice primary",
-                token_budget=budget,
-            )
-            assert context["actual_token_count"] <= budget
-            for visible in context["canonical_memories"]:
-                if visible["evidence_id"] == primary:
-                    retained_path_assertions = {
-                        assertion_id
-                        for path in visible["retrieval_provenance"]["graph_paths"]
-                        for assertion_id in path["assertion_ids"]
-                    }
-                    assert {
-                        p["assertion_id"] for p in visible["provenance"]
-                    } == retained_path_assertions
-    finally:
-        await sql.close()
-
-
-@pytest.mark.asyncio
-async def test_real_three_hop_mixed_direction_and_path_alignment(tmp_path):
-    sql, vector, graph, dao = await make_env(tmp_path, real_graph=True)
-    try:
-        ab = await add(dao, 1, "Alice", "Bridge")
-        cb = await add(dao, 2, "Carol", "Bridge")
-        cd = await add(dao, 3, "Carol", "Destination")
-        a, b, c, d = (
-            ab["subject_id"],
-            ab["object_entity_id"],
-            cb["subject_id"],
-            cd["object_entity_id"],
-        )
-        aids = [ab["assertion_id"], cb["assertion_id"], cd["assertion_id"]]
-        hits = await graph.search_v4_graph(
-            agent_id="agent",
-            seed_entity_ids=[a],
-            allowed_entity_ids={a, b, c, d},
-            allowed_assertion_ids=set(aids),
-            max_hops=3,
-            limit=20,
-        )
-        hit = next(h for h in hits if h["entity_id"] == d)
-        assert hit["best_path_assertion_ids"] == aids
-        assert hit["path_entity_ids"] == [a, b, c, d]
-        assert hit["edge_directions"] == ["forward", "reverse", "forward"]
-        assert hit["hops"] == 3
-    finally:
-        await graph.close()
         await sql.close()
 
 
@@ -246,7 +98,7 @@ async def test_real_three_hop_mixed_direction_and_path_alignment(tmp_path):
 async def test_legal_reranking_uses_citation_identity(
     tmp_path, query, evidence, expected
 ):
-    sql, vector, graph, dao = await make_env(tmp_path)
+    sql, vector, dao = await make_env(tmp_path)
     try:
         fact = await add(dao, 1, "Kural", "Sonuç", evidence=evidence)
         vector.search.return_value = [
@@ -260,7 +112,7 @@ async def test_legal_reranking_uses_citation_identity(
 
 @pytest.mark.asyncio
 async def test_all_lanes_reject_shared_entity_scope_collisions_before_fusion(tmp_path):
-    sql, vector, graph, dao = await make_env(tmp_path, real_graph=True)
+    sql, vector, dao = await make_env(tmp_path)
     try:
         cases = [
             ("valid", {}),
@@ -330,13 +182,8 @@ async def test_all_lanes_reject_shared_entity_scope_collisions_before_fusion(tmp
                 "vector",
                 "bm25",
                 "assertion",
-                "graph",
             }
             assert {p["assertion_id"] for p in hit["provenance"]} <= allowed
-            assert (
-                set(hit["retrieval_provenance"]["graph_supporting_assertion_ids"])
-                <= allowed
-            )
         ctx = await ContextBuilder(dao).build_context(
             tenant_id="tenant",
             agent_id="agent",
@@ -350,7 +197,6 @@ async def test_all_lanes_reject_shared_entity_scope_collisions_before_fusion(tmp
         for name, _ in cases[2:]:
             assert f"Shared policy {name}" not in ctx["formatted_context"]
     finally:
-        await graph.close()
         await sql.close()
 
 
@@ -381,7 +227,7 @@ async def test_oversized_top_evidence_cannot_discard_fitting_lower_evidence():
 
 @pytest.mark.asyncio
 async def test_temporal_eligibility_compares_instants_with_offsets(tmp_path):
-    sql, vector, graph, dao = await make_env(tmp_path)
+    sql, vector, dao = await make_env(tmp_path)
     try:
         fact = await add(dao, 1, "Alice", "Aurora")
         async with sql.transaction() as db:
@@ -403,29 +249,4 @@ async def test_temporal_eligibility_compares_instants_with_offsets(tmp_path):
         )
         assert [r["assertion_id"] for r in result] == [fact["assertion_id"]]
     finally:
-        await sql.close()
-
-
-@pytest.mark.asyncio
-async def test_real_graph_zero_confidence_path_cannot_corroborate_valid_path(tmp_path):
-    sql, vector, graph, dao = await make_env(tmp_path, real_graph=True)
-    try:
-        good = await add(dao, 1, "Alice", "Aurora")
-        bad = await add(dao, 2, "Alice", "Aurora")
-        await graph.execute_query(
-            "MATCH (a:Assertion) WHERE a.id=$id SET a.confidence=0.0",
-            {"id": f"agent::{bad['assertion_id']}"},
-        )
-        hits = await graph.search_v4_graph(
-            agent_id="agent",
-            seed_entity_ids=[good["subject_id"]],
-            allowed_entity_ids={good["subject_id"], good["object_entity_id"]},
-            allowed_assertion_ids={good["assertion_id"], bad["assertion_id"]},
-            limit=10,
-        )
-        assert len(hits) == 1
-        assert hits[0]["support_count"] == 1
-        assert hits[0]["path_assertion_ids"] == [good["assertion_id"]]
-    finally:
-        await graph.close()
         await sql.close()

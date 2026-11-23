@@ -55,19 +55,27 @@ def test_embedding_identity_has_a_nonempty_version_and_tracks_provider_mode(monk
     assert selected.model == "configured-model"
 
 
-def test_v4_graph_timeout_config_default_and_env_override(monkeypatch):
-    import pytest
+def test_retired_graph_env_vars_warn_once_and_are_ignored(monkeypatch, caplog):
+    import logging
 
-    monkeypatch.delenv("MESA_V4_GRAPH_TIMEOUT_SECONDS", raising=False)
+    from mesa_memory.config import REMOVED_IGNORED_MESA_ENV_VARS, warn_removed_env_vars
+
+    retired = (
+        "MESA_GRAPH_ENABLED",
+        "MESA_RRF_GRAPH_WEIGHT",
+        "MESA_V4_GRAPH_TIMEOUT_SECONDS",
+    )
+    for var in retired:
+        assert var in REMOVED_IGNORED_MESA_ENV_VARS
+        monkeypatch.setenv(var, "invalid_or_true")
+
+    # Retired graph settings do not break MesaConfig construction.
     cfg = MesaConfig(_env_file=None)
-    assert cfg.v4_graph_timeout_seconds == 15.0
+    assert not hasattr(cfg, "rrf_graph_weight")
+    assert not hasattr(cfg, "v4_graph_timeout_seconds")
 
-    monkeypatch.setenv("MESA_V4_GRAPH_TIMEOUT_SECONDS", "25.5")
-    cfg2 = MesaConfig(_env_file=None)
-    assert cfg2.v4_graph_timeout_seconds == 25.5
-
-    # Test invalid values rejected
-    for invalid in ["0", "-1", "-5.5", "nan", "inf", "-inf", "not_a_num", "", "True", "False"]:
-        monkeypatch.setenv("MESA_V4_GRAPH_TIMEOUT_SECONDS", invalid)
-        with pytest.raises((ValueError, Exception)):
-            MesaConfig(_env_file=None)
+    with caplog.at_level(logging.WARNING, logger="mesa_memory.config"):
+        warn_removed_env_vars()
+    for var in retired:
+        matches = [rec for rec in caplog.records if var in rec.getMessage()]
+        assert len(matches) == 1

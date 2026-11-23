@@ -35,7 +35,7 @@ async def _environment(tmp_path):
         search_v4_graph=AsyncMock(return_value=[]),
         is_operational=True,
     )
-    return sql, vector, graph, MemoryDAO(sql, vector, graph)
+    return sql, vector, graph, MemoryDAO(sql, vector)
 
 
 @pytest.mark.asyncio

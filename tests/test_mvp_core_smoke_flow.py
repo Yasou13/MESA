@@ -6,7 +6,6 @@ Validates:
 3. Real worker processing (projection_worker) writing to real native storage:
    - SQLite (assertions, entities, mutations, catalog)
    - LanceDB native (vector engine on disk)
-   - Kùzu native (graph provider on disk)
 4. State transitions: PENDING -> CLAIMED -> COMMITTED / TERMINAL.
 5. Scoped search and context extraction:
    - Two tenants (tenant-a, tenant-b), verifying strict data/provenance isolation.
@@ -29,8 +28,6 @@ from mesa_memory.config import configured_embedding_identity
 from mesa_memory.embedding.service import EmbeddingService
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO
-from mesa_storage.kuzu_provider import KuzuGraphProvider
-from mesa_storage.kuzu_setup import initialize_schema_artifact
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
@@ -43,11 +40,10 @@ from mesa_workers.projection_worker import (
 @pytest.mark.asyncio
 async def test_full_mvp_core_lifecycle_smoke(tmp_path):
     # -----------------------------------------------------------------------
-    # Step 1: Storage & Environment Setup (Real SQLite, LanceDB, Kùzu)
+    # Step 1: Storage & Environment Setup (Real SQLite, LanceDB)
     # -----------------------------------------------------------------------
     sql_path = tmp_path / "mesa_core.db"
     lance_path = tmp_path / "vectors.lance"
-    kuzu_path = tmp_path / "graph"
     rbac_path = tmp_path / "rbac.db"
 
     sql = AsyncEngine(str(sql_path), max_connections=4)
@@ -66,11 +62,7 @@ async def test_full_mvp_core_lifecycle_smoke(tmp_path):
     )
     await vector.initialize()
 
-    initialize_schema_artifact(str(kuzu_path))
-    graph = KuzuGraphProvider(str(kuzu_path), max_workers=1)
-    await graph.initialize()
-
-    dao = MemoryDAO(sqlite_engine=sql, vector_engine=vector, graph_provider=graph)
+    dao = MemoryDAO(sqlite_engine=sql, vector_engine=vector)
 
     # Setup AccessControl with active principals
     access_control = AccessControl(policy_path=str(rbac_path))
@@ -269,12 +261,6 @@ async def test_full_mvp_core_lifecycle_smoke(tmp_path):
         lance_vectors = await vector.get_active_node_ids()
         assert len(lance_vectors) >= 1
 
-        # Verify physical Kùzu graph presence
-        kuzu_assertions = await graph.execute_query(
-            "MATCH (a:Assertion) RETURN count(a) AS cnt"
-        )
-        assert kuzu_assertions[0][0] >= 1
-
         # -------------------------------------------------------------------
         # Step 4: Scoped Search & Context for Tenant A
         # -------------------------------------------------------------------
@@ -393,7 +379,7 @@ async def test_full_mvp_core_lifecycle_smoke(tmp_path):
         # -------------------------------------------------------------------
         current_principal_id = "principal-a"
 
-        # 6a: Graph ablation (graph_mode="disabled")
+        # 6a: Legacy graph_mode="disabled" parameter remains accepted as no-op
         ablation_search = await client.post(
             "/v4/memory/search",
             json={
@@ -403,10 +389,8 @@ async def test_full_mvp_core_lifecycle_smoke(tmp_path):
             },
         )
         assert ablation_search.status_code == 200, ablation_search.text
-        assert ablation_search.json()["graph_ablation"]["mode"] == "disabled"
 
         # Reopen all physical stores and retrieve through the same API session.
-        await graph.close()
         await vector.close()
         await sql.close()
         sql = AsyncEngine(str(sql_path), max_connections=4)
@@ -420,9 +404,7 @@ async def test_full_mvp_core_lifecycle_smoke(tmp_path):
             ),
         )
         await vector.initialize()
-        graph = KuzuGraphProvider(str(kuzu_path), max_workers=1)
-        await graph.initialize()
-        dao = MemoryDAO(sqlite_engine=sql, vector_engine=vector, graph_provider=graph)
+        dao = MemoryDAO(sqlite_engine=sql, vector_engine=vector)
         restarted = await client.post(
             "/v4/memory/search",
             json={"session_id": session_a_id, "query": "aydinlatma"},
@@ -445,9 +427,6 @@ async def test_full_mvp_core_lifecycle_smoke(tmp_path):
                 break
         assert (await dao.get_mutation_summary(mutation_a_id))["state"] == "ROLLED_BACK"
         assert await vector.get_active_node_ids() == b_vector_ids
-        assert await graph.execute_query("MATCH (a:Assertion {agent_id: 'agent-a'}) RETURN count(a)") == [[0]]
-        assert await graph.execute_query("MATCH (e:Entity {agent_id: 'agent-a'}) RETURN count(e)") == [[0]]
-        assert await graph.execute_query("MATCH (a:Assertion {agent_id: 'agent-b'}) RETURN count(a)") == [[1]]
         after_rollback = await client.post(
             "/v4/memory/search",
             json={"session_id": session_a_id, "query": "aydinlatma"},
@@ -462,7 +441,6 @@ async def test_full_mvp_core_lifecycle_smoke(tmp_path):
 
     finally:
         await client.aclose()
-        await graph.close()
         await vector.close()
         await sql.close()
         await access_control.close()

@@ -13,8 +13,6 @@ Verifies:
 from __future__ import annotations
 
 import hashlib
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -83,14 +81,7 @@ async def test_phase2_multi_assertion_chunk_representation(tmp_path):
     mock_emb = MockEmbeddingService(dimension=4)
     vec._embedding_service = mock_emb
 
-    graph = SimpleNamespace(
-        insert_node=AsyncMock(),
-        insert_assertion=AsyncMock(),
-        link_assertions=AsyncMock(),
-        search=AsyncMock(return_value=[]),
-        get_existing_node_ids=AsyncMock(return_value=set()),
-    )
-    dao = MemoryDAO(engine, vec, graph)
+    dao = MemoryDAO(engine, vec)
 
     try:
         # Construct a large chunk > 3000 chars
@@ -297,14 +288,7 @@ async def test_phase2_2048_dimension_fence(tmp_path):
     )
     vec._embedding_service = mock_emb
 
-    graph = SimpleNamespace(
-        insert_node=AsyncMock(),
-        insert_assertion=AsyncMock(),
-        link_assertions=AsyncMock(),
-        search=AsyncMock(return_value=[]),
-        get_existing_node_ids=AsyncMock(return_value=set()),
-    )
-    dao = MemoryDAO(engine, vec, graph)
+    dao = MemoryDAO(engine, vec)
 
     try:
         candidate = MemoryCandidate.from_raw_log(

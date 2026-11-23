@@ -9,8 +9,6 @@ import pytest
 from mesa_memory.config import config
 from mesa_memory.embedding.service import EmbeddingIdentity, EmbeddingService
 from mesa_storage.dao import MemoryDAO
-from mesa_storage.kuzu_provider import KuzuGraphProvider
-from mesa_storage.kuzu_setup import initialize_schema_artifact
 from mesa_storage.retrieval_scope import rrf_fuse_lanes
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
@@ -37,8 +35,8 @@ async def _ingest_fresh_store(
     store_dir: Path,
     *,
     with_vectors: bool = True,
-    with_graph: bool = False,
-) -> tuple[AsyncEngine, VectorEngine, KuzuGraphProvider | None, MemoryDAO]:
+    with_triplets: bool = False,
+) -> tuple[AsyncEngine, VectorEngine, MemoryDAO]:
     store_dir.mkdir(parents=True, exist_ok=True)
     sql = AsyncEngine(str(store_dir / "mesa.db"))
     await sql.initialize()
@@ -58,19 +56,10 @@ async def _ingest_fresh_store(
     )
     await vec.initialize()
 
-    graph: KuzuGraphProvider | None = None
-    if with_graph:
-        graph_path = store_dir / "kuzu_graph"
-        initialize_schema_artifact(str(graph_path))
-        graph = KuzuGraphProvider(str(graph_path), max_workers=1)
-        await graph.initialize()
-
     dao = MemoryDAO(
         sqlite_engine=sql,
         vector_engine=vec,
-        graph_provider=graph,
         embedding_enabled=with_vectors,
-        graph_enabled=with_graph,
     )
     await dao.initialize()
     await dao.ensure_v4_catalog_scope(
@@ -123,7 +112,7 @@ async def _ingest_fresh_store(
                     "confidence": 0.9,
                 }
             ]
-            if with_graph
+            if with_triplets
             else []
         )
         await dao.record_mutation_extraction("agent-det", mutation_id, triplets)
@@ -134,7 +123,7 @@ async def _ingest_fresh_store(
         if res["completed"] == 0:
             break
 
-    return sql, vec, graph, dao
+    return sql, vec, dao
 
 
 def _rank_signature(results: list[dict]) -> list[tuple]:
@@ -150,11 +139,11 @@ def _rank_signature(results: list[dict]) -> list[tuple]:
 
 @pytest.mark.asyncio
 async def test_two_fresh_stores_produce_identical_ranks_across_all_lanes(tmp_path: Path):
-    sql_a, vec_a, graph_a, dao_a = await _ingest_fresh_store(
-        tmp_path / "store_a", with_vectors=True, with_graph=True
+    sql_a, vec_a, dao_a = await _ingest_fresh_store(
+        tmp_path / "store_a", with_vectors=True, with_triplets=True
     )
-    sql_b, vec_b, graph_b, dao_b = await _ingest_fresh_store(
-        tmp_path / "store_b", with_vectors=True, with_graph=True
+    sql_b, vec_b, dao_b = await _ingest_fresh_store(
+        tmp_path / "store_b", with_vectors=True, with_triplets=True
     )
     try:
         # Confirm physical IDs are deterministic across fresh stores for the same tenant
@@ -199,10 +188,10 @@ async def test_two_fresh_stores_produce_identical_ranks_across_all_lanes(tmp_pat
             "ContractClause governs",
         ]
         weight_profiles = [
-            {"vector": 8.0, "bm25": 1.0, "assertion": 0.0, "graph": 0.0},
-            {"vector": 0.0, "bm25": 1.0, "assertion": 0.0, "graph": 0.0},
-            {"vector": 0.0, "bm25": 0.0, "assertion": 1.0, "graph": 0.0},
-            {"vector": 1.0, "bm25": 1.0, "assertion": 1.0, "graph": 1.0},
+            {"vector": 8.0, "bm25": 1.0, "assertion": 0.0},
+            {"vector": 0.0, "bm25": 1.0, "assertion": 0.0},
+            {"vector": 0.0, "bm25": 0.0, "assertion": 1.0},
+            {"vector": 1.0, "bm25": 1.0, "assertion": 1.0},
         ]
 
         for query in queries:
@@ -236,7 +225,7 @@ async def test_two_fresh_stores_produce_identical_ranks_across_all_lanes(tmp_pat
             dataset_ids=["ds-det"],
             query="Tied contract clause deterministic verification",
             limit=10,
-            rrf_weights={"vector": 0.0, "bm25": 1.0, "assertion": 0.0, "graph": 0.0},
+            rrf_weights={"vector": 0.0, "bm25": 1.0, "assertion": 0.0},
         )
         assert [r["document_id"] for r in tied_docs[:4]] == [
             "doc-alpha",
@@ -251,7 +240,7 @@ async def test_two_fresh_stores_produce_identical_ranks_across_all_lanes(tmp_pat
             dataset_ids=["ds-det"],
             query="Repeated multi-chunk clause ordinal stability",
             limit=10,
-            rrf_weights={"vector": 0.0, "bm25": 1.0, "assertion": 0.0, "graph": 0.0},
+            rrf_weights={"vector": 0.0, "bm25": 1.0, "assertion": 0.0},
         )
         assert [r["source_chunk_id"] for r in multi_chunks[:3]] == [
             "chunk-multi-0",
@@ -259,10 +248,6 @@ async def test_two_fresh_stores_produce_identical_ranks_across_all_lanes(tmp_pat
             "chunk-multi-2",
         ]
     finally:
-        if graph_a is not None:
-            await graph_a.close()
-        if graph_b is not None:
-            await graph_b.close()
         await vec_a.close()
         await vec_b.close()
         await sql_a.close()
@@ -297,11 +282,11 @@ async def test_legacy_random_physical_ids_still_tie_break_identically(
     from mesa_storage.repositories import catalog as catalog_mod
 
     monkeypatch.setattr(catalog_mod.uuid, "uuid5", lambda _ns, _name: _uuid.uuid4())
-    sql_a, vec_a, _, dao_a = await _ingest_fresh_store(
-        tmp_path / "legacy_a", with_vectors=True, with_graph=False
+    sql_a, vec_a, dao_a = await _ingest_fresh_store(
+        tmp_path / "legacy_a", with_vectors=True, with_triplets=False
     )
-    sql_b, vec_b, _, dao_b = await _ingest_fresh_store(
-        tmp_path / "legacy_b", with_vectors=True, with_graph=False
+    sql_b, vec_b, dao_b = await _ingest_fresh_store(
+        tmp_path / "legacy_b", with_vectors=True, with_triplets=False
     )
     try:
         async with sql_a.connection() as db_a, sql_b.connection() as db_b:
@@ -324,9 +309,9 @@ async def test_legacy_random_physical_ids_still_tie_break_identically(
         assert any(phys_a[k] != phys_b[k] for k in phys_a)
 
         for weights in (
-            {"vector": 8.0, "bm25": 1.0, "assertion": 0.0, "graph": 0.0},
-            {"vector": 0.0, "bm25": 1.0, "assertion": 0.0, "graph": 0.0},
-            {"vector": 0.0, "bm25": 0.0, "assertion": 1.0, "graph": 0.0},
+            {"vector": 8.0, "bm25": 1.0, "assertion": 0.0},
+            {"vector": 0.0, "bm25": 1.0, "assertion": 0.0},
+            {"vector": 0.0, "bm25": 0.0, "assertion": 1.0},
         ):
             res_a = await dao_a.search_v4_memory(
                 tenant_id="tenant-det",

@@ -25,14 +25,7 @@ def _make_dao(engine: AsyncEngine) -> MemoryDAO:
         upsert=AsyncMock(),
         search=AsyncMock(return_value=[]),
     )
-    graph = SimpleNamespace(
-        insert_node=AsyncMock(),
-        insert_assertion=AsyncMock(),
-        link_assertions=AsyncMock(),
-        search_v4_graph=AsyncMock(return_value=[]),
-        is_operational=True,
-    )
-    return MemoryDAO(engine, vector, graph)
+    return MemoryDAO(engine, vector)
 
 
 async def _seed(
@@ -81,7 +74,7 @@ async def _seed(
     await dao.record_mutation(candidate, raw_log_id=raw_log_id)
     mutation = await dao.get_projection_mutation(candidate["mutation_id"])
     assert mutation is not None
-    await dao.project_v4_graph_triplet(
+    await dao.project_v4_sql_assertion(
         mutation=mutation, triplet=_triplets(mutation)[0]
     )
     assertions = await dao.list_v4_assertions_for_mutation(mutation["mutation_id"])
@@ -161,7 +154,6 @@ async def test_typed_identity_respects_historic_and_current_validity_windows(
             query="TBK madde 1",
             jurisdiction="TR",
             limit=5,
-            graph_enabled=False,
         )
         historic_results = await dao.search_v4_memory(
             tenant_id="tenant-holdout",
@@ -171,7 +163,6 @@ async def test_typed_identity_respects_historic_and_current_validity_windows(
             jurisdiction="TR",
             valid_at="2024-06-01T00:00:00Z",
             limit=5,
-            graph_enabled=False,
         )
 
         assert [row["assertion_id"] for row in current_results] == [
@@ -221,7 +212,6 @@ async def test_typed_identity_remains_queryable_after_engine_restart(tmp_path) -
             query="6098 sayılı Türk Borçlar Kanunu madde 1",
             jurisdiction="TR",
             limit=1,
-            graph_enabled=False,
         )
         assert [row["assertion_id"] for row in results] == [expected["assertion_id"]]
         assert (

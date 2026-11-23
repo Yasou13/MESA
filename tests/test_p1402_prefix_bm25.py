@@ -62,7 +62,6 @@ async def test_fts_unicode61_splits_ascii_and_typographic_apostrophes(tmp_path):
                 agent_id="a",
                 dataset_ids=["d"],
                 query=query,
-                graph_enabled=False,
             )
             found = {r["assertion_id"] for r in results}
             assert {c1["assertion_id"], c2["assertion_id"]}.issubset(found)
@@ -98,7 +97,6 @@ async def test_fts_prefix5_matches_other_suffixes_and_uses_prefix5_option(
             agent_id="a",
             dataset_ids=["d"],
             query="sözleşmeden tazminatı",
-            graph_enabled=False,
         )
         assert results
         assert results[0]["assertion_id"] == row["assertion_id"]
@@ -146,7 +144,6 @@ async def test_fts_prefix5_keeps_turkish_dotless_i_variant(tmp_path):
             agent_id="a",
             dataset_ids=["d"],
             query="yargıtaydan",
-            graph_enabled=False,
         )
         assert results
         assert results[0]["assertion_id"] == row["assertion_id"]
@@ -182,7 +179,6 @@ async def test_fts_token_with_digit_stays_exact(tmp_path, monkeypatch):
             agent_id="a",
             dataset_ids=["d"],
             query="kod129999",
-            graph_enabled=False,
         )
         assert miss == []
 
@@ -199,7 +195,6 @@ async def test_fts_token_with_digit_stays_exact(tmp_path, monkeypatch):
             agent_id="a",
             dataset_ids=["d"],
             query="kod123456",
-            graph_enabled=False,
         )
         assert hit
         assert hit[0]["assertion_id"] == row["assertion_id"]
@@ -234,7 +229,6 @@ async def test_fts_short_token_under_6_chars_stays_exact(tmp_path, monkeypatch):
             agent_id="a",
             dataset_ids=["d"],
             query="karar",
-            graph_enabled=False,
         )
         assert miss == []
 
@@ -265,7 +259,6 @@ async def test_fts_short_token_under_6_chars_stays_exact(tmp_path, monkeypatch):
             agent_id="a",
             dataset_ids=["d"],
             query="karar",
-            graph_enabled=False,
         )
         assert [r["assertion_id"] for r in hit] == [exact_row["assertion_id"]]
     finally:
@@ -320,7 +313,6 @@ async def test_fts_prefix5_out_of_scope_rows_cannot_change_rank(tmp_path, foreig
             agent_id="agent-a",
             dataset_ids=["dataset-a"],
             query=query,
-            graph_enabled=False,
         )
         assert len(before) == 2
         bm25_ranks = {
@@ -350,7 +342,6 @@ async def test_fts_prefix5_out_of_scope_rows_cannot_change_rank(tmp_path, foreig
             agent_id="agent-a",
             dataset_ids=["dataset-a"],
             query=query,
-            graph_enabled=False,
         )
         assert [r["assertion_id"] for r in after] == [r["assertion_id"] for r in before]
         assert [r["final_score"] for r in after] == [r["final_score"] for r in before]

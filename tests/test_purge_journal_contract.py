@@ -20,50 +20,6 @@ VEC8 = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 
 @dataclass
-class FakeGraph:
-    active_node_ids: set[tuple[str, str]] = field(default_factory=set)
-    active_assertions: set[str] = field(default_factory=set)
-    delete_calls: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
-    fail_delete: bool = False
-    is_initialized: bool = True
-    is_operational: bool = True
-    db_path: str = "fake-graph"
-
-    async def insert_node(self, node_id: str, name: str, agent_id: str) -> None:
-        self.active_node_ids.add((agent_id, node_id))
-
-    async def insert_assertion(self, **kwargs) -> None:
-        self.active_assertions.add(str(kwargs["assertion_id"]))
-
-    async def delete_nodes(
-        self, *, purge_id: str, agent_id: str, node_ids: list[str]
-    ) -> None:
-        self.delete_calls.append((purge_id, tuple(node_ids)))
-        if self.fail_delete:
-            raise RuntimeError("simulated Kuzu delete failure")
-        for node_id in node_ids:
-            self.active_node_ids.discard((agent_id, node_id))
-
-    async def delete_assertions(self, *, agent_id: str, assertion_ids: list[str]) -> None:
-        self.delete_calls.append((agent_id, tuple(assertion_ids)))
-        if self.fail_delete:
-            raise RuntimeError("simulated Kuzu delete failure")
-        for aid in assertion_ids:
-            self.active_assertions.discard(aid)
-
-    async def verify_nodes_absent(self, *, agent_id: str, node_ids: list[str]) -> bool:
-        return all(
-            (agent_id, node_id) not in self.active_node_ids for node_id in node_ids
-        )
-
-    async def execute_query(self, *_args, **_kwargs):
-        return [[len(self.active_node_ids)]]
-
-    async def search_v4_graph(self, **_kwargs):
-        return []
-
-
-@dataclass
 class FakeVector:
     active_node_ids: set[tuple[str, str]] = field(default_factory=set)
     hard_delete_calls: list[tuple[str, str]] = field(default_factory=list)
@@ -194,14 +150,11 @@ async def _make_env(tmp_path):
     await sql.initialize()
     await initialize_schema(sql)
     await initialize_schema(sql)
-    graph = FakeGraph()
     vector = FakeVector()
     dao = MemoryDAO(
         sqlite_engine=sql,
         vector_engine=vector,
-        graph_provider=graph,
         embedding_enabled=True,
-        graph_enabled=True,
     )
     await dao.ensure_v4_catalog_scope(
         tenant_id="tenant-a", workspace_id="ws-a", dataset_id="ds-a"
@@ -256,14 +209,14 @@ async def _make_env(tmp_path):
         document_id="doc-b1",
         content="Tenant beta protected clause",
     )
-    return dao, sql, graph, vector, sess_a["session_id"]
+    return dao, sql, vector, sess_a["session_id"]
 
 
 @pytest.mark.asyncio
 async def test_successful_exact_scope_purge_erases_text_and_removes_derived_artifacts(
     tmp_path,
 ):
-    dao, sql, graph, vector, _sess_a = await _make_env(tmp_path)
+    dao, sql, vector, _sess_a = await _make_env(tmp_path)
     try:
         result = await dao.purge_v4_document(
             tenant_id="tenant-a", dataset_id="ds-a", document_id="doc-a1"
@@ -271,7 +224,6 @@ async def test_successful_exact_scope_purge_erases_text_and_removes_derived_arti
         assert result["state"] == "PURGED"
         await process_artifact_cleanup_once(dao, worker_id="cleanup-w", limit=20)
 
-        assert graph.delete_calls, "Expected Kuzu cleanup calls"
         assert vector.hard_delete_calls, "Expected vector hard_delete calls"
 
         async with sql.connection() as db:
@@ -308,55 +260,8 @@ async def test_successful_exact_scope_purge_erases_text_and_removes_derived_arti
 
 
 @pytest.mark.asyncio
-async def test_kuzu_failure_keeps_erased_document_hidden_and_retry_pending(tmp_path):
-    dao, sql, graph, _vector, _sess_a = await _make_env(tmp_path)
-    graph.fail_delete = True
-    try:
-        try:
-            await dao.purge_v4_document(
-                tenant_id="tenant-a", dataset_id="ds-a", document_id="doc-a1"
-            )
-        except PurgeRetryPendingError:
-            pass
-        await process_artifact_cleanup_once(dao, worker_id="cleanup-w", limit=20)
-
-        async with sql.connection() as db:
-            async with db.execute(
-                "SELECT d.status FROM documents d "
-                "JOIN v4_catalog_identities c ON c.physical_id = d.document_id "
-                "WHERE c.kind = 'document' AND c.external_id = 'doc-a1'"
-            ) as cursor:
-                assert (await cursor.fetchone())[0] == "PURGED"
-            async with db.execute(
-                "SELECT sc.content_payload FROM source_chunks sc "
-                "JOIN document_revisions dr ON dr.revision_id = sc.revision_id "
-                "JOIN v4_catalog_identities c ON c.physical_id = dr.document_id "
-                "WHERE c.kind = 'document' AND c.external_id = 'doc-a1'"
-            ) as cursor:
-                assert (await cursor.fetchone())[0] == ""
-            async with db.execute(
-                "SELECT c.state FROM artifact_cleanup_outbox c "
-                "JOIN artifact_registry r ON r.registry_id = c.registry_id "
-                "WHERE r.store_name = 'GRAPH'"
-            ) as cursor:
-                states = [row[0] for row in await cursor.fetchall()]
-        assert states and all(s in {"PENDING", "RETRY_PENDING"} for s in states)
-
-        a_hits = await dao.search_v4_memory(
-            tenant_id="tenant-a",
-            agent_id="agent-a",
-            dataset_ids=["ds-a"],
-            query="Secret clause alpha one",
-            limit=10,
-        )
-        assert not any(r["document_id"] == "doc-a1" for r in a_hits)
-    finally:
-        await sql.close()
-
-
-@pytest.mark.asyncio
 async def test_vector_failure_retries_only_missing_cleanup_and_completes(tmp_path):
-    dao, sql, graph, vector, _sess_a = await _make_env(tmp_path)
+    dao, sql, vector, _sess_a = await _make_env(tmp_path)
     vector.fail_hard_delete = True
     try:
         try:
@@ -366,7 +271,6 @@ async def test_vector_failure_retries_only_missing_cleanup_and_completes(tmp_pat
         except PurgeRetryPendingError:
             pass
         await process_artifact_cleanup_once(dao, worker_id="cleanup-w", limit=20)
-        graph_calls_after_first_pass = len(graph.delete_calls)
 
         async with sql.connection() as db:
             async with db.execute(
@@ -391,14 +295,13 @@ async def test_vector_failure_retries_only_missing_cleanup_and_completes(tmp_pat
                 "SELECT COUNT(*) FROM artifact_cleanup_outbox WHERE state != 'COMPLETED'"
             ) as cursor:
                 assert (await cursor.fetchone())[0] == 0
-        assert len(graph.delete_calls) == graph_calls_after_first_pass
     finally:
         await sql.close()
 
 
 @pytest.mark.asyncio
 async def test_purged_document_cannot_be_readmitted_or_resurrected(tmp_path):
-    dao, sql, _graph, vector, sess_a = await _make_env(tmp_path)
+    dao, sql, vector, sess_a = await _make_env(tmp_path)
     try:
         await dao.purge_v4_document(
             tenant_id="tenant-a", dataset_id="ds-a", document_id="doc-a1"

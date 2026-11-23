@@ -16,7 +16,7 @@ from tests.test_v4_retrieval_hardening_phase1 import TEST_EMBEDDING_IDENTITY
 async def test_eight_slow_query_embeddings_overlap_and_preserve_results(tmp_path, cache):
     sql, vector, graph, _dao = await _environment(tmp_path)
     vector.embedding_identity = TEST_EMBEDDING_IDENTITY
-    dao = MemoryDAO(sql, vector, graph, search_scope_cache_enabled=cache)
+    dao = MemoryDAO(sql, vector, search_scope_cache_enabled=cache)
     held = []
 
     async def slow_embedding(query):
@@ -40,7 +40,7 @@ async def test_eight_slow_query_embeddings_overlap_and_preserve_results(tmp_path
         queries = [(f"kira bedeli {i}", "t" if i % 2 == 0 else "other") for i in range(8)]
 
         async def search(query, tenant):
-            return await _search(dao, query, tenant_id=tenant, graph_enabled=False)
+            return await _search(dao, query, tenant_id=tenant)
 
         expected = [await search(*query) for query in queries]
         assert all(expected)

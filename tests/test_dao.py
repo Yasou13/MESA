@@ -9,7 +9,6 @@ import asyncio
 import os
 import shutil
 import uuid
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -35,29 +34,14 @@ def dao_env():
     vec = os.path.join(TEST_DIR, f"vec_{uid}.lance")
     sql = AsyncEngine(db, max_connections=2)
     vec_eng = VectorEngine(vec, max_workers=1)
-    mock_kuzu = MagicMock()
-    mock_kuzu.is_initialized = True
-    mock_kuzu.execute_query = AsyncMock(return_value=[])
-    mock_kuzu.insert_entity = AsyncMock()
-    # WAVE-002 fail-closed graph contract: DAO awaits insert_node before SQLite commit.
-    mock_kuzu.insert_node = AsyncMock()
-    mock_kuzu.insert_edge = AsyncMock()
-    mock_kuzu.get_neighbors = AsyncMock(
-        return_value=[{"id": "n2", "name": "TestEntity", "hops": "1"}]
-    )
-    mock_kuzu.initialize = AsyncMock()
-    mock_kuzu.close = AsyncMock()
-    graph_eng = mock_kuzu
     loop = asyncio.new_event_loop()
     loop.run_until_complete(sql.initialize())
     loop.run_until_complete(initialize_schema(sql))
     loop.run_until_complete(vec_eng.initialize())
-    loop.run_until_complete(graph_eng.initialize())
-    dao = MemoryDAO(sqlite_engine=sql, vector_engine=vec_eng, graph_provider=graph_eng)
+    dao = MemoryDAO(sqlite_engine=sql, vector_engine=vec_eng)
     yield dao, sql, vec_eng, loop
     loop.run_until_complete(sql.close())
     loop.run_until_complete(vec_eng.close())
-    loop.run_until_complete(graph_eng.close())
     loop.close()
 
 

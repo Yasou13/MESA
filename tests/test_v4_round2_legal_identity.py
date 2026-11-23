@@ -35,14 +35,7 @@ def _make_dao(engine: AsyncEngine) -> MemoryDAO:
         upsert=AsyncMock(),
         search=AsyncMock(return_value=[]),
     )
-    graph = SimpleNamespace(
-        insert_node=AsyncMock(),
-        insert_assertion=AsyncMock(),
-        link_assertions=AsyncMock(),
-        search_v4_graph=AsyncMock(return_value=[]),
-        is_operational=True,
-    )
-    return MemoryDAO(engine, vector, graph)
+    return MemoryDAO(engine, vector)
 
 
 async def _record_candidate(
@@ -81,7 +74,8 @@ async def _record_candidate(
 
 
 async def _commit(dao: MemoryDAO, mutation: dict, triplet: dict) -> dict:
-    await dao.project_v4_graph_triplet(mutation=mutation, triplet=triplet)
+    await dao.project_v4_sql_entity(mutation=mutation, entity_name=triplet["head"])
+    await dao.project_v4_sql_assertion(mutation=mutation, triplet=triplet)
     assertions = await dao.list_v4_assertions_for_mutation(mutation["mutation_id"])
     assert len(assertions) == 1
     async with dao._sql.transaction() as db:
@@ -330,7 +324,6 @@ async def test_same_article_wrong_law_and_wrong_article_do_not_receive_exact_boo
             query="TBK madde 1",
             jurisdiction="TR",
             limit=5,
-            graph_enabled=False,
         )
         by_id = {row["assertion_id"]: row for row in results}
         assert results[0]["assertion_id"] == seeded["tbk-1"]["assertion_id"]
@@ -394,7 +387,6 @@ async def test_trusted_legal_identity_is_used_before_rank(tmp_path) -> None:
             query="6098 sayılı Türk Borçlar Kanunu madde 1",
             jurisdiction="TR",
             limit=1,
-            graph_enabled=False,
         )
 
         assert [row["assertion_id"] for row in results] == [correct["assertion_id"]]

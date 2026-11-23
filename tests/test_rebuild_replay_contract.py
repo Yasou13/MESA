@@ -231,75 +231,6 @@ class _VectorTarget:
         ][:limit]
 
 
-class _GraphTarget:
-    def __init__(self, path: Path) -> None:
-        self.db_path = str(path)
-        self.initialized = False
-        self.closed = False
-        self.nodes: list[tuple[str, str, str]] = []
-        self.assertions: list[dict] = []
-        self.links: list[dict] = []
-
-    async def initialize(self) -> None:
-        self.initialized = True
-
-    async def insert_node(self, node_id: str, name: str, agent_id: str) -> None:
-        self.nodes.append((node_id, name, agent_id))
-
-    async def insert_assertion(self, **kwargs: object) -> None:
-        self.assertions.append(dict(kwargs))
-
-    async def link_assertions(self, **kwargs: object) -> None:
-        self.links.append(dict(kwargs))
-
-    async def close(self) -> None:
-        self.closed = True
-
-    async def health_check(self) -> dict:
-        return {"status": "healthy"}
-
-    async def get_existing_node_ids(
-        self, label: str, agent_id: str, node_ids: list[str]
-    ) -> set[str]:
-        if label == "Entity":
-            return {
-                node[0]
-                for node in self.nodes
-                if node[0] in node_ids and node[2] == agent_id
-            }
-        else:
-            return {
-                a["assertion_id"]
-                for a in self.assertions
-                if a["assertion_id"] in node_ids
-            }
-
-    async def execute_query(
-        self, query: str, parameters: dict | None = None
-    ) -> list[tuple]:
-        if "COUNT(n)" in query and "n:Entity" in query:
-            return [(len(self.nodes),)]
-        if "COUNT(n)" in query and "n:Assertion" in query:
-            return [(len(self.assertions),)]
-        if "COUNT(r)" in query:
-            return [(len(self.links),)]
-        identifiers = set((parameters or {}).get("ids", []))
-        agent_id = (parameters or {}).get("agent_id")
-        if "n:Entity" in query:
-            return [
-                (node_id,)
-                for node_id, _name, agent in self.nodes
-                if agent == agent_id and node_id in identifiers
-            ]
-        if "n:Assertion" in query:
-            return [
-                (item["assertion_id"],)
-                for item in self.assertions
-                if item["agent_id"] == agent_id and item["assertion_id"] in identifiers
-            ]
-        return []
-
-
 def _preparation(tmp_path: Path, database: Path) -> RebuildPreparation:
     source_manifest, source_hash = canonical_sqlite_manifest(database)
     operation = {
@@ -319,7 +250,7 @@ def _preparation(tmp_path: Path, database: Path) -> RebuildPreparation:
                 f"projection-generations/rebuild-{_OPERATION_ID}/vector.lance"
             ),
             "graph_relative_path": (
-                f"projection-generations/rebuild-{_OPERATION_ID}/kuzu_db"
+                f"projection-generations/rebuild-{_OPERATION_ID}/graph_unused"
             ),
         },
         backup_root=database.parent,
@@ -333,7 +264,7 @@ def _preparation(tmp_path: Path, database: Path) -> RebuildPreparation:
 
 
 @pytest.mark.asyncio
-async def test_replay_rebuilds_vectors_assertions_provenance_status_and_links(
+async def test_replay_rebuilds_vectors_from_canonical_snapshot(
     tmp_path: Path,
 ) -> None:
     database = _source_database(tmp_path)
@@ -347,7 +278,6 @@ async def test_replay_rebuilds_vectors_assertions_provenance_status_and_links(
         transition=AsyncMock(return_value={**operation, "state": "VERIFYING"}),
     )
     vector: _VectorTarget | None = None
-    graph: _GraphTarget | None = None
 
     def vector_factory(path: Path) -> _VectorTarget:
         nonlocal vector
@@ -355,13 +285,6 @@ async def test_replay_rebuilds_vectors_assertions_provenance_status_and_links(
         (path / "vectors.bin").write_bytes(b"vec")
         vector = _VectorTarget(path)
         return vector
-
-    def graph_factory(path: Path) -> _GraphTarget:
-        nonlocal graph
-        path.mkdir(parents=True)
-        (path / "graph.bin").write_bytes(b"graph")
-        graph = _GraphTarget(path)
-        return graph
 
     before = canonical_sqlite_manifest(database)[1]
     result = await ProjectionReplayer(operations).replay(  # type: ignore[arg-type]
@@ -377,40 +300,17 @@ async def test_replay_rebuilds_vectors_assertions_provenance_status_and_links(
         },
         batch_size=1,
         vector_factory=vector_factory,
-        graph_factory=graph_factory,
     )
 
-    assert result.counts == {
-        "vector": 1,
-        "graph_entity": 2,
-        "graph_assertion": 2,
-        "graph_link": 1,
-    }
-    assert result.completed == result.total == 6
+    assert result.counts == {"vector": 1}
+    assert result.completed == result.total == 1
     assert vector is not None and vector.closed is True
     assert vector.records[0]["node_id"] == "assertion-1"
-    assert graph is not None and graph.closed is True
-    assert [node[0] for node in graph.nodes] == ["entity-1", "entity-2"]
-    assert [item["status"] for item in graph.assertions] == [
-        "SUPERSEDED",
-        "ACTIVE",
-    ]
-    assert graph.assertions[0]["source_ref"] == ""
-    assert all(item["evidence_span"] == "" for item in graph.assertions)
-    assert all(item["object_value"] in (None, "") for item in graph.assertions)
-    assert graph.links == [
-        {
-            "source_assertion_id": "assertion-2",
-            "target_assertion_id": "assertion-1",
-            "agent_id": "agent-a",
-            "relation_type": "SUPERSEDES",
-        }
-    ]
     assert canonical_sqlite_manifest(database)[1] == before
-    assert operations.renew.await_count == 6
-    assert operations.transition.await_count == 7
+    assert operations.renew.await_count == 1
+    assert operations.transition.await_count == 2
     assert operations.transition.await_args.kwargs["to_state"] == "VERIFYING"
-    assert operations.transition.await_args.kwargs["checkpoint"]["staging_bytes"] == 8
+    assert operations.transition.await_args.kwargs["checkpoint"]["staging_bytes"] == 3
 
 
 @pytest.mark.asyncio
@@ -466,23 +366,12 @@ async def test_bounded_parity_checks_counts_ids_health_and_retrieval_smoke(
             "embedding": [5.0, 0.5, 1.0],
         }
     ]
-    graph = _GraphTarget(paths.graph_path)
-    graph.nodes = [
-        ("entity-1", "Alpha", "agent-a"),
-        ("entity-2", "Beta", "agent-a"),
-    ]
-    graph.assertions = [
-        {"assertion_id": "assertion-1", "agent_id": "agent-a"},
-        {"assertion_id": "assertion-2", "agent_id": "agent-a"},
-    ]
-    graph.links = [{"relation_type": "SUPERSEDES"}]
     verifier = ProjectionParityVerifier()
 
     report = await verifier.verify(
         snapshot=ProjectionSnapshot(database),
         paths=paths,
         vector_factory=lambda _path: vector,
-        graph_factory=lambda _path: graph,
         parity_limit=10,
         smoke_limit=10,
     )
@@ -501,7 +390,6 @@ async def test_bounded_parity_checks_counts_ids_health_and_retrieval_smoke(
             snapshot=ProjectionSnapshot(database),
             paths=paths,
             vector_factory=lambda _path: vector,
-            graph_factory=lambda _path: graph,
         )
     assert failure.value.report.orphans == 1
 
@@ -550,23 +438,12 @@ async def test_retrieval_smoke_rejects_provider_results_outside_tenant_dataset_s
         },
         {"node_id": "assertion-b", "agent_id": "agent-a", "embedding": [0.0] * 3},
     ]
-    graph = _GraphTarget(paths.graph_path)
-    graph.nodes = [
-        ("entity-1", "Alpha", "agent-a"),
-        ("entity-2", "Beta", "agent-a"),
-    ]
-    graph.assertions = [
-        {"assertion_id": "assertion-1", "agent_id": "agent-a"},
-        {"assertion_id": "assertion-2", "agent_id": "agent-a"},
-    ]
-    graph.links = [{"relation_type": "SUPERSEDES"}]
 
     with pytest.raises(RebuildVerificationError, match="retrieval scope"):
         await ProjectionParityVerifier().verify(
             snapshot=ProjectionSnapshot(database),
             paths=paths,
             vector_factory=lambda _path: vector,
-            graph_factory=lambda _path: graph,
         )
 
 
@@ -616,22 +493,11 @@ async def test_parity_smoke_applies_live_dataset_scope_to_raw_vector_results(
             "embedding": [2.0] * 3,
         },
     ]
-    graph = _GraphTarget(paths.graph_path)
-    graph.nodes = [
-        ("entity-1", "Alpha", "agent-a"),
-        ("entity-2", "Beta", "agent-a"),
-    ]
-    graph.assertions = [
-        {"assertion_id": "assertion-1", "agent_id": "agent-a"},
-        {"assertion_id": "assertion-2", "agent_id": "agent-a"},
-    ]
-    graph.links = [{"relation_type": "SUPERSEDES"}]
 
     report = await ProjectionParityVerifier().verify(
         snapshot=ProjectionSnapshot(database),
         paths=paths,
         vector_factory=lambda _path: vector,
-        graph_factory=lambda _path: graph,
         parity_limit=10,
         smoke_limit=10,
     )
@@ -644,13 +510,7 @@ async def test_parity_smoke_applies_live_dataset_scope_to_raw_vector_results(
 def _parity_report() -> ProjectionParityReport:
     return ProjectionParityReport(
         expected_vector=1,
-        expected_graph_entities=2,
-        expected_graph_assertions=2,
-        expected_graph_links=1,
         actual_vector=1,
-        actual_graph_entities=2,
-        actual_graph_assertions=2,
-        actual_graph_links=1,
         missing=0,
         orphans=0,
         smoke_checked=1,
@@ -694,7 +554,7 @@ async def test_parity_gated_activation_completes_and_retains_previous_generation
             return_value=ProjectionPaths(
                 generation_id="legacy",
                 vector_path=storage / "vector.lance",
-                graph_path=storage / "kuzu_db",
+                graph_path=storage / "graph_unused",
                 runtime_fencing_token=0,
                 previous_generation_id=previous_generation_id,
             )
@@ -705,14 +565,9 @@ async def test_parity_gated_activation_completes_and_retains_previous_generation
     )
     replay = RebuildReplayResult(
         operation=verifying_operation,
-        counts={
-            "vector": 1,
-            "graph_entity": 2,
-            "graph_assertion": 2,
-            "graph_link": 1,
-        },
-        completed=6,
-        total=6,
+        counts={"vector": 1},
+        completed=1,
+        total=1,
     )
 
     result = await ParityGatedActivator(
@@ -726,7 +581,6 @@ async def test_parity_gated_activation_completes_and_retains_previous_generation
         storage_root=storage,
         runner_id="runner-a",
         vector_factory=lambda _path: None,  # type: ignore[return-value]
-        graph_factory=lambda _path: None,  # type: ignore[return-value]
     )
 
     assert result.operation["state"] == "COMPLETED"
@@ -765,7 +619,7 @@ async def test_post_cutover_failure_rolls_pointer_back_and_keeps_retained_genera
     retained_paths = ProjectionPaths(
         generation_id="legacy",
         vector_path=storage / "vector.lance",
-        graph_path=storage / "kuzu_db",
+        graph_path=storage / "graph_unused",
         runtime_fencing_token=2,
         previous_generation_id=None,
     )
@@ -785,7 +639,7 @@ async def test_post_cutover_failure_rolls_pointer_back_and_keeps_retained_genera
                 ProjectionPaths(
                     generation_id="legacy",
                     vector_path=storage / "vector.lance",
-                    graph_path=storage / "kuzu_db",
+                    graph_path=storage / "graph_unused",
                     runtime_fencing_token=0,
                     previous_generation_id=None,
                 ),
@@ -804,14 +658,9 @@ async def test_post_cutover_failure_rolls_pointer_back_and_keeps_retained_genera
     )
     replay = RebuildReplayResult(
         operation=verifying_operation,
-        counts={
-            "vector": 1,
-            "graph_entity": 2,
-            "graph_assertion": 2,
-            "graph_link": 1,
-        },
-        completed=6,
-        total=6,
+        counts={"vector": 1},
+        completed=1,
+        total=1,
     )
 
     with pytest.raises(RebuildVerificationError, match="rolled back"):
@@ -826,7 +675,6 @@ async def test_post_cutover_failure_rolls_pointer_back_and_keeps_retained_genera
             storage_root=storage,
             runner_id="runner-a",
             vector_factory=lambda _path: None,  # type: ignore[return-value]
-            graph_factory=lambda _path: None,  # type: ignore[return-value]
         )
 
     generations.activate.assert_awaited_once()
@@ -874,7 +722,7 @@ async def test_activation_crash_recovery_verifies_existing_pointer_without_react
                     storage
                     / "projection-generations"
                     / preparation.target_generation_id
-                    / "kuzu_db"
+                    / "graph_unused"
                 ),
                 runtime_fencing_token=1,
                 previous_generation_id="legacy",
@@ -888,14 +736,9 @@ async def test_activation_crash_recovery_verifies_existing_pointer_without_react
     )
     replay = RebuildReplayResult(
         operation=ready_operation,
-        counts={
-            "vector": 1,
-            "graph_entity": 2,
-            "graph_assertion": 2,
-            "graph_link": 1,
-        },
-        completed=6,
-        total=6,
+        counts={"vector": 1},
+        completed=1,
+        total=1,
     )
 
     result = await ParityGatedActivator(
@@ -909,7 +752,6 @@ async def test_activation_crash_recovery_verifies_existing_pointer_without_react
         storage_root=storage,
         runner_id="runner-a",
         vector_factory=lambda _path: None,  # type: ignore[return-value]
-        graph_factory=lambda _path: None,  # type: ignore[return-value]
     )
 
     assert result.operation["state"] == "COMPLETED"
@@ -981,17 +823,11 @@ async def test_vector_crash_keeps_only_the_last_completed_batch_checkpoint(
             return await super().bulk_upsert(records)
 
     vector: CrashingVector | None = None
-    graph: _GraphTarget | None = None
 
     def vector_factory(path: Path) -> CrashingVector:
         nonlocal vector
         vector = CrashingVector(path)
         return vector
-
-    def graph_factory(path: Path) -> _GraphTarget:
-        nonlocal graph
-        graph = _GraphTarget(path)
-        return graph
 
     with pytest.raises(RuntimeError, match="vector crash"):
         await ProjectionReplayer(operations).replay(  # type: ignore[arg-type]
@@ -1007,71 +843,11 @@ async def test_vector_crash_keeps_only_the_last_completed_batch_checkpoint(
             },
             batch_size=1,
             vector_factory=vector_factory,
-            graph_factory=graph_factory,
         )
 
     assert operations.current["progress_completed"] == 1
-    assert operations.current["checkpoint"]["replay"] == {
-        "vector": 1,
-        "graph_entity": 0,
-        "graph_assertion": 0,
-        "graph_link": 0,
-    }
+    assert operations.current["checkpoint"]["replay"] == {"vector": 1}
     assert vector is not None and vector.closed is True
-    assert graph is not None and graph.closed is True
-
-
-@pytest.mark.asyncio
-async def test_graph_crash_does_not_advance_the_failed_graph_batch(
-    tmp_path: Path,
-) -> None:
-    database = _source_database(tmp_path)
-    trusted = tmp_path / "trusted"
-    storage = trusted / "storage"
-    storage.mkdir(parents=True)
-    preparation = _preparation(tmp_path, database)
-    operations = _RecordingOperations(preparation.operation)
-    paths = resolve_projection_generation_paths(
-        preparation.generation,
-        storage_root=storage,
-        trusted_root=trusted,
-        runtime_fencing_token=0,
-    )
-
-    class CrashingGraph(_GraphTarget):
-        async def insert_node(self, node_id: str, name: str, agent_id: str) -> None:
-            if self.nodes:
-                raise RuntimeError("injected graph crash")
-            await super().insert_node(node_id, name, agent_id)
-
-    vector = _VectorTarget(paths.vector_path)
-    graph = CrashingGraph(paths.graph_path)
-    with pytest.raises(RuntimeError, match="graph crash"):
-        await ProjectionReplayer(operations).replay(  # type: ignore[arg-type]
-            preparation=preparation,
-            trusted_root=trusted,
-            storage_root=storage,
-            runner_id="runner-a",
-            provider_manifest={
-                "embedding_provider": "local-test",
-                "embedding_model": "embed-model",
-                "embedding_version": "v1",
-                "dimension": 3,
-            },
-            batch_size=1,
-            vector_factory=lambda _path: vector,
-            graph_factory=lambda _path: graph,
-        )
-
-    assert operations.current["progress_completed"] == 2
-    assert operations.current["checkpoint"]["replay"] == {
-        "vector": 1,
-        "graph_entity": 1,
-        "graph_assertion": 0,
-        "graph_link": 0,
-    }
-    assert vector.closed is True
-    assert graph.closed is True
 
 
 @pytest.mark.asyncio
@@ -1079,6 +855,7 @@ async def test_interruption_resumes_after_the_durable_batch_without_replaying_it
     tmp_path: Path,
 ) -> None:
     database = _source_database(tmp_path)
+    _add_second_vector(database)
     trusted = tmp_path / "trusted"
     storage = trusted / "storage"
     storage.mkdir(parents=True)
@@ -1091,7 +868,6 @@ async def test_interruption_resumes_after_the_durable_batch_without_replaying_it
         runtime_fencing_token=0,
     )
     vector = _VectorTarget(paths.vector_path)
-    graph = _GraphTarget(paths.graph_path)
 
     with pytest.raises(RebuildInterruptedError, match="batch boundary"):
         await ProjectionReplayer(operations).replay(  # type: ignore[arg-type]
@@ -1107,7 +883,6 @@ async def test_interruption_resumes_after_the_durable_batch_without_replaying_it
             },
             batch_size=1,
             vector_factory=lambda _path: vector,
-            graph_factory=lambda _path: graph,
             should_stop=lambda: operations.current["progress_completed"] == 1,
         )
 
@@ -1126,13 +901,14 @@ async def test_interruption_resumes_after_the_durable_batch_without_replaying_it
         },
         batch_size=1,
         vector_factory=lambda _path: vector,
-        graph_factory=lambda _path: graph,
         should_stop=lambda: False,
     )
 
-    assert result.completed == result.total == 6
-    assert [record["node_id"] for record in vector.records] == ["assertion-1"]
-    assert [node[0] for node in graph.nodes] == ["entity-1", "entity-2"]
+    assert result.completed == result.total == 2
+    assert [record["node_id"] for record in vector.records] == [
+        "assertion-1",
+        "assertion-2",
+    ]
     assert operations.current["state"] == "VERIFYING"
 
 

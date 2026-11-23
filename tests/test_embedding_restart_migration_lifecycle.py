@@ -9,16 +9,11 @@ import pytest
 from mesa_memory.consolidation.schemas import MemoryCandidate
 from mesa_memory.embedding.service import EmbeddingIdentity, EmbeddingService
 from mesa_storage.dao import MemoryDAO
-from mesa_storage.kuzu_provider import KuzuGraphProvider
-from mesa_storage.kuzu_setup import initialize_schema_artifact
 from mesa_storage.projection_generations import (
     ProjectionGenerationIdentityMismatchError,
     ProjectionGenerationRepository,
 )
-from mesa_storage.rebuild_cutover import (
-    ParityGatedActivator,
-    default_graph_verification_factory,
-)
+from mesa_storage.rebuild_cutover import ParityGatedActivator
 from mesa_storage.rebuild_preparation import OfflineRebuildPreparer
 from mesa_storage.rebuild_replay import ProjectionReplayer
 from mesa_storage.repositories.operations import OperationRepository
@@ -125,21 +120,15 @@ async def test_restart_safe_admission_migration_rebuild_cutover_lifecycle(
     old_vector = VectorEngine(
         str(storage / "vector.lance"), embedding_service=old_service
     )
-    old_graph_path = storage / "kuzu_db"
     await sql.initialize()
     await initialize_schema(sql)
     generations = ProjectionGenerationRepository(sql)
     await generations.assert_active_embedding_identity(old.as_dict())
     await old_vector.initialize()
-    initialize_schema_artifact(str(old_graph_path))
-    old_graph = KuzuGraphProvider(str(old_graph_path))
-    await old_graph.initialize()
-    old_dao = MemoryDAO(
-        sqlite_engine=sql, vector_engine=old_vector, graph_provider=old_graph
-    )
+    old_dao = MemoryDAO(sqlite_engine=sql, vector_engine=old_vector)
     try:
         await _admit(old_dao, raw_log_id=1, identity=old)
-        for _ in range(3):
+        for _ in range(2):
             assert (await process_projection_outbox_once(old_dao))["completed"] == 1
 
         pending = await _admit(old_dao, raw_log_id=2, identity=old)
@@ -148,7 +137,6 @@ async def test_restart_safe_admission_migration_rebuild_cutover_lifecycle(
         assert persisted is not None
         assert persisted["embedding_identity_snapshot"] == old.as_dict()
     finally:
-        await old_graph.close()
         await old_vector.close()
         await sql.close()
 
@@ -168,13 +156,10 @@ async def test_restart_safe_admission_migration_rebuild_cutover_lifecycle(
     restarted_vector = VectorEngine(
         str(storage / "vector.lance"), embedding_service=new_service
     )
-    restarted_graph = KuzuGraphProvider(str(old_graph_path))
     await restarted_vector.initialize()
-    await restarted_graph.initialize()
     restarted_dao = MemoryDAO(
         sqlite_engine=restarted_sql,
         vector_engine=restarted_vector,
-        graph_provider=restarted_graph,
     )
     try:
         # SQL may finish; the vector lane must fail closed on the durable snapshot.
@@ -194,7 +179,6 @@ async def test_restart_safe_admission_migration_rebuild_cutover_lifecycle(
             )
         ).generation_id == "legacy"
     finally:
-        await restarted_graph.close()
         await restarted_vector.close()
         await restarted_sql.close()
 
@@ -205,18 +189,12 @@ async def test_restart_safe_admission_migration_rebuild_cutover_lifecycle(
     drain_vector = VectorEngine(
         str(storage / "vector.lance"), embedding_service=old_service
     )
-    drain_graph = KuzuGraphProvider(str(old_graph_path))
     await drain_sql.initialize()
     await drain_vector.initialize()
-    await drain_graph.initialize()
-    drain_dao = MemoryDAO(
-        sqlite_engine=drain_sql, vector_engine=drain_vector, graph_provider=drain_graph
-    )
+    drain_dao = MemoryDAO(sqlite_engine=drain_sql, vector_engine=drain_vector)
     try:
         assert (await process_projection_outbox_once(drain_dao))["completed"] == 1
-        assert (await process_projection_outbox_once(drain_dao))["completed"] == 1
     finally:
-        await drain_graph.close()
         await drain_vector.close()
         await drain_sql.close()
 
@@ -282,7 +260,6 @@ async def test_restart_safe_admission_migration_rebuild_cutover_lifecycle(
                 storage_root=storage,
                 runner_id="runner-a",
                 vector_factory=verification_vector,
-                graph_factory=default_graph_verification_factory,
             )
         assert cutover.active_generation_id == preparation.target_generation_id
         async with rebuild_sql.connection() as connection:
@@ -312,15 +289,11 @@ async def test_restart_safe_admission_migration_rebuild_cutover_lifecycle(
     assert active.generation_id == preparation.target_generation_id
     assert active.previous_generation_id == "legacy"
     post_vector = VectorEngine(str(active.vector_path), embedding_service=new_service)
-    post_graph = KuzuGraphProvider(str(active.graph_path))
     await post_vector.initialize()
-    await post_graph.initialize()
-    post_dao = MemoryDAO(
-        sqlite_engine=post_sql, vector_engine=post_vector, graph_provider=post_graph
-    )
+    post_dao = MemoryDAO(sqlite_engine=post_sql, vector_engine=post_vector)
     try:
         current = await _admit(post_dao, raw_log_id=3, identity=new)
-        for _ in range(3):
+        for _ in range(2):
             assert (await process_projection_outbox_once(post_dao))["completed"] == 1
         results = await post_dao.search_v4_memory(
             tenant_id="tenant-a",
@@ -346,7 +319,6 @@ async def test_restart_safe_admission_migration_rebuild_cutover_lifecycle(
             for row in legal_results
         )
     finally:
-        await post_graph.close()
         await post_vector.close()
         await post_sql.close()
 

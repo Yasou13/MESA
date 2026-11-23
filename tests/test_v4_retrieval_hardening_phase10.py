@@ -26,8 +26,6 @@ import pytest
 
 from mesa_memory.context_builder import ContextBuilder, _count_tokens
 from mesa_storage.dao import MemoryDAO
-from mesa_storage.kuzu_provider import KuzuGraphProvider
-from mesa_storage.kuzu_setup import initialize_schema_artifact
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 
@@ -38,12 +36,7 @@ async def _create_test_env(tmp_path, *, agent_id: str = "test-agent"):
     await engine.initialize()
     await initialize_schema(engine)
 
-    graph_path = tmp_path / f"{agent_id}_graph"
-    initialize_schema_artifact(str(graph_path))
-    graph = KuzuGraphProvider(str(graph_path), max_workers=1)
-    await graph.initialize()
-
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=None, graph_provider=graph)
+    dao = MemoryDAO(sqlite_engine=engine, vector_engine=None)
     await dao.create_v4_workspace(
         tenant_id="test-tenant",
         workspace_id="ws1",
@@ -54,7 +47,7 @@ async def _create_test_env(tmp_path, *, agent_id: str = "test-agent"):
         workspace_id="ws1",
         dataset_id="ds1",
     )
-    return engine, graph, dao
+    return engine, dao
 
 
 # 1. large entity / many provenance & 2. correct evidence not crowded out
@@ -348,7 +341,7 @@ async def test_p10_integrated_retrieval_to_context_builder(tmp_path):
     - 12. Phase 9 relation rendered
     - 13. Phase 8 typed literal/entity rendered
     """
-    sql, graph, dao = await _create_test_env(tmp_path)
+    sql, dao = await _create_test_env(tmp_path)
     try:
         # 1. Active Assertion with typed literal and evidence provenance (Phase 1, 8, 9)
         s_entity = await dao.resolve_v4_entity(
@@ -461,21 +454,6 @@ async def test_p10_integrated_retrieval_to_context_builder(tmp_path):
             )
             await db.commit()
 
-        # Ingest active into graph
-        await graph.insert_node(s_id, "TBK_117", agent_id="test-agent")
-        await graph.insert_node(o_id, "Temerrut_Sartlari", agent_id="test-agent")
-        await graph.insert_assertion(
-            assertion_id=a_id,
-            agent_id="test-agent",
-            subject_id=s_id,
-            predicate="hukuki_sonucudur",
-            object_id=o_id,
-            evidence_span="Muaccel bir borcun borçlusu, alacaklının ihtarıyla temerrüde düşer.",
-            jurisdiction="TBK",
-            status="ACTIVE",
-            mutation_id="m1",
-        )
-
         cb = ContextBuilder(dao)
         ctx = await cb.build_context(
             tenant_id="test-tenant",
@@ -495,12 +473,10 @@ async def test_p10_integrated_retrieval_to_context_builder(tmp_path):
         assert "Eski BK 101 hukmu" not in formatted
         assert "chk_old" not in formatted
 
-        # Phase 8 & 9: Relation and direction rendered
+        # Phase 8: Relation rendered
         assert "hukuki_sonucudur" in formatted
-        assert "direction" in formatted
 
         # Model visible contract
         assert len(ctx["canonical_memories"]) >= 1
     finally:
-        await graph.close()
         await sql.close()

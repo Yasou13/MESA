@@ -216,7 +216,7 @@ async def test_unreachable_dimension_probe_names_model_and_url(embedding_runtime
 @pytest.mark.asyncio
 async def test_vector_free_records_adopt_new_model_and_backfill(embedding_runtime):
     async with embedding_runtime(
-        MESA_EMBEDDING_ENABLED="false", MESA_GRAPH_ENABLED="true"
+        MESA_EMBEDDING_ENABLED="false"
     ) as env:
         assert configured_embedding_identity().dimension == 1024
         assert env.calls == []
@@ -319,7 +319,6 @@ async def test_vector_free_pending_lane_follows_adopted_identity(embedding_runti
     async with embedding_runtime(
         MESA_EMBEDDING_ENABLED="true",
         MESA_EMBEDDING_DIMENSION="6",
-        MESA_GRAPH_ENABLED="true",
     ) as env:
         await _insert(env)
         await _consume(env)

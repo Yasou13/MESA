@@ -32,7 +32,6 @@ async def test_external_embedding_server_lifespan_composes_factory_and_persists_
     monkeypatch.setenv("MESA_LOAD_DOTENV", "false")
     monkeypatch.setenv("MESA_MODEL_ENABLED", "false")
     monkeypatch.setenv("MESA_EMBEDDING_ENABLED", "true")
-    monkeypatch.setenv("MESA_GRAPH_ENABLED", "true")
     monkeypatch.setenv("MESA_EXTERNAL_PROVIDER_ENABLED", "true")
     monkeypatch.setenv("MESA_EMBEDDING_MODEL", "openai_compatible:external-test-model")
     monkeypatch.setenv("MESA_EMBEDDING_DIMENSION", "4")
@@ -145,7 +144,7 @@ async def test_external_embedding_server_lifespan_composes_factory_and_persists_
         assert {
             receipt["projection_name"]: receipt["state"]
             for receipt in mutation["projections"]
-        } == {"SQL": "COMPLETED", "VECTOR": "COMPLETED", "GRAPH": "COMPLETED"}
+        } == {"SQL": "COMPLETED", "VECTOR": "COMPLETED"}
         results = await dao.search_v4_memory(
             tenant_id="tenant-external",
             agent_id="agent-external",

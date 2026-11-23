@@ -31,7 +31,7 @@ async def test_worker_session_finalization_and_durable_ownership(tmp_path):
     mock_graph.insert_triplet = AsyncMock()
     mock_graph.insert_assertion = AsyncMock()
 
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=mock_vec, graph_provider=mock_graph)
+    dao = MemoryDAO(sqlite_engine=engine, vector_engine=mock_vec)
 
     tenant_id = "tenant_worker"
     agent_id = "agent_worker"
@@ -85,7 +85,6 @@ async def test_worker_session_finalization_and_durable_ownership(tmp_path):
     unavailable = MemoryDAO(
         sqlite_engine=engine,
         vector_engine=mock_vec,
-        graph_provider=mock_graph,
         canonical_v4_writes_enabled=False,
     )
     with pytest.raises(HTTPException) as unavailable_exc:

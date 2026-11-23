@@ -46,7 +46,7 @@ def test_no_store_name_no_new_name_resolution():
 async def test_exact_slot_is_bounded_in_document_order_and_preserves_other_order(
     model_runtime, monkeypatch
 ):
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         text = "TEBLİGAT KANUNU1\nKanun Numarası: 7201\nÖnsöz.\n" + (
             "MADDE 21- " + "Tebligat hükmü. " * 800 + "\n"
             "MADDE 22- Tebligat hükmü.\nMADDE 23- Tebligat hükmü.\n"
@@ -61,7 +61,6 @@ async def test_exact_slot_is_bounded_in_document_order_and_preserves_other_order
                 dataset_ids=["main"],
                 query=query,
                 limit=50,
-                graph_enabled=False,
             )
 
         result = await search("Tebligat K. 21. madde")
@@ -106,7 +105,7 @@ async def test_exact_slot_is_bounded_in_document_order_and_preserves_other_order
             await db.commit()
         historical = await env.dao.search_v4_memory(
             tenant_id="model-tenant", agent_id="model-agent", dataset_ids=["main"],
-            query="Tebligat K. 21. madde", graph_enabled=False, valid_at="2020-01-01",
+            query="Tebligat K. 21. madde", valid_at="2020-01-01",
         )
         assert all("exact_match" not in r["retrieval_provenance"] for r in historical)
         await env.dao.purge_v4_document(
@@ -117,7 +116,7 @@ async def test_exact_slot_is_bounded_in_document_order_and_preserves_other_order
 
 @pytest.mark.asyncio
 async def test_store_names_cannot_cross_dataset_scope(model_runtime):
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         content = "Kanun Numarası: 2942\nMADDE 1- Kural.\nMADDE 2- Kural.\nMADDE 35- Kamulaştırma.\n"
         added = await _add(env, content, title="Kamulaştırma Kanunu")
         await _consume(env, added["chunk_count"] + 2)
@@ -126,7 +125,6 @@ async def test_store_names_cannot_cross_dataset_scope(model_runtime):
             agent_id="model-agent",
             dataset_ids=["main"],
             query="Kamulaştırma Kanunu 35. madde",
-            graph_enabled=False,
         )
         assert matching[0]["retrieval_provenance"]["legal_identity"]["law_id"] == "2942"
         assert (
@@ -140,7 +138,6 @@ async def test_store_names_cannot_cross_dataset_scope(model_runtime):
             agent_id="model-agent",
             dataset_ids=["empty"],
             query="Kamulaştırma Kanunu 35. madde",
-            graph_enabled=False,
         )
         assert result == []
         empty_scope = next(

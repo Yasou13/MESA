@@ -31,7 +31,7 @@ async def test_canonical_correction_flow(tmp_path):
     mock_graph.execute_write = AsyncMock()
 
     dao = MemoryDAO(
-        sqlite_engine=engine, vector_engine=mock_vec, graph_provider=mock_graph
+        sqlite_engine=engine, vector_engine=mock_vec
     )
 
     tenant_id = "tenant_corr"
@@ -99,7 +99,7 @@ async def test_canonical_correction_flow(tmp_path):
         "literal_value": "Engineer",
         "confidence": 1.0,
     }
-    ass1_id = await dao.project_v4_graph_triplet(mutation=mut1, triplet=t1)
+    ass1_id = await dao.project_v4_sql_assertion(mutation=mut1, triplet=t1)
     await _commit_projected_mutation(dao, engine, agent_id, mut1, [t1])
 
     # 2. Create Revision 2 superseding Revision 1 with corrected truth: Alice -> ROLE -> "Chief Architect"
@@ -154,7 +154,7 @@ async def test_canonical_correction_flow(tmp_path):
         "literal_value": "Chief Architect",
         "confidence": 1.0,
     }
-    ass2_id = await dao.project_v4_graph_triplet(mutation=mut2, triplet=t2)
+    ass2_id = await dao.project_v4_sql_assertion(mutation=mut2, triplet=t2)
 
     # Admission/projection is not activation: until commit, old truth remains
     # current and the replacing assertion is retrieval-ineligible.
@@ -266,7 +266,6 @@ async def test_concurrent_corrections_from_same_predecessor_enforce_single_activ
     dao = MemoryDAO(
         sqlite_engine=engine,
         vector_engine=SimpleNamespace(),
-        graph_provider=SimpleNamespace(),
     )
 
     tenant_id = "tenant_cas"
@@ -419,7 +418,6 @@ async def test_cannot_append_chunks_to_finalized_revision(tmp_path):
     dao = MemoryDAO(
         sqlite_engine=engine,
         vector_engine=SimpleNamespace(),
-        graph_provider=SimpleNamespace(),
     )
 
     tenant_id = "tenant_freeze"

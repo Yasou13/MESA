@@ -20,8 +20,6 @@ from mesa_memory.consolidation.schemas import ExtractedTriplet
 from mesa_memory.context_builder import ContextBuilder
 from mesa_memory.extraction.service import FactCandidate
 from mesa_storage.dao import MemoryDAO, classify_graph_object
-from mesa_storage.kuzu_provider import KuzuGraphProvider
-from mesa_storage.kuzu_setup import initialize_schema_artifact
 from mesa_storage.legal_identity import LegalEntityResolver
 from mesa_storage.retrieval_scope import rrf_fuse_lanes
 from mesa_storage.schemas import initialize_schema
@@ -31,13 +29,12 @@ from mesa_storage.sqlite_engine import AsyncEngine
 # =====================================================================
 # 1. 4-LANE UNIFIED FUSION & CANONICAL EVIDENCE IDENTITY (HARD GATES 1-4)
 # =====================================================================
-def test_hard_gate_4_lane_unified_fusion_single_candidate():
-    """Hard Gate 1, 2, 3: Same assertion in all 4 lanes produces exactly ONE candidate with all lane contributions preserved."""
+def test_hard_gate_3_lane_unified_fusion_single_candidate():
+    """Hard Gate 1, 2, 3: Same assertion in all 3 lanes produces exactly ONE candidate with all lane contributions preserved."""
     lane_rankings = {
         "vector": ["ast_golden", "ast_other_1"],
         "bm25": ["ast_golden", "ast_other_2"],
         "assertion": ["ast_golden"],
-        "graph": ["ast_golden", "ast_other_3"],
     }
     fused = rrf_fuse_lanes(lane_rankings, k=60)
 
@@ -48,15 +45,14 @@ def test_hard_gate_4_lane_unified_fusion_single_candidate():
     golden_entry = next(c for c in fused if c[0] == "ast_golden")
     cand_id, fused_score, lane_ranks = golden_entry
     assert cand_id == "ast_golden"
-    # All 4 lanes contributed
-    assert set(lane_ranks.keys()) == {"vector", "bm25", "assertion", "graph"}
+    # All 3 lanes contributed
+    assert set(lane_ranks.keys()) == {"vector", "bm25", "assertion"}
     assert lane_ranks["vector"] == 1
     assert lane_ranks["bm25"] == 1
     assert lane_ranks["assertion"] == 1
-    assert lane_ranks["graph"] == 1
 
     # Exact RRF score
-    expected_score = 4 * (1.0 / (60 + 1))
+    expected_score = 3 * (1.0 / (60 + 1))
     assert fused_score == pytest.approx(expected_score, rel=1e-5)
 
 
@@ -68,12 +64,7 @@ async def test_hard_gate_no_synthetic_graph_evidence_id(tmp_path):
     await engine.initialize()
     await initialize_schema(engine)
 
-    graph_path = tmp_path / "graph"
-    initialize_schema_artifact(str(graph_path))
-    graph = KuzuGraphProvider(str(graph_path), max_workers=1)
-    await graph.initialize()
-
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=None, graph_provider=graph)
+    dao = MemoryDAO(sqlite_engine=engine, vector_engine=None)
     tenant_id = "tenant-hg4"
     agent_id = "agent-hg4"
     dataset_id = "ds-hg4"
@@ -129,20 +120,6 @@ async def test_hard_gate_no_synthetic_graph_evidence_id(tmp_path):
             )
             await db.commit()
 
-        await graph.insert_node(s_id, "Alice", agent_id=agent_id)
-        await graph.insert_node(o_id, "Aurora", agent_id=agent_id)
-        await graph.insert_assertion(
-            assertion_id=a_id,
-            agent_id=agent_id,
-            subject_id=s_id,
-            predicate="collaborates",
-            object_id=o_id,
-            confidence=1.0,
-            evidence_span="evidence span",
-            jurisdiction="TR",
-            mutation_id="mut_hg4",
-        )
-
         results = await dao.search_v4_memory(
             tenant_id=tenant_id,
             agent_id=agent_id,
@@ -157,7 +134,6 @@ async def test_hard_gate_no_synthetic_graph_evidence_id(tmp_path):
             assert not str(r["candidate_id"]).startswith("graph:")
             assert r["evidence_id"] == a_id
     finally:
-        await graph.close()
         await engine.close()
 
 
@@ -296,7 +272,7 @@ async def test_hard_gate_jurisdiction_scope_propagated_to_context_builder(tmp_pa
     await engine.initialize()
     await initialize_schema(engine)
 
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=None, graph_provider=None)
+    dao = MemoryDAO(sqlite_engine=engine, vector_engine=None)
     tenant_id = "tenant-jur"
     agent_id = "agent-jur"
     dataset_id = "ds-jur"

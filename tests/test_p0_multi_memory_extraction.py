@@ -29,7 +29,7 @@ async def test_multi_memory_extraction_contract(tmp_path):
     mock_graph.insert_assertion = AsyncMock()
 
     dao = MemoryDAO(
-        sqlite_engine=engine, vector_engine=mock_vec, graph_provider=mock_graph
+        sqlite_engine=engine, vector_engine=mock_vec
     )
 
     tenant_id = "tenant_multi"
@@ -147,8 +147,8 @@ async def test_multi_memory_extraction_contract(tmp_path):
         claimed_total += res["claimed"]
         completed_total += res["completed"]
 
-    assert claimed_total == 9
-    assert completed_total == 9
+    assert claimed_total == 6
+    assert completed_total == 6
 
     # Verify all 3 memories advanced to COMMITTED
     for mut_id in (mut_1_id, mut_2_id, mut_3_id):

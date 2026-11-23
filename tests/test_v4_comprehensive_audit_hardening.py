@@ -16,8 +16,6 @@ import pytest
 
 from mesa_memory.context_builder import ContextBuilder
 from mesa_storage.dao import MemoryDAO
-from mesa_storage.kuzu_provider import KuzuGraphProvider
-from mesa_storage.kuzu_setup import initialize_schema_artifact
 from mesa_storage.projection_generations import (
     ProjectionGenerationRepository,
 )
@@ -40,7 +38,7 @@ async def test_projection_generation_manifest_null_row_handling(tmp_path):
             "generation_id, generation_kind, lifecycle_state, "
             "vector_relative_path, graph_relative_path, provider_manifest_json"
             ") VALUES ('gen-1', 'REBUILD', 'ACTIVE', "
-            "'generations/gen-1/vector.lance', 'generations/gen-1/kuzu_db', '{}')"
+            "'generations/gen-1/vector.lance', 'generations/gen-1/graph_unused', '{}')"
         )
         await db.execute(
             "INSERT OR REPLACE INTO projection_runtime (runtime_id, active_generation_id, fencing_token, updated_at) "
@@ -139,7 +137,7 @@ async def test_cross_agent_fallback_negative_isolation(tmp_path):
     await engine.initialize()
     await initialize_schema(engine)
 
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=None, graph_provider=None)
+    dao = MemoryDAO(sqlite_engine=engine, vector_engine=None)
     tenant_id = "tenant-iso"
     agent_a = "agent-alpha"
     agent_b = "agent-bravo"
@@ -238,7 +236,7 @@ async def test_turkish_casefolding_evidence_search_invariance(tmp_path):
     await engine.initialize()
     await initialize_schema(engine)
 
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=None, graph_provider=None)
+    dao = MemoryDAO(sqlite_engine=engine, vector_engine=None)
     tenant_id = "tenant-tr"
     agent_id = "agent-tr"
     dataset_id = "ds-tr"
@@ -317,18 +315,13 @@ async def test_turkish_casefolding_evidence_search_invariance(tmp_path):
 
 @pytest.mark.asyncio
 async def test_graph_out_of_scope_boundary_rejection(tmp_path):
-    """Negative security: Graph paths containing an out-of-scope entity or assertion are pruned."""
+    """Negative security: Out-of-scope dataset assertions are rejected."""
     db_path = str(tmp_path / "sql.sqlite")
     engine = AsyncEngine(db_path)
     await engine.initialize()
     await initialize_schema(engine)
 
-    graph_path = tmp_path / "graph"
-    initialize_schema_artifact(str(graph_path))
-    graph = KuzuGraphProvider(str(graph_path), max_workers=1)
-    await graph.initialize()
-
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=None, graph_provider=graph)
+    dao = MemoryDAO(sqlite_engine=engine, vector_engine=None)
     tenant_id = "tenant-gr-sec"
     agent_id = "agent-gr-sec"
     dataset_in = "ds-in"
@@ -396,32 +389,16 @@ async def test_graph_out_of_scope_boundary_rejection(tmp_path):
             )
             await db.commit()
 
-        # Graph has entities A and B, and assertion ast-out-of-scope
-        await graph.insert_node(node_id=ea_id, name="Node A", agent_id=agent_id)
-        await graph.insert_node(node_id=eb_id, name="Node B", agent_id=agent_id)
-        await graph.insert_assertion(
-            assertion_id="ast-out-of-scope",
-            subject_id=ea_id,
-            object_id=eb_id,
-            agent_id=agent_id,
-            predicate="bağlıdır",
-            mutation_id="mut-gr-1",
-            source_ref="REF",
-            evidence_span="Gizli bağ kanıtı",
-        )
-
         # Query with ONLY dataset_in allowed
         results = await dao.search_v4_memory(
             tenant_id=tenant_id,
             agent_id=agent_id,
             dataset_ids=[dataset_in],
             query="NodeA NodeB",
-            graph_enabled=True,
             limit=5,
         )
 
-        # Out of scope graph edge must NOT leak into results
+        # Out of scope assertion must NOT leak into results
         assert len(results) == 0
     finally:
-        await graph.close()
         await engine.close()

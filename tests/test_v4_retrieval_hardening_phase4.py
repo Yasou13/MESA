@@ -68,7 +68,7 @@ async def _seed_assertion_with_passage(
         "literal_value": literal_value,
         "evidence_span": evidence_span,
     }
-    await dao.project_v4_graph_triplet(mutation=mut, triplet=triplet)
+    await dao.project_v4_sql_assertion(mutation=mut, triplet=triplet)
     assertions = await dao.list_v4_assertions_for_mutation(str(mut["mutation_id"]))
     assert len(assertions) >= 1
     assertion = assertions[0]
@@ -90,13 +90,7 @@ def _make_dao(engine: AsyncEngine) -> MemoryDAO:
         upsert=AsyncMock(),
         search=AsyncMock(return_value=[]),
     )
-    graph = SimpleNamespace(
-        insert_node=AsyncMock(),
-        insert_assertion=AsyncMock(),
-        link_assertions=AsyncMock(),
-        traverse_paths=AsyncMock(return_value=[]),
-    )
-    return MemoryDAO(engine, vector, graph)
+    return MemoryDAO(engine, vector)
 
 
 @pytest.mark.asyncio

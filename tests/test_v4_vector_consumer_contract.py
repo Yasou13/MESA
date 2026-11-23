@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -147,17 +145,10 @@ async def _build_fixture(tmp_path) -> _Fixture:
             query_provider_fn=_concept_vector,
         ),
     )
-    graph = SimpleNamespace(
-        is_operational=True,
-        search_v4_graph=AsyncMock(return_value=[]),
-        insert_node=AsyncMock(),
-        insert_assertion=AsyncMock(),
-        link_assertions=AsyncMock(),
-    )
     await sql.initialize()
     await initialize_schema(sql)
     await vector.initialize()
-    fixture = _Fixture(sql, vector, MemoryDAO(sql, vector, graph), {}, {})
+    fixture = _Fixture(sql, vector, MemoryDAO(sql, vector), {}, {})
     await _ingest_assertion(
         fixture,
         raw_log_id=1,
@@ -218,7 +209,6 @@ async def test_real_lancedb_vector_lane_activation_rrf_and_provenance(tmp_path) 
     fixture = await _build_fixture(tmp_path)
     try:
         cipher = fixture.assertions["cipher"]
-        fixture.dao._graph.search_v4_graph.return_value = [_graph_hit(cipher)]
         diagnostics: dict = {}
         searches_before = fixture.vector.metrics.searches
         exact = await fixture.dao.search_v4_memory(
@@ -234,8 +224,8 @@ async def test_real_lancedb_vector_lane_activation_rrf_and_provenance(tmp_path) 
         )
         provenance = hit["retrieval_provenance"]
         assert fixture.vector.metrics.searches == searches_before + 1
-        assert set(provenance["origins"]) == {"vector", "bm25", "assertion", "graph"}
-        assert set(provenance["lane_ranks"]) == {"vector", "bm25", "assertion", "graph"}
+        assert set(provenance["origins"]) == {"vector", "bm25", "assertion"}
+        assert set(provenance["lane_ranks"]) == {"vector", "bm25", "assertion"}
         assert provenance["vector"]["distance"] == provenance["raw_scores"]["vector"]
         assert provenance["vector"]["rank"] == provenance["lane_ranks"]["vector"]
         assert provenance["vector"]["registry_id"]
@@ -256,7 +246,6 @@ async def test_real_lancedb_vector_lane_activation_rrf_and_provenance(tmp_path) 
         assert diagnostics["vector_lane"]["allowed_vector_id_count"] == 3
         assert diagnostics["vector_lane"]["compatible_registry_artifact_count"] == 3
 
-        fixture.dao._graph.search_v4_graph.return_value = []
         semantic = await fixture.dao.search_v4_memory(
             tenant_id="tenant-a",
             agent_id="agent-a",

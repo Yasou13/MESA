@@ -248,22 +248,6 @@ async def test_commit_reopen_and_uncommitted_rollback_semantics(tmp_path: Path):
     await engine2.close()
 
 
-def test_kuzu_migration_journal_is_full_without_journal_mode_redesign(
-    tmp_path: Path,
-) -> None:
-    from mesa_storage.kuzu_migration import KuzuMigrationCoordinator
-
-    coordinator = KuzuMigrationCoordinator(
-        tmp_path / "graph.kuzu", tmp_path / "kuzu-migration-journal.db"
-    )
-    connection = coordinator._open_journal()
-    try:
-        assert connection.execute("PRAGMA synchronous").fetchone()[0] == 2
-        assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
-    finally:
-        connection.close()
-
-
 def test_embedding_identity_connection_is_full_without_journal_mode_redesign(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

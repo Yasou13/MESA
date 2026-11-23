@@ -38,7 +38,7 @@ async def test_model_disabled_runtime_degradation(tmp_path):
     mock_graph.insert_node = AsyncMock()
     mock_graph.insert_assertion = AsyncMock()
 
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=vec, graph_provider=mock_graph)
+    dao = MemoryDAO(sqlite_engine=engine, vector_engine=vec)
 
     tenant_id = "tenant_dis"
     agent_id = "agent_dis"
@@ -93,7 +93,7 @@ async def test_model_disabled_runtime_degradation(tmp_path):
         "literal_value": "DISABLED_TEST",
         "confidence": 1.0,
     }
-    await dao.project_v4_graph_triplet(mutation=mut, triplet=t)
+    await dao.project_v4_sql_assertion(mutation=mut, triplet=t)
     await dao.record_mutation_extraction(agent_id, mut["mutation_id"], [t])
     assert await dao.set_mutation_state(agent_id, mut["mutation_id"], "VALIDATED")
     async with engine.transaction() as db:

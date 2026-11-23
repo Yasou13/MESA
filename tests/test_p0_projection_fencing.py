@@ -306,8 +306,7 @@ async def test_physical_vector_and_graph_side_effect_compensated_on_fencing_loss
             pass
 
     vec_engine = FakeVectorEngine()
-    graph_provider = FakeGraphProvider()
-    dao = MemoryDAO(engine, vec_engine, graph_provider=graph_provider)
+    dao = MemoryDAO(engine, vec_engine)
 
     tenant_id = "tenant_phys"
     agent_id = "agent_phys"
@@ -358,11 +357,6 @@ async def test_physical_vector_and_graph_side_effect_compensated_on_fencing_loss
             "VALUES (?, ?, 'VECTOR', 'PENDING')",
             (f"proj_vec_{mutation_id}", mutation_id),
         )
-        await db.execute(
-            "INSERT INTO projection_outbox (projection_id, mutation_id, projection_name, state) "
-            "VALUES (?, ?, 'GRAPH', 'PENDING')",
-            (f"proj_graph_{mutation_id}", mutation_id),
-        )
         await db.commit()
 
     # 1. Claim and complete SQL projection first (lane ordering requirement)
@@ -386,10 +380,6 @@ async def test_physical_vector_and_graph_side_effect_compensated_on_fencing_loss
     node_id = await dao.project_v4_vector_entity(mutation=mut, entity_name="A")
     assert node_id in stored_vectors
 
-    triplet = {"head": "A", "relation": "R", "tail": "B"}
-    assertion_id = await dao.project_v4_graph_triplet(mutation=mut, triplet=triplet)
-    assert assertion_id in stored_assertions
-
     # 3. Rollback pipeline run in parallel (simulating race)
     await dao.request_pipeline_rollback(pipeline_run_id)
 
@@ -407,16 +397,13 @@ async def test_physical_vector_and_graph_side_effect_compensated_on_fencing_loss
     assert (
         node_id not in stored_vectors
     ), "Physical vector must be deleted after rollback fencing loss"
-    assert (
-        assertion_id not in stored_assertions
-    ), "Physical graph assertion must be deleted after rollback fencing loss"
 
     await engine.close()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("terminal_operation", ["rollback", "purge"])
-@pytest.mark.parametrize("lane", ["VECTOR", "GRAPH"])
+@pytest.mark.parametrize("lane", ["VECTOR"])
 async def test_post_write_fence_loss_compensates_unowned_physical_state(
     tmp_path, lane, terminal_operation
 ):
@@ -471,7 +458,7 @@ async def test_post_write_fence_loss_compensates_unowned_physical_state(
         async def link_assertions(self, **_kwargs) -> None:
             return None
 
-    dao = MemoryDAO(engine, Vector(), graph_provider=Graph())
+    dao = MemoryDAO(engine, Vector())
     await dao.create_v4_workspace(
         tenant_id="tenant", workspace_id="ws", workspace_name="WS"
     )
@@ -510,7 +497,7 @@ async def test_post_write_fence_loss_compensates_unowned_physical_state(
         if lane == "VECTOR":
             await dao.project_v4_vector_entity(mutation=mutation, entity_name="Alpha")
         else:
-            await dao.project_v4_graph_triplet(
+            await dao.project_v4_sql_assertion(
                 mutation=mutation,
                 triplet={"head": "Alpha", "relation": "uses", "tail": "Beta"},
             )

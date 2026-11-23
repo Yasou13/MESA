@@ -66,7 +66,7 @@ async def _commit_assertion(
     if literal_value is not None:
         triplet["literal_value"] = literal_value
 
-    await dao.project_v4_graph_triplet(mutation=mut, triplet=triplet)
+    await dao.project_v4_sql_assertion(mutation=mut, triplet=triplet)
     assertions = await dao.list_v4_assertions_for_mutation(str(mut["mutation_id"]))
     assert len(assertions) >= 1
     assertion = assertions[0]
@@ -118,7 +118,6 @@ async def test_internal_document_and_chunk_ids_do_not_lift_lexical_or_assertion_
                 agent_id="a",
                 dataset_ids=["d"],
                 query=query,
-                graph_enabled=False,
                 rrf_weights={"bm25": 1.0, "assertion": 0.0, "vector": 0.0, "graph": 0.0},
             )
             assert [r["assertion_id"] for r in bm25_results[:2]] == [
@@ -134,7 +133,6 @@ async def test_internal_document_and_chunk_ids_do_not_lift_lexical_or_assertion_
                 agent_id="a",
                 dataset_ids=["d"],
                 query=query,
-                graph_enabled=False,
                 rrf_weights={"bm25": 0.0, "assertion": 1.0, "vector": 0.0, "graph": 0.0},
             )
             assert [r["assertion_id"] for r in assertion_results[:2]] == [
@@ -229,7 +227,7 @@ async def test_catalog_mapped_physical_id_digits_do_not_lift_document(tmp_path):
                     await dao.project_v4_sql_entity(
                         mutation=mut, entity_name=str(triplet["tail"])
                     )
-                await dao.project_v4_graph_triplet(mutation=mut, triplet=triplet)
+                await dao.project_v4_sql_assertion(mutation=mut, triplet=triplet)
             async with sql.transaction() as db:
                 await db.execute(
                     "UPDATE memory_mutations SET state = 'COMMITTED' WHERE mutation_id = ?",
@@ -257,7 +255,6 @@ async def test_catalog_mapped_physical_id_digits_do_not_lift_document(tmp_path):
             agent_id="a",
             dataset_ids=["d"],
             query=f"tahliye {secret_digits}",
-            graph_enabled=False,
         )
         assert [r["assertion_id"] for r in results[:2]] == [
             assertions_by_ext[ext_a]["assertion_id"],
@@ -290,7 +287,6 @@ async def test_fts_does_not_match_internal_mesa_prefix_tokens(tmp_path):
                 agent_id="a",
                 dataset_ids=["d"],
                 query=query,
-                graph_enabled=False,
             )
             assert results == [], f"query {query!r} unexpectedly matched internal id"
     finally:
@@ -330,7 +326,6 @@ async def test_caller_visible_source_ref_and_entity_names_still_score(tmp_path):
             agent_id="a",
             dataset_ids=["d"],
             query="kira 4721",
-            graph_enabled=False,
         )
         assert by_ref[0]["assertion_id"] == doc_ref["assertion_id"]
         assert doc_plain["assertion_id"] in {r["assertion_id"] for r in by_ref}
@@ -340,7 +335,6 @@ async def test_caller_visible_source_ref_and_entity_names_still_score(tmp_path):
             agent_id="a",
             dataset_ids=["d"],
             query="kira 9911",
-            graph_enabled=False,
         )
         assert by_entity[0]["assertion_id"] == doc_ref["assertion_id"]
     finally:

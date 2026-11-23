@@ -763,7 +763,7 @@ async def test_integrated_retrieval_to_context_builder_flow(tmp_path) -> None:
     mock_graph.insert_assertion = AsyncMock()
 
     dao = MemoryDAO(
-        sqlite_engine=engine, vector_engine=mock_vec, graph_provider=mock_graph
+        sqlite_engine=engine, vector_engine=mock_vec
     )
 
     tenant_id = "tenant_e2e"
@@ -839,7 +839,7 @@ async def test_integrated_retrieval_to_context_builder_flow(tmp_path) -> None:
         "jurisdiction": "US",
         "authority_level": "OFFICIAL",
     }
-    await dao.project_v4_graph_triplet(mutation=mut, triplet=triplet)
+    await dao.project_v4_sql_assertion(mutation=mut, triplet=triplet)
     await dao.record_mutation_extraction(agent_id, mut["mutation_id"], [triplet])
     assert await dao.set_mutation_state(agent_id, mut["mutation_id"], "VALIDATED")
 
@@ -893,7 +893,7 @@ async def test_tenant_context_isolation_spot_check(tmp_path) -> None:
     mock_graph.insert_assertion = AsyncMock()
 
     dao = MemoryDAO(
-        sqlite_engine=engine, vector_engine=mock_vec, graph_provider=mock_graph
+        sqlite_engine=engine, vector_engine=mock_vec
     )
 
     # Setup Tenant A with dataset "main"
@@ -978,7 +978,7 @@ async def test_tenant_context_isolation_spot_check(tmp_path) -> None:
         "literal_value": "Tenant A Confidentials",
         "confidence": 1.0,
     }
-    await dao.project_v4_graph_triplet(mutation=mut_a, triplet=t_a)
+    await dao.project_v4_sql_assertion(mutation=mut_a, triplet=t_a)
     await dao.record_mutation_extraction("agent_common", mut_a["mutation_id"], [t_a])
     assert await dao.set_mutation_state(
         "agent_common", mut_a["mutation_id"], "VALIDATED"
@@ -1011,7 +1011,7 @@ async def test_tenant_context_isolation_spot_check(tmp_path) -> None:
         "literal_value": "Tenant B Confidentials",
         "confidence": 1.0,
     }
-    await dao.project_v4_graph_triplet(mutation=mut_b, triplet=t_b)
+    await dao.project_v4_sql_assertion(mutation=mut_b, triplet=t_b)
     await dao.record_mutation_extraction("agent_common", mut_b["mutation_id"], [t_b])
     assert await dao.set_mutation_state(
         "agent_common", mut_b["mutation_id"], "VALIDATED"

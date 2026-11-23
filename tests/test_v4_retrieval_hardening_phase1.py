@@ -82,7 +82,7 @@ async def _create_committed_mutation(
     if evidence_span:
         triplet["evidence_span"] = evidence_span
 
-    await dao.project_v4_graph_triplet(mutation=mut, triplet=triplet)
+    await dao.project_v4_sql_assertion(mutation=mut, triplet=triplet)
     assertions = await dao.list_v4_assertions_for_mutation(str(mut["mutation_id"]))
     assert len(assertions) >= 1
     assertion = assertions[0]
@@ -123,13 +123,8 @@ async def test_phase1_evidence_level_specificity_and_provenance_isolation(tmp_pa
         upsert=AsyncMock(),
         search=AsyncMock(),
     )
-    graph = SimpleNamespace(
-        insert_node=AsyncMock(),
-        insert_assertion=AsyncMock(),
-        link_assertions=AsyncMock(),
-    )
 
-    dao = MemoryDAO(engine, vector, graph)
+    dao = MemoryDAO(engine, vector)
     tenant_id = "tenant-p1"
     agent_id = "agent-p1"
     dataset_id = "dataset-p1"
@@ -223,13 +218,8 @@ async def test_phase1_endpoint_expansion_does_not_displace_vector_rank(tmp_path)
         upsert=AsyncMock(),
         search=AsyncMock(),
     )
-    graph = SimpleNamespace(
-        insert_node=AsyncMock(),
-        insert_assertion=AsyncMock(),
-        link_assertions=AsyncMock(),
-    )
 
-    dao = MemoryDAO(engine, vector, graph)
+    dao = MemoryDAO(engine, vector)
     tenant_id = "tenant-p1"
     agent_id = "agent-p1"
     dataset_id = "dataset-p1"

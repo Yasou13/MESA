@@ -14,7 +14,7 @@ async def test_tenant_workspace_dataset_boundary_isolation(tmp_path):
     await engine.initialize()
     await initialize_schema(engine)
 
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=None, graph_provider=None)
+    dao = MemoryDAO(sqlite_engine=engine, vector_engine=None)
 
     # 1. Register Dataset A under Tenant A / Workspace A
     await dao.create_v4_workspace(

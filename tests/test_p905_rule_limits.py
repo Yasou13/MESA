@@ -173,7 +173,7 @@ def test_compiled_patterns_have_only_bounded_terminal_repetitions():
 async def test_admission_and_decision_query_extract_off_the_event_loop(
     model_runtime, monkeypatch
 ):
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         from mesa_storage.legal_identity import LegalEntityResolver
 
         main_thread = threading.get_ident()
@@ -205,7 +205,6 @@ async def test_admission_and_decision_query_extract_off_the_event_loop(
             dataset_ids=["main"],
             query="2017/885 E., 2021/693 K.",
             limit=5,
-            graph_enabled=False,
         )
         assert len(calls) > admitted
         assert resolved
@@ -216,7 +215,6 @@ async def test_admission_and_decision_query_extract_off_the_event_loop(
             dataset_ids=["main"],
             query="TBK m. 49",
             limit=5,
-            graph_enabled=False,
         )
         await asyncio.sleep(0)
 
@@ -241,7 +239,7 @@ async def test_document_chunking_and_resume_alternative_run_off_loop(
             return original(text)
 
         monkeypatch.setattr(v4_router, name, checked)
-    async with model_runtime(MESA_CHUNKING=plan, MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime(MESA_CHUNKING=plan) as env:
         original_admit = type(env.dao).admit_v4_memory
         count = 0
 
@@ -279,7 +277,7 @@ async def test_whole_document_validation_runs_off_loop(model_runtime, monkeypatc
         return original(content, metadata)
 
     monkeypatch.setattr(v4_router, "validate_write_payload", checked)
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         await _add(env, " " * 32768 + "2020/1 x")
     assert large_checks == [32776]
 
@@ -288,7 +286,7 @@ async def test_whole_document_validation_runs_off_loop(model_runtime, monkeypatc
 async def test_deferred_document_validation_keeps_rejection_contract(model_runtime):
     from tests.test_document_ingestion import _payload, _rows
 
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         cases = [
             ({"content": " "}, 422, "content must not be empty"),
             ({"content": "secret: example-placeholder"}, 422, "appears to contain a secret"),

@@ -196,7 +196,7 @@ def test_fallback_origin_is_independent_of_identity_source(source, document_chun
 
 @pytest.mark.asyncio
 async def test_document_origin_marker_is_internal_and_durable(model_runtime):
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         added = await _add(
             env,
             "Kanun Numarası: 6098\nMADDE 49- Tazminat hükmü.\n"
