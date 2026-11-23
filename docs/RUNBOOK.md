@@ -2,7 +2,7 @@
 
 Bu runbook v4 full-cognitive release candidate için kanonik operasyon
 rehberidir. Production kararı Final MVP Certification tamamlanana kadar
-`NO-GO`dur. V3 lexical-core uyumluluk işlemleri ayrıca belirtilir.
+`NO-GO`dur.
 
 ## 1. Desteklenen v4 topology
 
@@ -25,7 +25,7 @@ validation policy gerekir; [kurulum](getting-started.md#installation) ve
 
 Aynı storage root’u ikinci API, worker veya combined process’e yazılabilir
 olarak mount etmeyin. Yatay ölçekleme öncesi storage ownership protokolü
-gerekir. V3 ile v4 farklı fiziksel storage root kullanmalıdır.
+gerekir.
 
 <a id="credential-bootstrap"></a>
 
@@ -140,9 +140,8 @@ projection'ları rebuildable derived state'tir ve yalnız exclusive writer-lock
 boundary altında kopyalanır.
 
 Restore mevcut hedefi ezmemelidir. Backup'ı yeni boş root'a, uyumlu kod ve
-config ile geri yükleyip doğrulayın. V3 verisini V4'e taşımak ayrı kaynak/catalog
-eşleme ve V4 ingestion çalışmasıdır; projection runner V3→V4 dönüştürücüsü
-değildir. [Migration rehberi](RUNBOOK.md#upgrade-v080) V4 yükseltmesini açıklar.
+config ile geri yükleyip doğrulayın. [Migration rehberi](RUNBOOK.md#upgrade-v080)
+V4 yükseltmesini ve eski V3 kaynaklarının aktarımını açıklar.
 Backup rollback süresi boyunca korunur.
 
 V4 projection rebuild'inin submit → drain → stop → offline
@@ -293,9 +292,10 @@ SQLite URL and absolute `script_location` pointing to this release's migrations:
 
 The path is an operator example, not a configuration supplied by the repository.
 Use a verified restored staging root and the matching release environment.
-This migrates canonical V4 schema; the [projection runner](v4-rebuild-runbook.md)
-rebuilds its derived stores. Neither procedure is a general V3 content converter.
-V3 content needs explicit source/catalog mapping and V4 ingestion into a separate root.
+This migrates canonical V4 schema. The [projection runner](v4-rebuild-runbook.md)
+rebuilds its derived stores. To bring content from a legacy V3 deployment,
+preserve its backup and ingest the original sources into a separate V4 root
+with an explicit source/catalog mapping.
 
 ### Upgrade and rollback sequence
 
@@ -308,5 +308,5 @@ V3 content needs explicit source/catalog mapping and V4 ingestion into a separat
 
 Alembic downgrade is not the rollback strategy. Restore a verified prior backup
 into a new empty root using the matching prior code/config, then validate before
-switching traffic. V3 and V4 never share writable physical storage. Do not alter
-official certification evidence as part of upgrade verification.
+switching traffic. Do not alter official certification evidence as part of
+upgrade verification.

@@ -15,7 +15,7 @@ V3 whitepaper is available in Git history; see the
 | `mesa_storage` | Canonical SQLite, catalog repositories, ownership, retrieval and projection providers |
 | `mesa_memory` | Runtime configuration, extraction/validation, embedding, context, security and rebuild orchestration |
 | `mesa_workers` | Durable ingestion, projection and maintenance consumers |
-| `mesa_api` | HTTP schemas, authorized V3/V4 routes and control API |
+| `mesa_api` | HTTP schemas, authorized V4 memory routes and control API |
 | `mesa_client` | Sync/async HTTP clients and optional integrations |
 | `mesa_mcp` | MCP service adapters, gateway, bindings and client lifecycle |
 | `mesa_evals` | Local repository diagnostics and deterministic retrieval contract tooling (not packaged in wheel) |
@@ -32,10 +32,6 @@ boundary. See ADRs [0012](adr/0012-memory-dao-repository-boundaries.md) and
 V4 has one supported storage-writing topology: one `combined` process owns
 SQLite, LanceDB and Kùzu. API admission and background consumers run in that
 process. A second writer must never mount the same storage root.
-
-V3 remains available as the lexical-core compatibility surface and keeps its
-existing API/worker topology. V3 and v4 must not write the same physical
-storage directories concurrently.
 
 Canonical v4 fact extraction is owned by `FactExtractionService`.
 
@@ -229,11 +225,10 @@ generation, recursive planning, decomposition or reranking.
 
 ## Migration and release
 
-V3 and V4 use separate storage roots. Moving V3 content into V4 requires an
-explicit source/catalog mapping and ingestion through the V4 contract; there
-is no general automatic V3-to-V4 converter documented here. The offline
-projection runner rebuilds derived stores from an existing V4 canonical ledger,
-not a new ledger from raw V3 data.
+MESA 0.9.4 removes the legacy V3 API and node store. To retain content from a
+V3 deployment, preserve its backup and ingest the original sources into a
+separate V4 root with an explicit source/catalog mapping. The offline
+projection runner rebuilds derived stores from an existing V4 canonical ledger.
 
 For V4 upgrades use [migration](RUNBOOK.md#upgrade-v080),
 [backup/restore](RUNBOOK.md#6-backup-restore-ve-v4-rebuild) and the

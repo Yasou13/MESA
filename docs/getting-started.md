@@ -206,7 +206,7 @@ credentials and operational provider endpoints are separate prerequisites.
 | Local model-disabled startup | `combined`, models/providers false | V4 storage and BM25 search without model calls |
 
 Choose a dedicated absolute writable storage root. Do not use the repository,
-home directory or filesystem root. V3 and V4 must not write the same root.
+home directory or filesystem root.
 Fresh combined startup initializes the databases automatically; keep SQLite,
 LanceDB, Kùzu and the policy database together under that root. The runtime has
 one owner: stop it before running offline admin or migration commands.
@@ -248,19 +248,13 @@ require the grants shown in the quickstart.
 V4 provisions local credentials automatically, with models and external
 providers off. Existing deployments may supply `MESA_API_KEY` and
 `MESA_PRINCIPAL_ID` privately. For model-enabled operation, set the model flags
-and provider configuration above:
+and provider configuration above. Run these commands from the repository root:
 
 ```bash
-docker compose -f docker-compose.v4.yml config --quiet
-docker compose -f docker-compose.v4.yml up --build -d
-docker compose -f docker-compose.v4.yml ps
-```
-
-For V3 lexical compatibility:
-
-```bash
+export COMPOSE_FILE=docker-compose.v4.yml
 docker compose config --quiet
 docker compose up --build -d
+docker compose ps
 ```
 
 Compose publishes the API on loopback. V4 mounts its named volume under
@@ -274,8 +268,8 @@ models disabled supports V4 storage and BM25 search.
 
 Use [migration](RUNBOOK.md#upgrade-v080) for schema/representation upgrades,
 [backup and restore](RUNBOOK.md#6-backup-restore-ve-v4-rebuild) for recovery, and
-[projection rebuild](v4-rebuild-runbook.md) for the offline runner. Projection
-rebuild does not convert a V3 database to V4.
+[projection rebuild](v4-rebuild-runbook.md) for the offline runner, which
+rebuilds derived stores from an existing V4 ledger.
 
 Run [developer checks](testing.md) for the affected contracts. Passing these
 checks does not replace real-provider, migration/restore or soak release evidence.

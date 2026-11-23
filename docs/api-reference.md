@@ -178,9 +178,8 @@ sync clients support `client.close()`.
 `MesaV4Client` ve `AsyncMesaV4Client`; capability, catalog, session, insert,
 search, status, wait, replay, rollback, purge, context ve end işlemlerinin
 yanında `submit_rebuild`, `operation_status`, `cancel_operation` ve
-`retry_operation` control-plane metotlarını sunar. V3 istemcileri `MesaClient`
-ve `AsyncMesaClient` olarak korunur. Dataset-bound MCP yüzeyi mutating global
-rebuild aracı sunmaz.
+`retry_operation` control-plane metotlarını sunar. Dataset-bound MCP yüzeyi
+mutating global rebuild aracı sunmaz.
 
 ## V4 authorization
 

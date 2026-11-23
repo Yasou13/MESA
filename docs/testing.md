@@ -63,12 +63,12 @@ tekrarlanabilir contract ve artifact kanıtı üretir.
 | Secret | TruffleHog history scan + tracked-secret policy | security assurance |
 | Kod kalitesi | Ruff, sınırlı Black, production Mypy, override ratchet | job log |
 | V4 contract | API, SDK, catalog, ownership, Graph V2, projection, RRF, admin CLI | `v4-contract` |
-| V3 uyumluluk | Principal, queue, worker, finalization ve mevcut route testleri | core JUnit |
-| Güvenlik | V3 isolation + v4 tenant/workspace/dataset negatif testleri | security/v4 JUnit |
+| Core | Principal, queue, worker, finalization ve route testleri | core JUnit |
+| Güvenlik | V4 tenant/workspace/dataset negatif izolasyon testleri | security/v4 JUnit |
 | Migration/DR | Alembic closure, recovery, v4 rebuild/projection testleri | migration/DR |
-| Package | Wheel install, v3/v4 imports, admin CLI smoke | package report |
+| Package | Wheel install, V4 imports, admin CLI smoke | package report |
 | Retrieval contract | Core deterministic RRF ablation and closure manifest | `v4-contract`; comparative benchmark evidence is external |
-| Container | Non-root image, v3 Compose ve v4 single-combined Compose | Docker logs |
+| Container | Non-root image ve V4 single-combined Compose | Docker logs |
 | Doküman | Belgelenmiş CLI/import/Compose komutları | docs smoke |
 | Coverage | Full test coverage threshold | HTML/XML report |
 

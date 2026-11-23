@@ -61,8 +61,8 @@ Release commit’inde şu workflow’lar geçmelidir:
 - Benchmark contractları ve dataset filtreli RRF ablation artifact’ı:
   eski `Benchmark data quality` workflow’u Core’dan çıkarılmıştır; ayrı
   `mesa_benchmark` kanıtı aynı release commitine bağlanmalıdır. Yokluğu PASS değildir;
-- `MESA external release gates`: v3 compatibility Compose, v4 combined Compose,
-  flow, bounded capacity ve executable docs.
+- `MESA external release gates`: v4 combined Compose, flow, bounded capacity ve
+  executable docs.
 
 24 saat soak GitHub hosted runner süresine sığdırılmaz; production-benzeri
 ortamda dışarıda yürütülür. Başlangıç/bitiş zamanı, image digest, config hash,
@@ -109,7 +109,8 @@ Release artifact’ları şunları birlikte taşır:
 - benchmark ve soak evidence.
 
 Restore mevcut hedefi asla ezmez. Parity veya health kapısı başarısızsa cutover
-yapılmaz; eski storage ve v3 compatibility servisi korunur.
+yapılmaz. Geri dönüş için önceki storage yedeği ile uyumlu kod ve yapılandırma
+korunur.
 
 ## Yayınlama (yalnızca depo sahibi)
 

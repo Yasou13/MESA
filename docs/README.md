@@ -47,8 +47,8 @@ kurallarıdır; Markdown rehberi değildir.
 ## Belgeleri güncel tutma
 
 Her konu için yukarıdaki ana belgeyi güncelleyin; aynı konuyu anlatan yeni
-“final/latest/current” dosyaları açmayın. API/paket sürümü, V3/V4 ayrımı,
-uygulanmış özellik ve ölçülmüş sonuç birbirine karıştırılmamalıdır.
+“final/latest/current” dosyaları açmayın. API sürümünü, paket sürümünü ve
+ölçülmüş sonuçların ait olduğu sürümü açıkça belirtin.
 Üretim uygunluğu [release kapıları](release.md) ile değerlendirilir; birim test
 başarısı veya sürüm numarası production GO değildir.
 
