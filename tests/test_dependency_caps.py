@@ -13,7 +13,7 @@ def test_critical_dependencies_have_upper_version_caps():
 
     for package, cap in {
         "fastapi": "0.142",
-        "lancedb": "0.35",
+        "lancedb": "0.42",
         "pydantic": "3",
     }.items():
         assert Specifier(f"<{cap}") in set(requirements[package].specifier)

@@ -40,7 +40,7 @@ dependencies = [
     "pydantic>=2.13.0,<3",
     "pydantic-settings>=2.14.0",
     # Data & Storage
-    "lancedb>=0.30.0,<0.35",
+    "lancedb>=0.30.0,<0.42",
     "pyarrow>=24.0.0",
     # Numerical / Scientific
     "numpy>=2.2.0",
