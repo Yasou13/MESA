@@ -21,8 +21,6 @@ COMPOSITION_ROOTS = {
 LEGAL_MODULES = ("mesa_storage.legal_identity", "mesa_storage.legal_rules")
 LEGAL_IMPORTERS = {
     "mesa_api/v4_router.py",
-    # Remove this compatibility exception in the Round 22 cleanup.
-    "mesa_memory/retrieval/legal_resolver.py",
     "mesa_storage/dao.py",
     # Revisit this graph exception with the Round 23 Kùzu decision.
     "mesa_storage/kuzu_provider.py",

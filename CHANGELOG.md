@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   optional fact extraction (`MESA_EXTRACTION_ENABLED=true`) runs directly via
   `FactExtractionService`. Removed settings log one startup warning and are
   ignored.
+- Retired unused gateway scaffolding and internal retrieval compatibility
+  modules. Adaptive retrieval retains its Turkish query normalization and
+  citation checks.
 
 ### Changed
 

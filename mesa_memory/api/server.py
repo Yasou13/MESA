@@ -360,7 +360,6 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         canonical_v4_writes_enabled=(runtime.profile is RuntimeProfile.COMBINED),
         embedding_enabled=runtime.embedding_enabled,
         graph_enabled=runtime.graph_enabled,
-        secondary_writes_enabled=runtime.profile is RuntimeProfile.COMBINED,
         rrf_k=config.rrf_k,
         rrf_weights={
             "vector": config.rrf_vector_weight,

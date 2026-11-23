@@ -7,7 +7,7 @@
 #   - Observed rel table: Weighted directed edges with temporal tracking
 #     and epistemic uncertainty for hallucination detection
 #   - All DDL is idempotent (CREATE ... IF NOT EXISTS)
-#   - ALTER TABLE migrations handle column additions on existing DBs
+#   - Existing databases are migrated by the offline coordinator
 #
 # Index Strategy:
 #   KùzuDB automatically creates a hash index on every PRIMARY KEY column.
@@ -84,26 +84,6 @@ _CREATE_ASSERTION_OBJECT = (
 _CREATE_ASSERTION_LINK = "CREATE REL TABLE IF NOT EXISTS AssertionLink (FROM Assertion TO Assertion, relation_type STRING)"
 
 # ---------------------------------------------------------------------------
-# Schema migrations — ALTER TABLE for existing databases
-# ---------------------------------------------------------------------------
-# CREATE TABLE IF NOT EXISTS only prevents table re-creation; it does NOT
-# add new columns to tables that already exist.  These ALTER statements
-# handle column additions on databases created before Phase 4.1.
-
-_MIGRATIONS: list[tuple[str, str]] = [
-    # (description, Cypher DDL)
-    (
-        "Entity.is_quarantined",
-        "ALTER TABLE Entity ADD is_quarantined BOOLEAN DEFAULT false",
-    ),
-    (
-        "Observed.epistemic_uncertainty",
-        "ALTER TABLE Observed ADD epistemic_uncertainty FLOAT DEFAULT 0.0",
-    ),
-]
-
-
-# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -119,12 +99,6 @@ def initialize_schema_artifact(db_path: str) -> None:
     immediately.  This avoids holding a long-lived connection at module
     scope, which would cause OS-level file-lock contention in the
     embedded C++ engine.
-
-    After table creation, runs idempotent ``ALTER TABLE ... ADD`` migrations
-    for columns introduced in Phase 4.1 (``is_quarantined``,
-    ``epistemic_uncertainty``).  Each migration is wrapped in a
-    try/except so that repeated runs on already-migrated databases
-    are no-ops.
 
     Index Strategy
     ~~~~~~~~~~~~~~
@@ -179,29 +153,3 @@ def initialize_schema(db_path: str) -> None:
     from mesa_storage.kuzu_schema_migration import ensure_schema_ready
 
     ensure_schema_ready(Path(db_path))
-
-
-def _apply_migrations(conn: kuzu.Connection) -> None:
-    """Run idempotent ALTER TABLE migrations for Phase 4.1+ columns.
-
-    Each migration is individually wrapped so that a failure on one
-    (e.g. column already exists) does not block subsequent migrations.
-    """
-    for description, ddl in _MIGRATIONS:
-        try:
-            conn.execute(ddl)
-            logger.info("KUZU_MIGRATION | applied: %s", description)
-        except RuntimeError as exc:
-            # KùzuDB raises RuntimeError when a column already exists.
-            # This is expected on repeated startups — log and continue.
-            if "already exists" in str(exc).lower() or "exist" in str(exc).lower():
-                logger.debug(
-                    "KUZU_MIGRATION | skipped (already applied): %s",
-                    description,
-                )
-            else:
-                logger.warning(
-                    "KUZU_MIGRATION | failed: %s — %s",
-                    description,
-                    exc,
-                )

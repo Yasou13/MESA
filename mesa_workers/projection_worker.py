@@ -39,10 +39,6 @@ class PermanentProjectionError(ValueError):
     """A ledger payload cannot be projected by retrying it."""
 
 
-class ProjectionLeaseLostError(RuntimeError):
-    """The projector no longer owns its fenced outbox claim."""
-
-
 def _normalized_confidence(value: Any) -> float:
     """Normalize the optional extraction confidence at the projection boundary."""
     if value is None:

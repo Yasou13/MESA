@@ -13,7 +13,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Callable, Literal, Optional, TypeVar
+from typing import Any, Callable, Literal, Optional
 from urllib.parse import quote
 
 import httpx
@@ -22,8 +22,6 @@ from typing_extensions import Self
 from mesa_api.schemas import ErrorResponse
 
 logger = logging.getLogger(__name__)
-
-T = TypeVar("T")
 
 RECOMMENDED_SYSTEM_PROMPT = (
     "You are an AI assistant answering questions using retrieved memory evidence.\n"

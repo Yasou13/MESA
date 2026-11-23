@@ -431,15 +431,6 @@ class VectorEngine:
             "semantic embedding runtime is disabled or no canonical embedding service is available"
         )
 
-    def _sync_compute_embedding_batch(self, texts: list[str]) -> list[list[float]]:
-        if not texts:
-            return []
-        if self._embedding_service is not None:
-            return self._embedding_service.embed_batch(texts)
-        raise SemanticRuntimeDisabledError(
-            "semantic embedding runtime is disabled or no canonical embedding service is available"
-        )
-
     # ------------------------------------------------------------------
     # Write operations
     # ------------------------------------------------------------------

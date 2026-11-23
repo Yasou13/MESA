@@ -22,8 +22,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from mesa_memory.consolidation.schemas import MemoryCandidate
-from mesa_memory.retrieval.legal_resolver import LegalEntityResolver
 from mesa_storage.dao import MemoryDAO, _normalize_identity_text
+from mesa_storage.legal_identity import LegalEntityResolver
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 

@@ -33,7 +33,6 @@ def test_production_legal_imports_stay_within_the_allow_list() -> None:
 def test_legal_import_guard_allows_existing_importers_and_ignores_tests(tmp_path: Path) -> None:
     for relative in (
         "mesa_api/v4_router.py",
-        "mesa_memory/retrieval/legal_resolver.py",
         "mesa_storage/dao.py",
         "mesa_storage/kuzu_provider.py",
         "mesa_storage/legal_identity.py",

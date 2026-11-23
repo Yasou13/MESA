@@ -20,8 +20,8 @@ from mesa_memory.retrieval.adaptive import (
     normalize_planner_query,
     retrieval_is_weak,
 )
-from mesa_memory.retrieval.legal_resolver import LegalEntityResolver
 from mesa_storage.dao import MemoryDAO
+from mesa_storage.legal_identity import LegalEntityResolver
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_workers.projection_worker import process_projection_outbox_once

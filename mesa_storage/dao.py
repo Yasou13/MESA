@@ -1,8 +1,7 @@
 """Compatibility facade and canonical V4 storage orchestration.
 
 SQLite owns V4 catalog, assertions, mutations, source/artifact ownership and
-ordered projection outboxes. LanceDB and Kùzu are derived projections. V3
-methods retain legacy agent/session partitioning; V4 uses server-verified
+ordered projection outboxes. LanceDB and Kùzu are derived projections. V4 uses server-verified
 principal/tenant/workspace/dataset/session scope and explicit storage filters.
 An agent ID alone is not a tenant credential or an absolute isolation guarantee.
 
@@ -40,6 +39,7 @@ from mesa_storage.legal_identity import (
     LegalEntityResolver,
     canonicalize_trusted_legal_identity,
     normalize_law_name,
+    normalize_turkish,
 )
 from mesa_storage.rebuild_health import RebuildHealthReader
 from mesa_storage.repositories.catalog import CatalogRepository, CatalogRepositoryPort
@@ -317,11 +317,26 @@ def _normalize_identity_text(value: str) -> str:
     return _WHITESPACE_RE.sub(" ", cleaned.strip()).casefold()
 
 
-def _escape_like_pattern(value: str) -> str:
-    """Escape % and _ wildcards and backslash for SQLite LIKE ? ESCAPE '\\'."""
-    if not value:
-        return ""
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+def normalize_planner_query(query: str) -> str:
+    """Apply Unicode, Turkish case and whitespace normalization."""
+    return " ".join(normalize_turkish(unicodedata.normalize("NFKC", query)).split())
+
+
+def introduces_legal_citation(original: str, expansion: str) -> bool:
+    """Reject new statutes or articles introduced by a query reformulation."""
+    resolver = LegalEntityResolver()
+    original_citations = {
+        (citation.statute_code, citation.article)
+        for citation in resolver.extract_citations(original)
+    }
+    original_statutes = {statute for statute, _ in original_citations}
+    for citation in resolver.extract_citations(expansion):
+        statute, article = citation.statute_code, citation.article
+        if statute not in original_statutes:
+            return True
+        if article is not None and (statute, article) not in original_citations:
+            return True
+    return False
 
 
 def _normalize_ontology_uri(value: str) -> str:
@@ -529,7 +544,6 @@ class MemoryDAO:
         "_rebuild_admission",
         "_rebuild_health",
         "_canonical_v4_writes_enabled",
-        "_secondary_writes_enabled",
         "_embedding_enabled",
         "_graph_enabled",
         "_rrf_k",
@@ -550,7 +564,6 @@ class MemoryDAO:
         graph_provider: KuzuGraphProvider | None = None,
         *,
         canonical_v4_writes_enabled: bool = True,
-        secondary_writes_enabled: bool = True,
         embedding_enabled: bool = True,
         graph_enabled: bool = True,
         rrf_k: int = V4_RRF_DEFAULT_K,
@@ -568,7 +581,6 @@ class MemoryDAO:
         self._rebuild_admission = RebuildAdmissionReader(sqlite_engine)
         self._rebuild_health = RebuildHealthReader(sqlite_engine)
         self._canonical_v4_writes_enabled = canonical_v4_writes_enabled
-        self._secondary_writes_enabled = secondary_writes_enabled
         self._embedding_enabled = embedding_enabled
         self._graph_enabled = graph_enabled
         self._rrf_k = rrf_k
