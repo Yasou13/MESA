@@ -59,7 +59,6 @@ from mesa_storage.dao import (
     QueueRecordTooLargeError,
     QueueUnavailableError,
 )
-from mesa_storage.kuzu_provider import GraphSearchError
 from mesa_storage.legal_identity import canonicalize_trusted_legal_identity
 from mesa_storage.repositories.catalog import CatalogIdentityNotFoundError
 from mesa_storage.repositories.operations import (
@@ -100,7 +99,7 @@ class V4CapabilityFlags(BaseModel):
     lexical_retrieval: bool = True
     assertion_relational_lane: bool = True
     validity_interval_filtering: bool = True
-    graph_projection: bool = True
+    graph_projection: bool = False
     graph_neighbor_retrieval: bool = False
     associative_ppr: bool = False
     bitemporal_query: bool = False
@@ -387,19 +386,6 @@ class V4ScopeAudit(BaseModel):
     exclusion_audit_hash: str
 
 
-class V4GraphAblation(BaseModel):
-    """Versioned identity for a supported graph ON/OFF matched execution."""
-
-    model_config = ConfigDict(frozen=True)
-
-    contract_version: str
-    mode: Literal["enabled", "disabled"]
-    pair_identity: str
-    query_identity: str
-    retrieval_config_identity: str
-    scope_identity: str
-
-
 class V4VectorLaneDiagnostics(BaseModel):
     """Bounded explanation of vector-lane availability for one search."""
 
@@ -429,7 +415,6 @@ class V4SearchResponse(BaseModel):
     results: list[dict[str, Any]]
     degraded_sources: list[str] = []
     scope_audit: V4ScopeAudit | None = None
-    graph_ablation: V4GraphAblation | None = None
     vector_lane: V4VectorLaneDiagnostics | None = None
 
 
@@ -958,7 +943,6 @@ def create_v4_router(
             vector_contract_available = (
                 vector_consumer.get("compatible_registry_artifacts", 0) > 0
             )
-        graph_available = getattr(dao, "graph_operational", False)
         canonical_writes_available = dao.canonical_v4_writes_enabled is not False
         capabilities = V4CapabilityFlags(
             projection_outbox=canonical_writes_available,
@@ -969,11 +953,8 @@ def create_v4_router(
                 if isinstance(vector_available, bool)
                 else False
             ),
-            graph_projection=canonical_writes_available
-            and dao.graph_enabled is not False,
-            graph_neighbor_retrieval=(
-                graph_available if isinstance(graph_available, bool) else False
-            ),
+            graph_projection=False,
+            graph_neighbor_retrieval=False,
         )
         val_cap = V4ValidationCapability(
             mode=0,
@@ -1476,7 +1457,6 @@ def create_v4_router(
                     payload.valid_from.isoformat() if payload.valid_from else None
                 ),
                 valid_to=payload.valid_to.isoformat() if payload.valid_to else None,
-                graph_enabled=payload.graph_mode == "enabled",
                 request_principal_id=str(principal.principal_id),
                 certification_metadata=certification_metadata,
             )
@@ -1495,11 +1475,6 @@ def create_v4_router(
             raise HTTPException(
                 status_code=503,
                 detail="vector_backend_unavailable",
-            )
-        except GraphSearchError:
-            raise HTTPException(
-                status_code=503,
-                detail="graph_backend_unavailable",
             )
         return {
             "session_id": payload.session_id,
@@ -1694,11 +1669,6 @@ def create_v4_router(
             raise HTTPException(
                 status_code=503,
                 detail="vector_backend_unavailable",
-            )
-        except GraphSearchError:
-            raise HTTPException(
-                status_code=503,
-                detail="graph_backend_unavailable",
             )
         mutations = await dao.list_session_mutation_summaries(
             agent_id, session_id, limit=20

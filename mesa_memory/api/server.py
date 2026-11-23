@@ -15,7 +15,6 @@ from mesa_memory.observability.logger import setup_logging
 
 setup_logging(role="api")
 
-import kuzu
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -46,7 +45,6 @@ from mesa_memory.observability.metrics import (
 from mesa_memory.security.api_keys import APIKeyStore
 from mesa_memory.security.rbac import AccessControl
 from mesa_storage.dao import MemoryDAO
-from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.projection_generations import (
     ProjectionGenerationRepository,
     ProjectionPaths,
@@ -151,8 +149,6 @@ async def get_api_key(request: Request, api_key: str = Depends(_API_KEY_HEADER))
 class AppState:
     sqlite_engine: AsyncEngine
     vector_engine: VectorEngine
-    kuzu_db: kuzu.Database
-    graph_provider: KuzuGraphProvider
     dao: MemoryDAO
     fact_extraction_service: FactExtractionService | None
     access_control: AccessControl
@@ -171,21 +167,18 @@ state = AppState()
 _STORAGE_BASE: Path | None = None
 _SQLITE_PATH: Path | None = None
 _VECTOR_PATH: Path | None = None
-_KUZU_PATH: Path | None = None
 
 
 def _configure_runtime_paths(runtime: RuntimeProfileConfig) -> None:
-    global _STORAGE_BASE, _SQLITE_PATH, _VECTOR_PATH, _KUZU_PATH
+    global _STORAGE_BASE, _SQLITE_PATH, _VECTOR_PATH
     _STORAGE_BASE = runtime.storage_root
     _SQLITE_PATH = _STORAGE_BASE / "mesa.db"
     _VECTOR_PATH = None
-    _KUZU_PATH = None
 
 
 def _configure_projection_paths(paths: ProjectionPaths) -> None:
-    global _VECTOR_PATH, _KUZU_PATH
+    global _VECTOR_PATH
     _VECTOR_PATH = paths.vector_path
-    _KUZU_PATH = paths.graph_path
 
 
 def _acquire_runtime_writer_lock(
@@ -325,48 +318,17 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
     )
     await state.vector_engine.initialize()
 
-    graph_provider = None
-    if runtime.graph_enabled:
-        # Initialize KùzuDB embedded graph database (disk-backed).
-        # NOTE: Only the Database handle is created here. kuzu.Connection
-        # instances must be created per-thread to avoid file-lock contention.
-        if _KUZU_PATH is not None:
-            _KUZU_PATH.parent.mkdir(parents=True, exist_ok=True)
-        # type: ignore[union-attr]
-        logger.info("KUZU_SCHEMA_INITIALIZATION_STARTED")
-        from mesa_storage import kuzu_setup
-
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, kuzu_setup.initialize_schema, str(_KUZU_PATH))
-        logger.info("KUZU_SCHEMA_INITIALIZATION_COMPLETED")
-
-        state.kuzu_db = await loop.run_in_executor(None, kuzu.Database, str(_KUZU_PATH))
-        logger.info("KùzuDB initialised at %s", _KUZU_PATH)
-        logger.info("KUZU_DATABASE_OPENED")
-
-        # Initialize the async-safe KuzuGraphProvider for edge operations.
-        graph_provider = KuzuGraphProvider(
-            db_path=str(_KUZU_PATH),
-            search_timeout_seconds=config.v4_graph_timeout_seconds,
-        )
-        await graph_provider.initialize()
-
-    state.graph_provider = graph_provider  # type: ignore[assignment]
-
     # Wire the unified Data Access Object
     state.dao = MemoryDAO(
         sqlite_engine=state.sqlite_engine,
         vector_engine=state.vector_engine,
-        graph_provider=graph_provider,
         canonical_v4_writes_enabled=(runtime.profile is RuntimeProfile.COMBINED),
         embedding_enabled=runtime.embedding_enabled,
-        graph_enabled=runtime.graph_enabled,
         rrf_k=config.rrf_k,
         rrf_weights={
             "vector": config.rrf_vector_weight,
             "bm25": config.rrf_bm25_weight,
             "assertion": config.rrf_assertion_weight,
-            "graph": config.rrf_graph_weight,
         },
         search_scope_cache_enabled=config.search_scope_cache,
         legal_rules_enabled=config.legal_rules_enabled,
@@ -379,8 +341,6 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         await state.dao.recover_in_flight_projection_and_dispatch()
         if runtime.embedding_enabled:
             await state.dao.requeue_skipped_vector_projections()
-        if runtime.graph_enabled:
-            await state.dao.requeue_skipped_vector_projections(projection_name="GRAPH")
 
     # The MCP control plane shares the API's single SQLite storage
     # owner.  It must not construct or close a second AsyncEngine lifecycle.
@@ -475,24 +435,6 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
 
     state.fact_extraction_service = None
 
-    # Close KuzuGraphProvider — releases its per-instance connection
-    if hasattr(state, "graph_provider") and state.graph_provider:
-        try:
-            await state.graph_provider.close()
-            delattr(state, "graph_provider")
-            logger.info("KuzuGraphProvider closed successfully.")
-        except Exception as exc:
-            logger.warning("Failed to close KuzuGraphProvider: %s", exc)
-
-    # Close KùzuDB — releases the OS file lock on the database directory
-    if hasattr(state, "kuzu_db") and state.kuzu_db:
-        try:
-            state.kuzu_db.close()
-            delattr(state, "kuzu_db")
-            logger.info("KùzuDB closed successfully.")
-        except Exception as exc:
-            logger.warning("Failed to close KùzuDB: %s", exc)
-
     vector_engine = getattr(state, "vector_engine", None)
     if vector_engine:
         await vector_engine.close()
@@ -520,7 +462,7 @@ async def _close_runtime_storage_resources() -> None:
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
 
-    for attribute in ("graph_provider", "vector_engine", "access_control"):
+    for attribute in ("vector_engine", "access_control"):
         resource = getattr(state, attribute, None)
         close = getattr(resource, "close", None)
         if close is None:
@@ -538,15 +480,6 @@ async def _close_runtime_storage_resources() -> None:
     # lifespan authenticate against the wrong deployment database.
     if hasattr(state, "api_key_store"):
         delattr(state, "api_key_store")
-
-    database = getattr(state, "kuzu_db", None)
-    if database is not None:
-        try:
-            database.close()
-        except Exception as exc:
-            logger.warning("Failed to close kuzu_db: %s", exc)
-        else:
-            delattr(state, "kuzu_db")
 
     sqlite_engine = getattr(state, "sqlite_engine", None)
     if sqlite_engine is not None:
@@ -766,15 +699,9 @@ async def health_init():
         raise HTTPException(
             status_code=503, detail="Required workers degraded or blocked"
         )
-    graph_status = health.get("graph", {}).get("status")
-    graph_disabled = getattr(runtime, "graph_enabled", True) is False
     if (
         health.get("sqlite", {}).get("status") == "healthy"
         and health.get("vector", {}).get("status") == "healthy"
-        and (
-            graph_status in ("healthy", "not_initialized")
-            or (graph_disabled and "graph" not in health)
-        )
     ):
         return {"status": "ready"}  # type: ignore[no-untyped-def]
     raise HTTPException(status_code=503, detail="Backend services degraded")

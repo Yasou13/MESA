@@ -224,7 +224,6 @@ class BoundedAdaptiveQueryRetriever:
         valid_at: str | None = None,
         valid_from: str | None = None,
         valid_to: str | None = None,
-        graph_enabled: bool = True,
         request_principal_id: str | None = None,
     ) -> AdaptiveRetrievalResult:
         normalized_query = normalize_planner_query(query)
@@ -240,7 +239,6 @@ class BoundedAdaptiveQueryRetriever:
                 valid_at=valid_at,
                 valid_from=valid_from,
                 valid_to=valid_to,
-                graph_enabled=graph_enabled,
                 request_principal_id=request_principal_id,
             )
 

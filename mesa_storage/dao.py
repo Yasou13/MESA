@@ -1,7 +1,7 @@
 """Compatibility facade and canonical V4 storage orchestration.
 
 SQLite owns V4 catalog, assertions, mutations, source/artifact ownership and
-ordered projection outboxes. LanceDB and Kùzu are derived projections. V4 uses server-verified
+ordered projection outboxes. LanceDB is a derived vector projection. V4 uses server-verified
 principal/tenant/workspace/dataset/session scope and explicit storage filters.
 An agent ID alone is not a tenant credential or an absolute isolation guarantee.
 
@@ -34,7 +34,6 @@ from urllib.parse import urlsplit, urlunsplit
 import aiosqlite
 
 from mesa_storage import legal_rules
-from mesa_storage.kuzu_provider import GraphSearchError, KuzuGraphProvider
 from mesa_storage.legal_identity import (
     LegalEntityResolver,
     canonicalize_trusted_legal_identity,
@@ -56,14 +55,11 @@ from mesa_storage.representation import (
     build_v4_assertion_vector_payload,
 )
 from mesa_storage.retrieval_scope import (
-    V4_GRAPH_ABLATION_CONTRACT_VERSION,
     V4_RRF_DEFAULT_K,
     V4_RRF_LANE_WEIGHTS,
     V4_SCOPE_AUDIT_CONTRACT_VERSION,
-    build_v4_lexical_query,
     rrf_fuse_lanes,
     stable_contract_hash,
-    stable_graph_path_id,
 )
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import (
@@ -562,11 +558,10 @@ class MemoryDAO:
     Every public method requires ``agent_id`` as its first positional
     argument.  All SQL queries embed ``WHERE agent_id = ?`` via
     parameterised binding.  All LanceDB filters embed
-    ``agent_id = '<value>'`` in the WHERE clause.  All Cypher queries
-    bind ``$agent_id`` via strict parameterisation.
+    ``agent_id = '<value>'`` in the WHERE clause.
 
-    Edge storage is owned exclusively by KùzuDB.  SQLite retains
-    ownership of canonical V4 tables and raw_logs.
+    SQLite owns canonical V4 tables and raw_logs; LanceDB stores derived
+    vector projections.
 
     This class does NOT own the lifecycle of the underlying engines —
     the caller is responsible for initialising and closing them.
@@ -574,21 +569,17 @@ class MemoryDAO:
     Args:
         sqlite_engine: An initialised ``AsyncEngine`` instance.
         vector_engine: An initialised ``VectorEngine`` instance.
-        graph_provider: An initialised ``KuzuGraphProvider`` instance
-                        for graph edge operations.
     """
 
     __slots__ = (
         "_sql",
         "_vec",
-        "_graph",
         "_catalog",
         "_operations",
         "_rebuild_admission",
         "_rebuild_health",
         "_canonical_v4_writes_enabled",
         "_embedding_enabled",
-        "_graph_enabled",
         "_rrf_k",
         "_rrf_weights",
         "_search_scope_cache_enabled",
@@ -604,11 +595,9 @@ class MemoryDAO:
         self,
         sqlite_engine: AsyncEngine,
         vector_engine: VectorEngine,
-        graph_provider: KuzuGraphProvider | None = None,
         *,
         canonical_v4_writes_enabled: bool = True,
         embedding_enabled: bool = True,
-        graph_enabled: bool = True,
         rrf_k: int = V4_RRF_DEFAULT_K,
         rrf_weights: Mapping[str, float] | None = None,
         search_scope_cache_enabled: bool = True,
@@ -618,14 +607,12 @@ class MemoryDAO:
     ) -> None:
         self._sql = sqlite_engine
         self._vec = vector_engine
-        self._graph = graph_provider
         self._catalog = CatalogRepository(sqlite_engine)
         self._operations = OperationRepository(sqlite_engine)
         self._rebuild_admission = RebuildAdmissionReader(sqlite_engine)
         self._rebuild_health = RebuildHealthReader(sqlite_engine)
         self._canonical_v4_writes_enabled = canonical_v4_writes_enabled
         self._embedding_enabled = embedding_enabled
-        self._graph_enabled = graph_enabled
         self._rrf_k = rrf_k
         self._rrf_weights = dict(rrf_weights or V4_RRF_LANE_WEIGHTS)
         self._search_scope_cache_enabled = search_scope_cache_enabled
@@ -662,30 +649,6 @@ class MemoryDAO:
     def embedding_enabled(self) -> bool:
         """Whether this runtime may produce or query semantic vectors."""
         return self._embedding_enabled
-
-    @property
-    def graph_enabled(self) -> bool:
-        """Whether this runtime may open, project or search the graph."""
-        return self._graph_enabled
-
-    @property
-    def graph_operational(self) -> bool:
-        """Return whether the graph provider is operational."""
-        if not self.graph_implementation_available:
-            return False
-        return getattr(self._graph, "is_operational", False) is True
-
-    @property
-    def graph_configured(self) -> bool:
-        """Return whether a graph provider was composed for this runtime."""
-        return self._graph is not None
-
-    @property
-    def graph_implementation_available(self) -> bool:
-        """Return whether the composed provider implements Graph V2 retrieval."""
-        return self._graph is not None and callable(
-            getattr(self._graph, "search_v4_graph", None)
-        )
 
     async def submit_system_operation(
         self,
@@ -2405,7 +2368,7 @@ class MemoryDAO:
                         embedding_dimension,
                     ),
                 )
-                for projection_name in ("SQL", "VECTOR", "GRAPH"):
+                for projection_name in ("SQL", "VECTOR"):
                     await db.execute(
                         "INSERT INTO projection_outbox (projection_id, mutation_id, projection_name, state) "
                         "VALUES (?, ?, ?, 'BLOCKED_VALIDATION')",
@@ -2608,7 +2571,7 @@ class MemoryDAO:
                     candidate.get("embedding_dimension"),
                 ),
             )
-            for projection_name in ("SQL", "VECTOR", "GRAPH"):
+            for projection_name in ("SQL", "VECTOR"):
                 await db.execute(
                     "INSERT OR IGNORE INTO projection_outbox (projection_id, mutation_id, projection_name, state) "
                     "VALUES (?, ?, ?, 'BLOCKED_VALIDATION')",
@@ -2667,7 +2630,7 @@ class MemoryDAO:
             # policy is satisfied. The durable rows exist now so a rejection
             # can be audited/cancelled, but consumers cannot claim them until
             # ``VALIDATED``.
-            for projection_name in ("SQL", "VECTOR", "GRAPH"):
+            for projection_name in ("SQL", "VECTOR"):
                 await db.execute(
                     "INSERT OR IGNORE INTO projection_outbox "
                     "(projection_id, mutation_id, projection_name, state) VALUES (?, ?, ?, 'BLOCKED_VALIDATION')",
@@ -3074,6 +3037,7 @@ class MemoryDAO:
                 "CANCELLED",
             },
             "VECTOR_APPLIED": {
+                "COMMITTED",
                 "GRAPH_APPLIED",
                 "RETRY_PENDING",
                 "DEAD_LETTER",
@@ -3883,12 +3847,9 @@ class MemoryDAO:
                 "AND (p.projection_name = 'SQL' "
                 "OR (p.projection_name = 'VECTOR' AND EXISTS "
                 "(SELECT 1 FROM projection_outbox s WHERE s.mutation_id = p.mutation_id "
-                "AND s.projection_name = 'SQL' AND s.state = 'COMPLETED')) "
-                "OR (p.projection_name = 'GRAPH' AND EXISTS "
-                "(SELECT 1 FROM projection_outbox v WHERE v.mutation_id = p.mutation_id "
-                "AND v.projection_name = 'VECTOR' AND v.state IN ('COMPLETED', 'SKIPPED')))) "
+                "AND s.projection_name = 'SQL' AND s.state = 'COMPLETED'))) "
                 "ORDER BY CASE p.projection_name WHEN 'SQL' THEN 0 WHEN 'VECTOR' THEN 1 "
-                "WHEN 'GRAPH' THEN 2 ELSE 99 END, p.created_at LIMIT ?",
+                "ELSE 99 END, p.created_at LIMIT ?",
                 (limit,),
             ) as cursor:
                 identifiers = [row[0] for row in await cursor.fetchall()]
@@ -3989,10 +3950,9 @@ class MemoryDAO:
             ),
         )
         if outcome == "SKIPPED" and not (
-            (row["projection_name"] == "VECTOR" and not self._embedding_enabled)
-            or (row["projection_name"] == "GRAPH" and not self._graph_enabled)
+            row["projection_name"] == "VECTOR" and not self._embedding_enabled
         ):
-            raise ValueError("only a disabled VECTOR or GRAPH lane may be skipped")
+            raise ValueError("only a disabled VECTOR lane may be skipped")
         cursor = await db.execute(
             "UPDATE projection_outbox SET state = ?, claim_token = NULL, claimed_by = NULL, "
             "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE projection_id = ? AND claim_token = ?",
@@ -4057,21 +4017,6 @@ class MemoryDAO:
                     await self._vec.hard_delete(a_id, agent_id_str)
                 except Exception:
                     failed_compensations.append((s_name, a_kind, a_id))
-            elif s_name == "GRAPH":
-                try:
-                    g = self._require_graph()
-                    if a_kind == "ASSERTION":
-                        await g.delete_assertions(
-                            agent_id=agent_id_str, assertion_ids=[a_id]
-                        )
-                    elif a_kind == "ENTITY":
-                        await g.delete_nodes(
-                            purge_id=f"fence_comp:{mutation_id_str}",
-                            agent_id=agent_id_str,
-                            node_ids=[a_id],
-                        )
-                except Exception:
-                    failed_compensations.append((s_name, a_kind, a_id))
         if failed_compensations:
             await self._enqueue_unowned_projection_cleanup(
                 mutation_id_str, failed_compensations
@@ -4118,19 +4063,15 @@ class MemoryDAO:
     async def requeue_skipped_vector_projections(
         self, *, projection_name: str = "VECTOR"
     ) -> int:
-        """Backfill a disabled lane under the combined runtime writer lock.
+        """Backfill a disabled VECTOR lane under the combined runtime writer lock.
 
         Every mutation whose VECTOR lane is unfinished and that has no vector
         artifact takes the active producer identity, so a vector-free store that
         adopted a new embedding model does not strand its pending lanes.
         """
-        if projection_name not in {"VECTOR", "GRAPH"}:
-            raise ValueError("only VECTOR and GRAPH lanes can be backfilled")
-        producer_identity = (
-            getattr(self._vec, "embedding_identity", None)
-            if projection_name == "VECTOR"
-            else None
-        )
+        if projection_name != "VECTOR":
+            raise ValueError("only the VECTOR lane can be backfilled")
+        producer_identity = getattr(self._vec, "embedding_identity", None)
         async with self._sql.transaction() as db:
             if producer_identity is not None:
                 identity_snapshot: dict[str, Any] = (
@@ -4582,41 +4523,6 @@ class MemoryDAO:
                         )
                         return
             await self._vec.hard_delete(artifact_id, agent_id)
-        elif store == "GRAPH":
-            graph = self._require_graph()
-            if kind == "ASSERTION":
-                async with self._sql.connection() as db:
-                    async with db.execute(
-                        "SELECT 1 FROM v4_assertions WHERE assertion_id = ? AND status != 'RETRACTED'",
-                        (artifact_id,),
-                    ) as cursor:
-                        if await cursor.fetchone() is not None:
-                            logger.warning(
-                                "SAFETY: skipping deletion of active assertion graph artifact %s",
-                                artifact_id,
-                            )
-                            return
-                await graph.delete_assertions(
-                    agent_id=agent_id, assertion_ids=[artifact_id]
-                )
-            elif kind == "ENTITY":
-                async with self._sql.connection() as db:
-                    async with db.execute(
-                        "SELECT 1 FROM v4_entities WHERE entity_id = ? AND status != 'RETRACTED' "
-                        "AND EXISTS (SELECT 1 FROM v4_assertions WHERE subject_id = ? OR object_entity_id = ?)",
-                        (artifact_id, artifact_id, artifact_id),
-                    ) as cursor:
-                        if await cursor.fetchone() is not None:
-                            logger.warning(
-                                "SAFETY: skipping deletion of active entity graph artifact %s",
-                                artifact_id,
-                            )
-                            return
-                await graph.delete_nodes(
-                    purge_id=f"rollback:{cleanup['cleanup_id']}",
-                    agent_id=agent_id,
-                    node_ids=[artifact_id],
-                )
         elif store == "SQL":
             async with self._sql.transaction() as db:
                 if kind == "ASSERTION":
@@ -4767,7 +4673,6 @@ class MemoryDAO:
             "missing_artifacts": 0,
             "missing_sql": 0,
             "missing_vector": 0,
-            "missing_graph": 0,
             "requeued_lanes": 0,
         }
         missing: set[tuple[str, str]] = set()
@@ -4824,33 +4729,6 @@ class MemoryDAO:
                         and row["artifact_id"] not in existing_vector
                     ):
                         missing.add((row["mutation_id"], "VECTOR"))
-            if self._graph is not None:
-                # An Assertion is linked to both Graph V2 Entity endpoints;
-                # its existence is therefore the graph lane's compact parity
-                # proof.  Checking Entity artifacts separately would report a
-                # false mismatch for a duplicate canonical entity owned by a
-                # different assertion/mutation.
-                graph_rows = [
-                    row
-                    for row in rows
-                    if row["store_name"] == "GRAPH"
-                    and row["artifact_kind"] == "ASSERTION"
-                ]
-                if graph_rows:
-                    graph_ids = [
-                        self._graph._composite_id(agent_id, row["artifact_id"])
-                        for row in graph_rows
-                    ]
-                    found_rows = await self._graph.execute_query(
-                        "MATCH (n:Assertion {agent_id: $agent_id}) WHERE n.id IN $ids RETURN n.id",
-                        {"agent_id": agent_id, "ids": graph_ids},
-                    )
-                    # KuzuGraphProvider normalizes tenant composite IDs back
-                    # to their artifact IDs for every agent-scoped read.
-                    existing_graph = {row[0] for row in found_rows}
-                    for row in graph_rows:
-                        if row["artifact_id"] not in existing_graph:
-                            missing.add((row["mutation_id"], "GRAPH"))
         result["missing_artifacts"] = len(missing)
         for _mutation_id, lane in missing:
             result[f"missing_{lane.lower()}"] += 1
@@ -5006,35 +4884,6 @@ class MemoryDAO:
             and ("VECTOR", "ENTITY_VECTOR", item) not in other_registered
         }
 
-        graph_entities: set[str] = set()
-        graph_assertions: set[str] = set()
-        if self._graph is not None:
-            raw_graph_entities = {
-                str(row[0])
-                for row in await self._graph.execute_query(
-                    "MATCH (n:Entity {agent_id: $agent_id}) RETURN n.id",
-                    {"agent_id": agent_id},
-                )
-            }
-            graph_entities = {
-                e
-                for e in raw_graph_entities
-                if e not in other_dataset_entities
-                and ("GRAPH", "ENTITY", e) not in other_registered
-            }
-            raw_graph_assertions = {
-                str(row[0])
-                for row in await self._graph.execute_query(
-                    "MATCH (n:Assertion {agent_id: $agent_id}) RETURN n.id",
-                    {"agent_id": agent_id},
-                )
-            }
-            graph_assertions = {
-                a
-                for a in raw_graph_assertions
-                if a not in other_dataset_assertions
-                and ("GRAPH", "ASSERTION", a) not in other_registered
-            }
         physical = {
             *(("SQL", "ENTITY", item) for item in candidate_entities),
             *(("SQL", "ASSERTION", item) for item in sql_assertions),
@@ -5046,8 +4895,6 @@ class MemoryDAO:
                 )
                 for item in vector_entities
             ),
-            *(("GRAPH", "ENTITY", item) for item in graph_entities),
-            *(("GRAPH", "ASSERTION", item) for item in graph_assertions),
         }
         orphans = sorted(physical - registered)
         enqueued = 0
@@ -5788,12 +5635,7 @@ class MemoryDAO:
     async def project_v4_sql_assertion(
         self, *, mutation: dict[str, Any], triplet: dict[str, Any]
     ) -> str:
-        """Persist one canonical assertion after the SQL entity projection.
-
-        This method intentionally has no graph dependency.  Kuzu is a later,
-        derived projection and must never decide whether canonical fact truth
-        becomes durable.
-        """
+        """Persist one canonical assertion after the SQL entity projection."""
         resolved_entities: dict[tuple[str, str], str] = {}
         owner_cache: dict[str, Any] = {}
         async with self._sql.transaction() as db:
@@ -5886,321 +5728,6 @@ class MemoryDAO:
                     ]
             return assertions
 
-    async def load_v4_graph_projection_inputs_batch(
-        self, mutation_ids: list[str]
-    ) -> tuple[dict[str, dict[str, Any]], dict[str, list[dict[str, Any]]], set[str]]:
-        """Load mutations, terminal-fence flags, and assertions in one connection."""
-        unique_ids = list(dict.fromkeys(str(mid) for mid in mutation_ids if mid))
-        if not unique_ids:
-            return ({}, {}, set())
-        terminal = {
-            "ROLLING_BACK",
-            "ROLLED_BACK",
-            "PURGING",
-            "PURGED",
-            "CANCELLED",
-            "REJECTED",
-        }
-        mutations_by_id: dict[str, dict[str, Any]] = {}
-        assertions_by_mutation: dict[str, list[dict[str, Any]]] = {
-            mid: [] for mid in unique_ids
-        }
-        fenced_ids: set[str] = set()
-        all_assertion_ids: list[str] = []
-        superseded_by_source: dict[str, list[str]] = {}
-        all_assertions: list[dict[str, Any]] = []
-
-        async with self._sql.connection() as db:
-            for offset in range(0, len(unique_ids), 200):
-                batch_ids = unique_ids[offset : offset + 200]
-                placeholders = ",".join("?" * len(batch_ids))
-                async with db.execute(
-                    "SELECT m.*, pr.state AS _pipeline_state, d.status AS _document_status "
-                    "FROM memory_mutations m "
-                    "LEFT JOIN pipeline_runs pr ON pr.pipeline_run_id = m.pipeline_run_id "
-                    "LEFT JOIN documents d ON d.document_id = m.document_id "
-                    f"WHERE m.mutation_id IN ({placeholders})",
-                    batch_ids,
-                ) as cursor:
-                    rows = await cursor.fetchall()
-                for row in rows:
-                    row_dict = dict(row)
-                    pipeline_state = row_dict.pop("_pipeline_state", None)
-                    document_status = row_dict.pop("_document_status", None)
-                    mid = str(row_dict["mutation_id"])
-                    if (
-                        row_dict.get("state") in terminal
-                        or pipeline_state in terminal
-                        or document_status == "PURGED"
-                    ):
-                        fenced_ids.add(mid)
-                    mutations_by_id[mid] = self._parse_projection_mutation_row(row_dict)
-
-                async with db.execute(
-                    "SELECT a.*, subject.canonical_name AS head, "
-                    "object_entity.canonical_name AS tail, "
-                    "reg.metadata_json AS artifact_meta "
-                    "FROM v4_assertions a "
-                    "JOIN v4_entities subject ON subject.entity_id = a.subject_id "
-                    "LEFT JOIN v4_entities object_entity "
-                    "ON object_entity.entity_id = a.object_entity_id "
-                    "LEFT JOIN artifact_registry reg "
-                    "ON reg.tenant_id = a.tenant_id "
-                    "AND reg.physical_artifact_id = a.assertion_id "
-                    "AND reg.store_name = 'SQL' "
-                    "AND reg.artifact_kind = 'ASSERTION' "
-                    f"WHERE a.mutation_id IN ({placeholders}) "
-                    "AND a.status IN ('ACTIVE', 'SUPERSEDED') "
-                    "ORDER BY a.mutation_id, a.assertion_id",
-                    batch_ids,
-                ) as cursor:
-                    a_rows = await cursor.fetchall()
-                for a_row in a_rows:
-                    item = self._unpack_v4_assertion_row(a_row)
-                    all_assertions.append(item)
-                    all_assertion_ids.append(str(item["assertion_id"]))
-
-            for offset in range(0, len(all_assertion_ids), 200):
-                a_batch = all_assertion_ids[offset : offset + 200]
-                a_placeholders = ",".join("?" * len(a_batch))
-                async with db.execute(
-                    "SELECT source_assertion_id, target_assertion_id "
-                    "FROM v4_assertion_links "
-                    f"WHERE source_assertion_id IN ({a_placeholders}) "
-                    "AND relation_type = 'SUPERSEDES'",
-                    a_batch,
-                ) as l_cur:
-                    for src_id, dst_id in await l_cur.fetchall():
-                        superseded_by_source.setdefault(str(src_id), []).append(
-                            str(dst_id)
-                        )
-
-        for item in all_assertions:
-            item["superseded_ids"] = superseded_by_source.get(
-                str(item["assertion_id"]), []
-            )
-            assertions_by_mutation.setdefault(str(item["mutation_id"]), []).append(
-                item
-            )
-        return (mutations_by_id, assertions_by_mutation, fenced_ids)
-
-    async def _write_v4_graph_assertion_in_tx(
-        self,
-        graph: Any,
-        *,
-        mutation: dict[str, Any],
-        assertion: dict[str, Any],
-    ) -> tuple[str, list[tuple[str, str]]]:
-        """Write one assertion and its endpoint entities into an active graph tx."""
-        agent_id = str(mutation["agent_id"])
-        _assert_valid_agent_id(agent_id)
-        assertion_id = str(assertion["assertion_id"])
-        subject_id = str(assertion["subject_id"])
-        object_id = (
-            str(assertion["object_entity_id"])
-            if assertion.get("object_entity_id") is not None
-            else None
-        )
-        head = str(assertion["head"])
-        tail = str(assertion["tail"]) if assertion.get("tail") is not None else None
-        literal_value = (
-            str(assertion["literal_value"])
-            if assertion.get("literal_value") is not None
-            else None
-        )
-        if (object_id is None) == (literal_value is None):
-            raise ValueError("canonical assertion object is invalid")
-        graph_entities = [(subject_id, head)]
-        if object_id is not None:
-            graph_entities.append((object_id, tail or object_id))
-        superseded_assertion_ids = assertion.get("superseded_ids")
-        if superseded_assertion_ids is None:
-            async with self._sql.connection() as db:
-                async with db.execute(
-                    "SELECT target_assertion_id FROM v4_assertion_links "
-                    "WHERE source_assertion_id = ? AND relation_type = 'SUPERSEDES'",
-                    (assertion_id,),
-                ) as cursor:
-                    superseded_assertion_ids = [
-                        str(row[0]) for row in await cursor.fetchall()
-                    ]
-        for entity_id, entity_name in graph_entities:
-            await graph.insert_node(entity_id, entity_name, agent_id)
-        await graph.insert_assertion(
-            assertion_id=assertion_id,
-            subject_id=subject_id,
-            object_id=object_id,
-            object_value="" if literal_value is not None else None,
-            agent_id=agent_id,
-            predicate=str(assertion["predicate"]),
-            mutation_id=str(mutation["mutation_id"]),
-            source_ref="",
-            evidence_span="",
-            jurisdiction=str(assertion["jurisdiction"] or ""),
-            authority_level=str(assertion["authority_level"] or ""),
-            valid_from=str(assertion["valid_from"] or ""),
-            valid_to=str(assertion["valid_to"] or ""),
-            observed_at=str(assertion["observed_at"] or ""),
-            confidence=float(assertion["confidence"]),
-            pipeline_run_id=str(assertion["pipeline_run_id"] or ""),
-            object_type=str(assertion.get("object_type") or "LEGACY"),
-            representation_version=str(
-                assertion.get("representation_version") or "legacy-v0"
-            ),
-        )
-        for old_assertion_id in superseded_assertion_ids:
-            await graph.link_assertions(
-                source_assertion_id=assertion_id,
-                target_assertion_id=old_assertion_id,
-                agent_id=agent_id,
-                relation_type="SUPERSEDES",
-            )
-        return (assertion_id, graph_entities)
-
-    async def project_v4_graph_assertion(
-        self, *, mutation: dict[str, Any], assertion: dict[str, Any]
-    ) -> str:
-        """Project an already-persisted canonical SQL assertion into Kuzu."""
-        agent_id = str(mutation["agent_id"])
-        _assert_valid_agent_id(agent_id)
-        assertion_id = str(assertion["assertion_id"])
-        subject_id = str(assertion["subject_id"])
-        object_id = (
-            str(assertion["object_entity_id"])
-            if assertion.get("object_entity_id") is not None
-            else None
-        )
-        head = str(assertion["head"])
-        tail = str(assertion["tail"]) if assertion.get("tail") is not None else None
-        graph_entities = [(subject_id, head)]
-        if object_id is not None:
-            graph_entities.append((object_id, tail or object_id))
-        graph = self._require_graph()
-        try:
-            assertion_id, graph_entities = await self._write_v4_graph_assertion_in_tx(
-                graph, mutation=mutation, assertion=assertion
-            )
-            for entity_id, entity_name in graph_entities:
-                await self.record_mutation_artifact(
-                    str(mutation["mutation_id"]),
-                    store_name="GRAPH",
-                    artifact_kind="ENTITY",
-                    artifact_id=entity_id,
-                    metadata={"entity_name": entity_name},
-                )
-            await self.record_mutation_artifact(
-                str(mutation["mutation_id"]),
-                store_name="GRAPH",
-                artifact_kind="ASSERTION",
-                artifact_id=assertion_id,
-                metadata={"predicate": str(assertion["predicate"])},
-            )
-        except Exception:
-            await self._compensate_v4_graph_projection(
-                mutation=mutation,
-                assertion_id=assertion_id,
-                graph_entities=graph_entities,
-            )
-            raise
-        return assertion_id
-
-    async def project_v4_graph_triplet(
-        self, *, mutation: dict[str, Any], triplet: dict[str, Any]
-    ) -> str:
-        """Compatibility helper; supported workers use separate SQL/GRAPH lanes."""
-        assertion_id = await self.project_v4_sql_assertion(
-            mutation=mutation, triplet=triplet
-        )
-        assertions = await self.list_v4_assertions_for_mutation(
-            str(mutation["mutation_id"])
-        )
-        assertion = next(
-            item for item in assertions if item["assertion_id"] == assertion_id
-        )
-        return await self.project_v4_graph_assertion(
-            mutation=mutation, assertion=assertion
-        )
-
-    async def _compensate_v4_graph_projection(
-        self,
-        *,
-        mutation: dict[str, Any],
-        assertion_id: str,
-        graph_entities: list[tuple[str, str]],
-    ) -> None:
-        """Remove or durably queue every graph write after a lost fence."""
-        graph = self._require_graph()
-        agent_id = str(mutation["agent_id"])
-        failed: list[tuple[str, str, str]] = []
-        try:
-            await graph.delete_assertions(
-                agent_id=agent_id, assertion_ids=[assertion_id]
-            )
-        except Exception:
-            failed.append(("GRAPH", "ASSERTION", assertion_id))
-        async with self._sql.connection() as db:
-            async with db.execute(
-                "SELECT m.state, pr.state FROM memory_mutations m "
-                "LEFT JOIN pipeline_runs pr ON pr.pipeline_run_id = m.pipeline_run_id "
-                "WHERE m.mutation_id = ?",
-                (str(mutation["mutation_id"]),),
-            ) as cursor:
-                state_row = await cursor.fetchone()
-        terminal_states = {
-            "ROLLING_BACK",
-            "ROLLED_BACK",
-            "PURGING",
-            "PURGED",
-            "CANCELLED",
-            "REJECTED",
-        }
-        terminal = state_row is not None and (
-            state_row[0] in terminal_states or state_row[1] in terminal_states
-        )
-        if terminal:
-            # A concurrent terminal lifecycle transition owns canonical
-            # removal.  Ordinary graph unavailability never enters this path.
-            async with self._sql.transaction() as db:
-                await db.execute(
-                    "DELETE FROM v4_assertion_links WHERE source_assertion_id = ? "
-                    "OR target_assertion_id = ?",
-                    (assertion_id, assertion_id),
-                )
-                await db.execute(
-                    "DELETE FROM v4_assertions WHERE assertion_id = ? AND mutation_id = ?",
-                    (assertion_id, str(mutation["mutation_id"])),
-                )
-                await db.execute(
-                    "DELETE FROM memory_artifacts WHERE mutation_id = ? "
-                    "AND store_name = 'SQL' AND artifact_kind = 'ASSERTION' "
-                    "AND artifact_id = ?",
-                    (str(mutation["mutation_id"]), assertion_id),
-                )
-                await db.commit()
-        for entity_id, _entity_name in graph_entities:
-            async with self._sql.connection() as db:
-                async with db.execute(
-                    "SELECT 1 FROM artifact_registry r "
-                    "JOIN artifact_sources s ON s.registry_id = r.registry_id "
-                    "WHERE r.store_name = 'GRAPH' AND r.artifact_kind = 'ENTITY' "
-                    "AND r.physical_artifact_id = ? AND s.state = 'ACTIVE' LIMIT 1",
-                    (entity_id,),
-                ) as cursor:
-                    has_owner = await cursor.fetchone()
-            if has_owner is None:
-                try:
-                    await graph.delete_nodes(
-                        purge_id=f"fence_comp:{mutation['mutation_id']}",
-                        agent_id=agent_id,
-                        node_ids=[entity_id],
-                    )
-                except Exception:
-                    failed.append(("GRAPH", "ENTITY", entity_id))
-        if failed:
-            await self._enqueue_unowned_projection_cleanup(
-                str(mutation["mutation_id"]), failed
-            )
-
     async def search_v4_memory(
         self,
         *,
@@ -6215,7 +5742,6 @@ class MemoryDAO:
         valid_to: str | None = None,
         rrf_k: int | None = None,
         rrf_weights: Mapping[str, float] | None = None,
-        graph_enabled: bool = True,
         request_principal_id: str | None = None,
         certification_metadata: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
@@ -6244,7 +5770,6 @@ class MemoryDAO:
             valid_to=valid_to,
             rrf_k=rrf_k,
             rrf_weights=rrf_weights,
-            graph_enabled=graph_enabled,
             request_principal_id=request_principal_id,
             certification_metadata=certification_metadata,
             _query_vector=query_vector,
@@ -6363,7 +5888,6 @@ class MemoryDAO:
         valid_to: str | None = None,
         rrf_k: int | None = None,
         rrf_weights: Mapping[str, float] | None = None,
-        graph_enabled: bool = True,
         request_principal_id: str | None = None,
         certification_metadata: dict[str, Any] | None = None,
         _search_db: aiosqlite.Connection | None = None,
@@ -6373,7 +5897,6 @@ class MemoryDAO:
     ) -> list[dict[str, Any]]:
         """Dataset-filter every retrieval lane, then combine ranks with RRF."""
         _assert_valid_agent_id(agent_id)
-        graph_enabled = graph_enabled and self._graph_enabled
         if (
             not tenant_id
             or not dataset_ids
@@ -6491,7 +6014,6 @@ class MemoryDAO:
                     degraded_sources = []
                     for lane, enabled in (
                         ("VECTOR", self._embedding_enabled),
-                        ("GRAPH", self._graph_enabled),
                     ):
                         incomplete = False
                         if enabled:
@@ -6562,13 +6084,6 @@ class MemoryDAO:
             }
             requested_scope_identity = stable_contract_hash(requested_scope)
             query_identity = stable_contract_hash({"query": query})
-            retrieval_config_identity = stable_contract_hash(
-                {
-                    "limit": limit,
-                    "rrf_k": effective_k,
-                    "rrf_weights": dict(effective_weights),
-                }
-            )
             if "audit_decisions" in scope:
                 audit_decisions, eligible_count = scope["audit_decisions"]
             else:
@@ -6614,20 +6129,6 @@ class MemoryDAO:
                                 "decisions": audit_decisions,
                             }
                         ),
-                    },
-                    "graph_ablation": {
-                        "contract_version": V4_GRAPH_ABLATION_CONTRACT_VERSION,
-                        "mode": "enabled" if graph_enabled else "disabled",
-                        "pair_identity": stable_contract_hash(
-                            {
-                                "query_identity": query_identity,
-                                "retrieval_config_identity": retrieval_config_identity,
-                                "scope_identity": requested_scope_identity,
-                            }
-                        ),
-                        "query_identity": query_identity,
-                        "retrieval_config_identity": retrieval_config_identity,
-                        "scope_identity": requested_scope_identity,
                     },
                 }
             )
@@ -7211,7 +6712,6 @@ class MemoryDAO:
         lexical_lane: list[str] = []
         lexical_assertions: dict[str, dict[str, Any]] = {}
         lexical_scores: dict[str, float] = {}
-        lexical_entity_lane: list[str] = []
 
         # 1. Passage/article FTS5 retrieval.  Authorization and assertion
         # lifecycle predicates execute in the same query before BM25 LIMIT.
@@ -7459,38 +6959,6 @@ class MemoryDAO:
                     lexical_assertions[aid] = p_row
                     lexical_scores[aid] = float(p_row.get("bm25_score") or 0.0)
 
-        # 2. Entity FTS5 Retrieval with clean content tokens (anti-pattern fix: no stopwords / OR pollution)
-        fts_tokens = content_tokens if content_tokens else raw_tokens
-        if fts_tokens:
-            clean_fts_tokens = [t.replace('"', "") for t in fts_tokens if len(t) >= 2][
-                :8
-            ]
-            if clean_fts_tokens:
-                variants = dict.fromkeys(
-                    variant
-                    for token in clean_fts_tokens
-                    for variant in (token, token.replace("ı", "i"))
-                )
-                expression = " OR ".join(f'"{t}"' for t in variants)
-                async with self._search_read_connection(_search_db) as db:
-                    async with db.execute(
-                        build_v4_lexical_query(dataset_count=len(datasets)),
-                        (
-                            expression,
-                            tenant_id,
-                            agent_id,
-                            *datasets,
-                            min(500, max(limit * 10, 50)),
-                        ),
-                    ) as cursor:
-                        for row in await cursor.fetchall():
-                            eid = str(row[0])
-                            if (
-                                eid in allowed_entity_ids
-                                and eid not in lexical_entity_lane
-                            ):
-                                lexical_entity_lane.append(eid)
-
         # Assertion Lane Redesign (Phase 5)
         tokens_to_match = (content_tokens if content_tokens else raw_tokens)[:64]
         # Reuse the scoped FTS candidate pool.  This avoids admitting rows
@@ -7658,255 +7126,6 @@ class MemoryDAO:
                 if len(assertion_lane) >= limit:
                     break
 
-        # Real Kùzu Graph V2 Traversal Lane
-        graph_lane: list[str] = []
-        graph_evidence_by_candidate: dict[str, dict[str, Any]] = {}
-        allowed_graph_assertion_ids = in_scope_assertion_ids
-        graph_provider = self._graph
-        effective_graph = (
-            graph_enabled
-            and graph_provider is not None
-            and self.graph_implementation_available
-            and bool(allowed_graph_assertion_ids)
-        )
-        if effective_graph:
-            seed_scores: dict[str, float] = {}
-
-            # 1. Legal citation entity seeds (high relevance)
-            if legal_citations and allowed_entity_ids:
-                legal_entity_names = set(legal_resolver.extract_entities(query))
-                for c in legal_citations:
-                    legal_entity_names.add(c.statute_code)
-                    legal_entity_names.add(c.statute_canonical)
-                    if c.article:
-                        legal_entity_names.add(f"{c.statute_code} {c.article}")
-                        legal_entity_names.add(f"{c.statute_code} m.{c.article}")
-                norm_legal_names = {
-                    _normalize_identity_text(n) for n in legal_entity_names
-                }
-                async with self._search_read_connection(_search_db) as db:
-                    placeholders_ae = ",".join("?" for _ in allowed_entity_ids)
-                    async with db.execute(
-                        f"SELECT entity_id, normalized_name FROM v4_entities "
-                        f"WHERE tenant_id = ? AND entity_id IN ({placeholders_ae})",
-                        (tenant_id, *allowed_entity_ids),
-                    ) as cursor:
-                        for row in await cursor.fetchall():
-                            eid = str(row["entity_id"])
-                            nname = str(row["normalized_name"] or "")
-                            if nname in norm_legal_names:
-                                seed_scores[eid] = 1.0
-
-            # 2. Query text direct entity matches in allowed_entity_ids
-            if allowed_entity_ids:
-                clean_query_norm = _normalize_identity_text(query).strip()
-                async with self._search_read_connection(_search_db) as db:
-                    placeholders_ae = ",".join("?" for _ in allowed_entity_ids)
-                    async with db.execute(
-                        f"SELECT entity_id, normalized_name FROM v4_entities "
-                        f"WHERE tenant_id = ? AND entity_id IN ({placeholders_ae})",
-                        (tenant_id, *allowed_entity_ids),
-                    ) as cursor:
-                        for row in await cursor.fetchall():
-                            eid = str(row["entity_id"])
-                            nname = str(row["normalized_name"] or "")
-                            if nname and (
-                                nname in clean_query_norm or clean_query_norm in nname
-                            ):
-                                seed_scores[eid] = max(seed_scores.get(eid, 0.0), 0.95)
-
-            # 3. Top vector lane assertions: subjects and objects
-            for rank, aid in enumerate(vector_lane[:8], start=1):
-                cand_assertion = vector_assertions.get(aid)
-                if cand_assertion:
-                    s_id = str(cand_assertion.get("subject_id") or "")
-                    o_id = str(cand_assertion.get("object_entity_id") or "")
-                    v_rel = max(0.4, 0.9 - 0.05 * rank)
-                    if s_id in allowed_entity_ids:
-                        seed_scores[s_id] = max(seed_scores.get(s_id, 0.0), v_rel)
-                    if o_id in allowed_entity_ids:
-                        seed_scores[o_id] = max(seed_scores.get(o_id, 0.0), v_rel * 0.9)
-
-            # 4. Top lexical evidence plus entity-name-only graph seeds.  Entity
-            # name hits are deliberately not fused as assertion evidence.
-            for rank, hit_id in enumerate(lexical_lane[:8], start=1):
-                l_rel = max(0.35, 0.85 - 0.05 * rank)
-                if hit_id in lexical_assertions:
-                    ass = lexical_assertions[hit_id]
-                    s_id = str(ass.get("subject_id") or "")
-                    o_id = str(ass.get("object_entity_id") or "")
-                    if s_id in allowed_entity_ids:
-                        seed_scores[s_id] = max(seed_scores.get(s_id, 0.0), l_rel)
-                    if o_id in allowed_entity_ids:
-                        seed_scores[o_id] = max(seed_scores.get(o_id, 0.0), l_rel * 0.9)
-            for hit_id in lexical_entity_lane[:8]:
-                seed_scores[hit_id] = max(seed_scores.get(hit_id, 0.0), 0.9)
-
-            graph_seed_ids = sorted(
-                seed_scores, key=lambda sid: (-seed_scores[sid], sid)
-            )
-        else:
-            graph_seed_ids = []
-
-        if effective_graph and graph_seed_ids and graph_provider is not None:
-            if not self.graph_operational:
-                raise GraphSearchError("configured graph backend is unavailable")
-            graph_legal_options: dict[str, Any] = {}
-            if not self._legal_rules_enabled:
-                graph_legal_options["legal_rules_enabled"] = False
-            try:
-                graph_hits = await graph_provider.search_v4_graph(
-                    agent_id=agent_id,
-                    seed_entity_ids=graph_seed_ids[:20],
-                    allowed_entity_ids=allowed_entity_ids,
-                    allowed_assertion_ids=allowed_graph_assertion_ids,
-                    assertion_evidence={
-                        aid: str(assertion.get("evidence_span") or "")
-                        for aid, assertion in in_scope_assertions.items()
-                    },
-                    assertion_sort_keys=assertion_stable_keys,
-                    max_hops=3,
-                    limit=min(500, max(limit * 10, 50)),
-                    query=query,
-                    seed_scores=seed_scores,
-                    **graph_legal_options,
-                )
-                seen_graph_paths: set[tuple[tuple[str, ...], tuple[str, ...]]] = set()
-                for hit in graph_hits:
-                    target_entity_id = str(hit.get("entity_id") or "")
-                    if target_entity_id not in allowed_entity_ids:
-                        continue
-                    paths = hit.get("paths") or [
-                        {
-                            "assertion_ids": hit.get(
-                                "best_path_assertion_ids",
-                                hit.get("path_assertion_ids", []),
-                            ),
-                            "entity_ids": hit.get("path_entity_ids", []),
-                            "seed_id": hit.get("seed_id", ""),
-                            "score": hit.get("score", 0.0),
-                        }
-                    ]
-                    for path in paths:
-                        path_aids = [str(aid) for aid in path.get("assertion_ids", [])]
-                        path_entities = [str(eid) for eid in path.get("entity_ids", [])]
-                        # Reject an incomplete proof; never trim unauthorized edges
-                        # into an apparently valid shorter path.
-                        if not path_aids or any(
-                            aid not in allowed_graph_assertion_ids for aid in path_aids
-                        ):
-                            continue
-                        if len(path_entities) != len(path_aids) + 1 or any(
-                            eid not in allowed_entity_ids for eid in path_entities
-                        ):
-                            continue
-                        directions: list[str] = []
-                        predicates: list[str] = []
-                        for idx, aid in enumerate(path_aids):
-                            assertion = in_scope_assertions[aid]
-                            endpoints = (
-                                str(assertion["subject_id"]),
-                                str(assertion["object_entity_id"]),
-                            )
-                            traversal = (path_entities[idx], path_entities[idx + 1])
-                            if endpoints == traversal:
-                                directions.append("forward")
-                            elif endpoints == traversal[::-1]:
-                                directions.append("reverse")
-                            else:
-                                break
-                            predicates.append(str(assertion["predicate"]))
-                        if len(directions) != len(path_aids):
-                            continue
-                        cand_id = path_aids[-1]
-                        evidence = graph_evidence_by_candidate.setdefault(
-                            cand_id,
-                            {
-                                "matched_assertion_id": cand_id,
-                                "graph_paths": [],
-                            },
-                        )
-                        normalized_path = {
-                            "assertion_ids": path_aids,
-                            "entity_ids": path_entities,
-                            "edge_directions": directions,
-                            "predicates": predicates,
-                            "seed_id": path_entities[0],
-                            "score": float(path.get("score") or 0.0),
-                        }
-                        normalized_path["graph_path_id"] = stable_graph_path_id(
-                            assertion_ids=path_aids,
-                            entity_ids=path_entities,
-                            edge_directions=directions,
-                            predicates=predicates,
-                        )
-                        path_key = (tuple(path_entities), tuple(path_aids))
-                        if path_key not in seen_graph_paths:
-                            seen_graph_paths.add(path_key)
-                            evidence["graph_paths"].append(normalized_path)
-
-                for cand_id, evidence in graph_evidence_by_candidate.items():
-                    paths = evidence["graph_paths"]
-                    paths.sort(
-                        key=lambda p: (
-                            -p["score"],
-                            len(p["assertion_ids"]),
-                            tuple(p["entity_ids"]),
-                            tuple(
-                                _assertion_stable_key(aid)
-                                for aid in p["assertion_ids"]
-                            ),
-                        )
-                    )
-                    best = paths[0]
-                    seeds = sorted({p["seed_id"] for p in paths})
-                    targets = sorted({p["entity_ids"][-1] for p in paths})
-                    support_bonus = min(
-                        0.5, 0.12 * (len(paths) - 1) + 0.08 * (len(seeds) - 1)
-                    )
-                    evidence.update(
-                        {
-                            "graph_hop_count": len(best["assertion_ids"]),
-                            "graph_seed_entity_id": best["seed_id"],
-                            "graph_seed_entity_ids": seeds,
-                            "graph_distinct_seed_count": len(seeds),
-                            "graph_target_entity_id": best["entity_ids"][-1],
-                            "graph_target_entity_ids": targets,
-                            "graph_path_assertion_ids": list(best["assertion_ids"]),
-                            "graph_path_entity_ids": list(best["entity_ids"]),
-                            "graph_path_id": best["graph_path_id"],
-                            "graph_edge_directions": list(best["edge_directions"]),
-                            "graph_predicates": list(best["predicates"]),
-                            "graph_direction": (
-                                best["edge_directions"][0]
-                                if len(set(best["edge_directions"])) == 1
-                                else "mixed"
-                            ),
-                            "graph_support_count": len(paths),
-                            "graph_score": best["score"] * (1.0 + support_bonus),
-                            "graph_supporting_assertion_ids": list(
-                                dict.fromkeys(
-                                    aid for p in paths for aid in p["assertion_ids"]
-                                )
-                            ),
-                        }
-                    )
-                graph_lane = sorted(
-                    graph_evidence_by_candidate,
-                    key=lambda aid: (
-                        -graph_evidence_by_candidate[aid]["graph_score"],
-                        _assertion_stable_key(aid),
-                    ),
-                )
-            except GraphSearchError as exc:
-                logger.warning(
-                    "V4_GRAPH_RETRIEVAL_DEGRADED | agent_id=%s seeds=%s error=%s",
-                    agent_id,
-                    graph_seed_ids[:20],
-                    exc,
-                )
-                raise
-
         # Internal candidate aggregation and fusion
         candidates: dict[str, dict[str, Any]] = {}
         candidate_assertions = dict(in_scope_assertions)
@@ -7916,12 +7135,9 @@ class MemoryDAO:
         lane_rankings = {
             "vector": vector_lane,
             "bm25": lexical_lane,
-            "assertion": assertion_lane,
-            "graph": graph_lane,
+            "assertion": assertion_lane
+            + [aid for aid in exact_ids if aid not in assertion_lane],
         }
-        lane_rankings["assertion"] = assertion_lane + [
-            aid for aid in exact_ids if aid not in assertion_lane
-        ]
         for candidate_id, fused_score, lane_ranks in rrf_fuse_lanes(
             lane_rankings,
             k=effective_k,
@@ -7938,21 +7154,9 @@ class MemoryDAO:
                 raw_scores["bm25"] = lexical_scores[candidate_id]
             if candidate_id in assertion_scores:
                 raw_scores["assertion"] = assertion_scores[candidate_id]
-            graph_evidence = graph_evidence_by_candidate.get(candidate_id, {})
             assertion_id = candidate_id
             origins_set = set(lane_ranks)
-            if origins_set - {"graph"}:
-                cand_entity_id = str(
-                    fused_assertion.get("subject_id")
-                    or graph_evidence.get("graph_target_entity_id")
-                    or ""
-                )
-            else:
-                cand_entity_id = str(
-                    graph_evidence.get("graph_target_entity_id")
-                    or fused_assertion.get("subject_id")
-                    or ""
-                )
+            cand_entity_id = str(fused_assertion.get("subject_id") or "")
             candidates[candidate_id] = {
                 "candidate_id": candidate_id,
                 "assertion_id": assertion_id,
@@ -7970,10 +7174,8 @@ class MemoryDAO:
                     if "vector" in origins_set
                     else None
                 ),
-                "supporting_evidence_ids": list(
-                    graph_evidence.get("graph_supporting_assertion_ids", [])
-                ),
-                "graph_evidence": graph_evidence,
+                "supporting_evidence_ids": [],
+                "graph_evidence": {},
                 "rrf_score": fused_score,
                 "legal_factor": 1.0,
                 "materialized_provenance": [],
@@ -8417,9 +7619,7 @@ class MemoryDAO:
             milestones.append("SQL_APPLIED")
         if states.get("VECTOR") in {"COMPLETED", "SKIPPED"}:
             milestones.append("VECTOR_APPLIED")
-        if states.get("GRAPH") in {"COMPLETED", "SKIPPED"}:
-            milestones.append("GRAPH_APPLIED")
-        if len(milestones) == 3:
+        if len(milestones) == 2:
             milestones.append("COMMITTED")
         if not milestones:
             return
@@ -8475,11 +7675,6 @@ class MemoryDAO:
         """Return the underlying vector engine (read-only access)."""
         return self._vec
 
-    @property
-    def graph_provider(self) -> KuzuGraphProvider | None:
-        """Return the underlying graph provider (read-only access)."""
-        return self._graph
-
     # ------------------------------------------------------------------
     # E1 FIX: Startup orphan reconciliation
     # ------------------------------------------------------------------
@@ -8514,20 +7709,6 @@ class MemoryDAO:
     # ==================================================================
     # MARK CONSOLIDATED — agent-scoped
     # ==================================================================
-
-
-    # ==================================================================
-    # EDGE OPERATIONS — KùzuDB (Single Source of Truth)
-    # ==================================================================
-
-    def _require_graph(self) -> KuzuGraphProvider:
-        """Return the graph provider or raise if not wired."""
-        if self._graph is None:
-            raise RuntimeError(
-                "KuzuGraphProvider is not configured. "
-                "Pass graph_provider to MemoryDAO constructor."
-            )
-        return self._graph
 
 
     # ==================================================================
@@ -9549,21 +8730,6 @@ class MemoryDAO:
             "sqlite": sql_health,
             "vector": vec_health,
         }
-        if self._graph is not None:
-            graph_status = "not_initialized"
-            if self._graph.is_initialized:
-                try:
-                    await self._graph.execute_query(
-                        "MATCH (n:Entity) RETURN COUNT(n) AS c"
-                    )
-                    graph_status = "healthy"
-                except Exception:
-                    graph_status = "unhealthy"
-            result["graph"] = {
-                "status": graph_status,
-                "db_path": self._graph.db_path,
-                "timeout_seconds": getattr(self._graph, "search_timeout_seconds", None),
-            }
         if not detailed:
             # /health consumes only backend status and rebuild maintenance.
             # Keep corpus-sized integrity/ownership audits in full diagnostics.
