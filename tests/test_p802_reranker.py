@@ -110,7 +110,7 @@ async def test_rerank_depth_full_chunk_text_stable_ties_and_released_connection(
             seen.extend(texts)
             return [0.1, 0.9, 0.9, 0.2]
 
-        reranked = MemoryDAO(sql, vector, graph, search_scope_cache_enabled=cache,
+        reranked = MemoryDAO(sql, vector, search_scope_cache_enabled=cache,
                              reranker=SimpleNamespace(score=score), rerank_depth=4)
         result = await _search(reranked, limit=2)
         assert [r["assertion_id"] for r in result] == [r["assertion_id"] for r in fused[1:3]]
@@ -138,7 +138,7 @@ async def test_disabled_reranker_keeps_complete_results_and_never_imports_ml(tmp
         await _seed(dao, 1)
         expected = await _search(dao)
         monkeypatch.setattr(builtins, "__import__", guard)
-        disabled = MemoryDAO(sql, vector, graph, reranker=None)
+        disabled = MemoryDAO(sql, vector, reranker=None)
         assert await _search(disabled) == expected
     finally:
         await sql.close()

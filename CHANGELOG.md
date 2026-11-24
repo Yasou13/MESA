@@ -7,6 +7,53 @@ are historical; consult the [current guides](docs/README.md) for present behavio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Per-(tenant, dataset) persistent FTS5 BM25 index for exact dataset-wide
+  queries (D80), updated inside the commit, supersession, rollback, and purge
+  SQLite transactions and automatically rebuilt from canonical SQLite when
+  missing. Narrower scopes (multi-dataset, temporal/jurisdiction filters, or
+  multi-agent datasets where the agent filter excludes rows) continue to use
+  per-query temporary FTS5 indexes.
+
+### Changed
+
+- LanceDB is locked to 0.41.0 with an upper bound below 0.42. Vector search
+  prefilters by dataset and agent before ranking and verifies eligibility in
+  SQLite. Older LanceDB tables receive their scope keys on startup. The live
+  projection worker batches vector upserts and retains per-mutation receipts.
+- The [architecture overview](ARCHITECTURE.md) explains how documents become
+  searchable and where MESA fits in an application.
+
+### Fixed
+
+- Whole-document uploads retain the chunking plan selected at admission.
+  Retries continue the same revision from its saved chunks, including legacy
+  uploads whose stored prefix matches the configured plan.
+- Commit-time maintenance of the persistent BM25 index looks up only the
+  committing mutation's assertions, reducing SQLite writer contention during
+  ingestion.
+
+- Internal storage identifiers (`document_id`, `revision_id`, `chunk_id`,
+  `assertion_id`, and catalog-mapped `mesa-*` entity names) are excluded from
+  lexical FTS5 indexing, lexical passage/assertion scoring, and legal citation
+  text matching so query numbers cannot accidentally match opaque internal IDs.
+
+### Removed
+
+- The Kùzu graph database dependency, graph projection worker/outbox lane,
+  graph search lane, and graph rebuild paths (D79). Forward-only Alembic
+  migration `f9c0d1e2f3a4` removes legacy `GRAPH` rows from `projection_outbox`,
+  `projection_attempts`, `artifact_registry`, `artifact_sources`,
+  `artifact_cleanup_outbox`, and `memory_artifacts`, and promotes any completed
+  `VECTOR_APPLIED`/`GRAPH_APPLIED` mutations to `COMMITTED`. Existing `kuzu_db`
+  files on disk are ignored and can be deleted manually after verifying backups.
+- Retired graph settings (`MESA_GRAPH_ENABLED`, `MESA_RRF_GRAPH_WEIGHT`,
+  `MESA_V4_GRAPH_TIMEOUT_SECONDS`) log one startup warning per key and are
+  ignored.
+
 ## [0.9.4] - 2026-11-23
 
 ### Retrieval quality

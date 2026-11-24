@@ -18,10 +18,9 @@ async def test_shared_write_admission_policy(tmp_path):
 
     mock_vec = SimpleNamespace()
     mock_vec.is_initialized = True
-    mock_graph = SimpleNamespace()
 
     dao = MemoryDAO(
-        sqlite_engine=engine, vector_engine=mock_vec, graph_provider=mock_graph
+        sqlite_engine=engine, vector_engine=mock_vec
     )
 
     tenant_id = "tenant_adm"

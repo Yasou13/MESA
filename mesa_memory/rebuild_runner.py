@@ -15,16 +15,13 @@ from typing import Any
 
 from mesa_memory.config import config, refresh_config_from_environment
 from mesa_memory.embedding.service import EmbeddingService, get_embedding_service
-from mesa_storage import kuzu_setup
 from mesa_storage.embedding_identity import (
     EmbeddingIdentityAdoptionError,
     adopt_legacy_embedding_identity,
 )
-from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.projection_generations import ProjectionGenerationRepository
 from mesa_storage.rebuild_cutover import (
     ParityGatedActivator,
-    default_graph_verification_factory,
     default_vector_verification_factory,
 )
 from mesa_storage.rebuild_observability import log_rebuild_event
@@ -96,7 +93,6 @@ def _provider_runtime() -> RebuildProviderRuntime:
     return RebuildProviderRuntime(
         manifest={
             **identity.as_dict(),
-            "graph_enabled": _environment_bool("MESA_GRAPH_ENABLED", default=False),
             "embedding_provider": identity.provider,
             "embedding_model": identity.model,
             "embedding_version": identity.version,
@@ -315,15 +311,9 @@ async def run_rebuild(args: argparse.Namespace) -> int:
             state=str(preparation.operation["state"]),
             generation=preparation.target_generation_id,
         )
-        graph_enabled = providers.manifest.get("graph_enabled", True)
-        generation_graph_enabled = json.loads(
-            preparation.generation.get("provider_manifest_json") or "{}"
-        ).get("graph_enabled", True)
-        if graph_enabled != generation_graph_enabled:
-            raise ValueError("graph setting differs from the prepared generation")
         if recovering_cutover:
             counts = ProjectionSnapshot(
-                preparation.backup_root / "mesa.db", graph_enabled=graph_enabled
+                preparation.backup_root / "mesa.db"
             ).counts()
             total = sum(counts.values())
             if total != int(claimed["progress_total"]):
@@ -337,10 +327,6 @@ async def run_rebuild(args: argparse.Namespace) -> int:
                 total=total,
             )
         else:
-            def _graph_factory(graph_path: Path) -> KuzuGraphProvider:
-                kuzu_setup.initialize_schema(str(graph_path))
-                return KuzuGraphProvider(str(graph_path))
-
             replay = await ProjectionReplayer(operations).replay(
                 preparation=preparation,
                 trusted_root=args.trusted_root,
@@ -353,7 +339,6 @@ async def run_rebuild(args: argparse.Namespace) -> int:
                 embedding_service=providers.embedding_service,
                 allow_model_loading=providers.allow_model_loading,
                 local_embedding_model=providers.local_embedding_model,
-                graph_factory=_graph_factory,
                 should_stop=stop_requested.is_set,
             )
         log_rebuild_event(
@@ -381,7 +366,6 @@ async def run_rebuild(args: argparse.Namespace) -> int:
             storage_root=args.storage_root,
             runner_id=runner_id,
             vector_factory=vector_factory,
-            graph_factory=default_graph_verification_factory,
             lease_seconds=args.lease_seconds,
             should_stop=stop_requested.is_set,
         )

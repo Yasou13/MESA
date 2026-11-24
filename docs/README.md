@@ -13,10 +13,10 @@ Paket sürümü 0.9.4; V4 güncel API'dir.
 | HTTP, Python SDK veya terminal komutlarıyla kullanmak | [API, SDK ve CLI](api-reference.md) |
 | Codex/Antigravity bağlamak | [MCP rehberi](../README_MCP.md) |
 | Tenant, dataset, revision ve mutation kavramlarını anlamak | [Kavramlar ve veri ekleme](concepts-and-ingestion.md) |
-| Sistemin modüllerini ve sınırlarını anlamak | [Mimari](architecture-v4.md) |
-| Arama puanlarını, grafı ve context'i anlamak | [Arama ve graf](retrieval-and-graph.md) |
+| Sistemin nasıl çalıştığını ve sınırlarını anlamak | [Tek sayfalık mimari özeti](../ARCHITECTURE.md), [ayrıntılı modül rehberi](architecture-v4.md#module-ownership) |
+| Arama puanlarını ve kaynak kanıtını anlamak | [Arama ve kanıt](retrieval-and-graph.md#lanes-and-scoring) |
 | Yetki, yedekleme, hata veya yükseltme işlemi yapmak | [Operasyon rehberi](RUNBOOK.md) |
-| Mevcut V4 verisinden vektör/graf depolarını yeniden üretmek | [Projection rebuild](v4-rebuild-runbook.md) |
+| Mevcut V4 verisinden vektör deposunu yeniden üretmek | [Projection rebuild](v4-rebuild-runbook.md) |
 | Erişim ve veri güvenliği sınırlarını öğrenmek | [Güvenlik](security-and-privacy.md) |
 | Testleri çalıştırmak ve CI sonuçlarını anlamak | [Test ve CI](testing.md) |
 | Yeni sürüm yayımlamak | [Release prosedürü](release.md) |

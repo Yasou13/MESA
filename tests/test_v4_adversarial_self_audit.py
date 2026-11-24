@@ -33,8 +33,6 @@ import pytest
 
 from mesa_memory.context_builder import ContextBuilder, _count_tokens
 from mesa_storage.dao import MemoryDAO, classify_graph_object
-from mesa_storage.kuzu_provider import KuzuGraphProvider
-from mesa_storage.kuzu_setup import initialize_schema_artifact
 from mesa_storage.legal_identity import normalize_turkish
 from mesa_storage.retrieval_scope import (
     V4_RRF_DEFAULT_K,
@@ -51,12 +49,7 @@ async def _create_test_env(tmp_path, *, agent_id: str = "audit-agent"):
     await engine.initialize()
     await initialize_schema(engine)
 
-    graph_path = tmp_path / f"{agent_id}_graph"
-    initialize_schema_artifact(str(graph_path))
-    graph = KuzuGraphProvider(str(graph_path), max_workers=1)
-    await graph.initialize()
-
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=None, graph_provider=graph)
+    dao = MemoryDAO(sqlite_engine=engine, vector_engine=None)
     await dao.create_v4_workspace(
         tenant_id="test-tenant",
         workspace_id="ws1",
@@ -67,7 +60,7 @@ async def _create_test_env(tmp_path, *, agent_id: str = "audit-agent"):
         workspace_id="ws1",
         dataset_id="ds1",
     )
-    return engine, graph, dao
+    return engine, dao
 
 
 # Attack Vector 1: Evidence-level identity vs broad entity provenance
@@ -76,7 +69,7 @@ async def test_audit_v1_evidence_identity_not_conflated_with_entity_provenance(
     tmp_path,
 ):
     """Attack 1: Verify returned candidate has specific assertion/chunk identity, not conflated."""
-    sql, graph, dao = await _create_test_env(tmp_path)
+    sql, dao = await _create_test_env(tmp_path)
     try:
         ent = await dao.resolve_v4_entity(
             tenant_id="test-tenant", canonical_name="Borclar_Genel"
@@ -158,7 +151,6 @@ async def test_audit_v1_evidence_identity_not_conflated_with_entity_provenance(
         assert top["source_chunk_id"] == "chk_gold"
         assert top["evidence_span"] == "gold span"
     finally:
-        await graph.close()
         await sql.close()
 
 
@@ -166,7 +158,7 @@ async def test_audit_v1_evidence_identity_not_conflated_with_entity_provenance(
 @pytest.mark.asyncio
 async def test_audit_v2_same_article_wrong_statute_collision(tmp_path):
     """Attack 2: When querying TBK 117, TCK 117 must not outrank or collide with TBK 117."""
-    sql, graph, dao = await _create_test_env(tmp_path)
+    sql, dao = await _create_test_env(tmp_path)
     try:
         e_tbk = await dao.resolve_v4_entity(
             tenant_id="test-tenant", canonical_name="TBK_117"
@@ -266,7 +258,6 @@ async def test_audit_v2_same_article_wrong_statute_collision(tmp_path):
         if len(results) > 1 and results[1]["evidence_id"] == "ast_tck":
             assert results[0]["final_score"] > results[1]["final_score"] * 2.0
     finally:
-        await graph.close()
         await sql.close()
 
 
@@ -274,7 +265,7 @@ async def test_audit_v2_same_article_wrong_statute_collision(tmp_path):
 @pytest.mark.asyncio
 async def test_audit_v3_superseded_assertion_excluded_from_ranking(tmp_path):
     """Attack 3: Stale/superseded assertions must never contribute to rank or appear in results."""
-    sql, graph, dao = await _create_test_env(tmp_path)
+    sql, dao = await _create_test_env(tmp_path)
     try:
         ent = await dao.resolve_v4_entity(
             tenant_id="test-tenant", canonical_name="Sozlesme_Hukuku"
@@ -346,7 +337,6 @@ async def test_audit_v3_superseded_assertion_excluded_from_ranking(tmp_path):
         # Must be empty because stale assertion is filtered BEFORE rank contribution
         assert len(results) == 0
     finally:
-        await graph.close()
         await sql.close()
 
 
@@ -372,7 +362,7 @@ def test_audit_v5_deduplication_contract():
 @pytest.mark.asyncio
 async def test_audit_v6_bm25_article_number_collision(tmp_path):
     """Attack 6: Verify passage lane disambiguates article numbers with statute identity."""
-    sql, graph, dao = await _create_test_env(tmp_path)
+    sql, dao = await _create_test_env(tmp_path)
     try:
         e1 = await dao.resolve_v4_entity(
             tenant_id="test-tenant", canonical_name="HMK_30"
@@ -457,7 +447,6 @@ async def test_audit_v6_bm25_article_number_collision(tmp_path):
         assert len(results) >= 1
         assert results[0]["evidence_id"] == "ast_hmk"
     finally:
-        await graph.close()
         await sql.close()
 
 
@@ -465,7 +454,7 @@ async def test_audit_v6_bm25_article_number_collision(tmp_path):
 @pytest.mark.asyncio
 async def test_audit_v7_assertion_lane_natural_language_matching(tmp_path):
     """Attack 7: Natural language query without explicit citation must still produce assertion candidates."""
-    sql, graph, dao = await _create_test_env(tmp_path)
+    sql, dao = await _create_test_env(tmp_path)
     try:
         ent = await dao.resolve_v4_entity(
             tenant_id="test-tenant", canonical_name="Temerrut"
@@ -532,7 +521,6 @@ async def test_audit_v7_assertion_lane_natural_language_matching(tmp_path):
         assert results[0]["evidence_id"] == "ast_nat"
         assert "assertion" in results[0]["retrieval_provenance"]["origins"]
     finally:
-        await graph.close()
         await sql.close()
 
 
@@ -543,72 +531,6 @@ def test_audit_v8_rrf_configuration_authority():
     assert V4_RRF_LANE_WEIGHTS["bm25"] == 1.0
     assert V4_RRF_LANE_WEIGHTS["assertion"] == 1.0
     assert V4_RRF_LANE_WEIGHTS["vector"] == 1.0
-    assert V4_RRF_LANE_WEIGHTS["graph"] == 1.0
-
-
-# Attack Vector 9: Irrelevant Hop-1 vs Relevant Hop-2 in graph
-@pytest.mark.asyncio
-async def test_audit_v9_graph_relevant_hop2_outranks_hop1(tmp_path):
-    """Attack 9: Relevant hop-2 node must outrank irrelevant hop-1 node."""
-    graph_path = tmp_path / "audit_graph"
-    initialize_schema_artifact(str(graph_path))
-    graph = KuzuGraphProvider(str(graph_path), max_workers=1)
-    await graph.initialize()
-    try:
-        await graph.insert_node("seed", "SeedEntity", agent_id="audit-agent")
-        await graph.insert_node("hop1_noise", "NoiseEntity", agent_id="audit-agent")
-        await graph.insert_node("hop1_bridge", "BridgeEntity", agent_id="audit-agent")
-        await graph.insert_node("hop2_target", "RelevantTarget", agent_id="audit-agent")
-
-        # Hop 1 noise: generic predicate, no evidence match
-        await graph.insert_assertion(
-            assertion_id="ast_noise",
-            agent_id="audit-agent",
-            subject_id="seed",
-            predicate="related_to",
-            object_id="hop1_noise",
-            evidence_span="irrelevant text",
-            confidence=0.5,
-            mutation_id="m1",
-        )
-        # Hop 1 bridge
-        await graph.insert_assertion(
-            assertion_id="ast_b1",
-            agent_id="audit-agent",
-            subject_id="seed",
-            predicate="tanimlanir",
-            object_id="hop1_bridge",
-            confidence=1.0,
-            mutation_id="m1",
-        )
-        # Hop 2 target: exact predicate match, exact evidence match
-        await graph.insert_assertion(
-            assertion_id="ast_b2",
-            agent_id="audit-agent",
-            subject_id="hop1_bridge",
-            predicate="temerrut_hukmu",
-            object_id="hop2_target",
-            evidence_span="borçlunun temerrüdü şartları",
-            confidence=1.0,
-            mutation_id="m1",
-        )
-
-        hits = await graph.search_v4_graph(
-            agent_id="audit-agent",
-            allowed_entity_ids={"seed", "hop1_noise", "hop1_bridge", "hop2_target"},
-            allowed_assertion_ids={"ast_noise", "ast_b1", "ast_b2"},
-            seed_entity_ids=["seed"],
-            max_hops=2,
-            limit=5,
-            query="temerrüt hükmü şartları",
-            seed_scores={"seed": 1.0},
-        )
-        assert len(hits) >= 2
-        hit_ids = [h["entity_id"] for h in hits]
-        # hop2_target must rank above hop1_noise
-        assert hit_ids.index("hop2_target") < hit_ids.index("hop1_noise")
-    finally:
-        await graph.close()
 
 
 # Attack Vector 10: Graph traversal direction preserved in rendered context
@@ -755,7 +677,7 @@ def test_audit_v15_no_hardcoded_benchmark_shortcuts():
 @pytest.mark.asyncio
 async def test_audit_v16_no_query_independent_legal_boost(tmp_path):
     """Attack 16: When query lacks legal citations, legal_factor must be 1.0 (no arbitrary boost)."""
-    sql, graph, dao = await _create_test_env(tmp_path)
+    sql, dao = await _create_test_env(tmp_path)
     try:
         ent = await dao.resolve_v4_entity(
             tenant_id="test-tenant", canonical_name="Muhasebe_Standardi"
@@ -820,7 +742,6 @@ async def test_audit_v16_no_query_independent_legal_boost(tmp_path):
         assert len(results) >= 1
         assert results[0]["legal_factor"] == 1.0
     finally:
-        await graph.close()
         await sql.close()
 
 
@@ -862,7 +783,7 @@ def test_audit_v19_public_api_compatibility():
 @pytest.mark.asyncio
 async def test_audit_v20_resource_smoke(tmp_path):
     """Attack 20: Repeated queries must not cause unbounded object or descriptor growth."""
-    sql, graph, dao = await _create_test_env(tmp_path)
+    sql, dao = await _create_test_env(tmp_path)
     try:
         for i in range(10):
             res = await dao.search_v4_memory(
@@ -874,5 +795,4 @@ async def test_audit_v20_resource_smoke(tmp_path):
             )
             assert isinstance(res, list)
     finally:
-        await graph.close()
         await sql.close()

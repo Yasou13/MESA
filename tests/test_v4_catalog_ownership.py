@@ -470,12 +470,7 @@ async def test_v4_search_filters_vector_and_lexical_lanes_before_rrf(tmp_path) -
         upsert=AsyncMock(),
         search=AsyncMock(),
     )
-    graph = SimpleNamespace(
-        insert_node=AsyncMock(),
-        insert_assertion=AsyncMock(),
-        link_assertions=AsyncMock(),
-    )
-    dao = MemoryDAO(engine, vector, graph)
+    dao = MemoryDAO(engine, vector)
     allowed = MemoryCandidate.from_raw_log(
         raw_log_id=11,
         tenant_id="tenant-a",
@@ -523,7 +518,7 @@ async def test_v4_search_filters_vector_and_lexical_lanes_before_rrf(tmp_path) -
         allowed_id = await dao.project_v4_sql_entity(
             mutation=allowed, entity_name="Allowed Court"
         )
-        await dao.project_v4_graph_triplet(
+        await dao.project_v4_sql_assertion(
             mutation=allowed,
             triplet={
                 "head": "Allowed Court",
@@ -531,7 +526,7 @@ async def test_v4_search_filters_vector_and_lexical_lanes_before_rrf(tmp_path) -
                 "literal_value": "allowed",
             },
         )
-        await dao.project_v4_graph_triplet(
+        await dao.project_v4_sql_assertion(
             mutation=denied,
             triplet={
                 "head": "Denied Court",

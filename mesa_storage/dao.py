@@ -1,7 +1,7 @@
 """Compatibility facade and canonical V4 storage orchestration.
 
 SQLite owns V4 catalog, assertions, mutations, source/artifact ownership and
-ordered projection outboxes. LanceDB and Kùzu are derived projections. V4 uses server-verified
+ordered projection outboxes. LanceDB is a derived vector projection. V4 uses server-verified
 principal/tenant/workspace/dataset/session scope and explicit storage filters.
 An agent ID alone is not a tenant credential or an absolute isolation guarantee.
 
@@ -34,7 +34,6 @@ from urllib.parse import urlsplit, urlunsplit
 import aiosqlite
 
 from mesa_storage import legal_rules
-from mesa_storage.kuzu_provider import GraphSearchError, KuzuGraphProvider
 from mesa_storage.legal_identity import (
     LegalEntityResolver,
     canonicalize_trusted_legal_identity,
@@ -56,20 +55,18 @@ from mesa_storage.representation import (
     build_v4_assertion_vector_payload,
 )
 from mesa_storage.retrieval_scope import (
-    V4_GRAPH_ABLATION_CONTRACT_VERSION,
     V4_RRF_DEFAULT_K,
     V4_RRF_LANE_WEIGHTS,
     V4_SCOPE_AUDIT_CONTRACT_VERSION,
-    build_v4_lexical_query,
     rrf_fuse_lanes,
     stable_contract_hash,
-    stable_graph_path_id,
 )
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import (
     SemanticRuntimeDisabledError,
     VectorEngine,
     VectorSearchError,
+    vector_scope_key,
 )
 
 logger = logging.getLogger("MESA_DAO")
@@ -188,6 +185,49 @@ _SECRET_PATTERNS = (
 )
 
 
+_INTERNAL_CATALOG_ID_PREFIXES = (
+    "mesa-tenant-",
+    "mesa-workspace-",
+    "mesa-dataset-",
+    "mesa-session-",
+    "mesa-document-",
+    "mesa-revision-",
+    "mesa-chunk-",
+)
+
+_INTERNAL_ID_ROW_FIELDS = (
+    "document_id",
+    "revision_id",
+    "chunk_id",
+    "assertion_id",
+    "mutation_id",
+    "subject_id",
+    "object_entity_id",
+)
+
+
+def _is_internal_scoring_id(
+    value: str, row: Mapping[str, Any] | None = None
+) -> bool:
+    if not value:
+        return False
+    if value.startswith(_INTERNAL_CATALOG_ID_PREFIXES):
+        return True
+    if row is not None:
+        for field in _INTERNAL_ID_ROW_FIELDS:
+            raw = row.get(field)
+            if raw and value == str(raw):
+                return True
+    return False
+
+
+def _scoring_entity_name(
+    value: Any, row: Mapping[str, Any] | None = None
+) -> str:
+    text = str(value or "")
+    return "" if _is_internal_scoring_id(text, row) else text
+
+
 def _validate_write_payload(content: str, metadata: dict[str, Any]) -> dict[str, Any]:
     encoded = json.dumps(metadata, sort_keys=True, default=str).encode()
     if len(encoded) > 16 * 1024:
@@ -224,6 +264,86 @@ class NonHeadRollbackConflictError(ValueError):
 
 class NonReplayableMutationConflictError(ValueError):
     """A semantically rejected mutation cannot be replayed."""
+
+
+class _DatasetFtsNeedsRebuild(Exception):
+    """Internal control flow: persistent dataset FTS table missing or stale."""
+
+    def __init__(self, tenant_id: str, dataset_id: str) -> None:
+        super().__init__(f"{tenant_id}:{dataset_id}")
+        self.tenant_id = tenant_id
+        self.dataset_id = dataset_id
+
+
+_FTS5_BM25_WEIGHTS = "0.0, 1.5, 5.0, 3.0, 1.0, 3.0, 2.0, 4.0, 0.0"
+_FTS5_SCHEMA_SQL = (
+    "assertion_id UNINDEXED, predicate, evidence_span, literal_value, "
+    "source_ref, subject_name, object_name, chunk_payload, "
+    "stable_key UNINDEXED, "
+    "tokenize='unicode61 remove_diacritics 2', prefix='5'"
+)
+_FTS5_INSERT_COLUMNS_SQL = (
+    "(rowid, assertion_id, predicate, evidence_span, literal_value, "
+    "source_ref, subject_name, object_name, chunk_payload, stable_key)"
+)
+
+
+def _dataset_fts_table_name(tenant_id: str, dataset_id: str) -> str:
+    """Return the per-(tenant, physical dataset) persistent FTS5 table name (D80)."""
+    digest = hashlib.sha256(
+        f"{tenant_id}\x00{dataset_id}".encode("utf-8")
+    ).hexdigest()[:24]
+    return f"v4_dataset_fts_{digest}"
+
+
+def _fts5_select_from_scoped_sql(
+    scoped_subquery: str, *, join_by_rowid: bool = False
+) -> str:
+    """Build the P16-01-sanitized FTS5 projection shared by persistent and temp indexes."""
+    rowid_match = "f.rowid = scoped.assertion_rowid AND " if join_by_rowid else ""
+    return (
+        "SELECT f.rowid, f.assertion_id, f.predicate, f.evidence_span, "
+        "f.literal_value, f.source_ref, "
+        "CASE WHEN f.subject_name IN ("
+        "scoped.document_id, scoped.revision_id, scoped.chunk_id, "
+        "scoped.assertion_id, scoped.mutation_id, scoped.subject_id, "
+        "COALESCE(scoped.object_entity_id, '')) "
+        "OR f.subject_name LIKE 'mesa-document-%' "
+        "OR f.subject_name LIKE 'mesa-revision-%' "
+        "OR f.subject_name LIKE 'mesa-chunk-%' "
+        "OR f.subject_name LIKE 'mesa-tenant-%' "
+        "OR f.subject_name LIKE 'mesa-workspace-%' "
+        "OR f.subject_name LIKE 'mesa-dataset-%' "
+        "OR f.subject_name LIKE 'mesa-session-%' "
+        "THEN '' ELSE f.subject_name END, "
+        "CASE WHEN f.object_name IN ("
+        "scoped.document_id, scoped.revision_id, scoped.chunk_id, "
+        "scoped.assertion_id, scoped.mutation_id, scoped.subject_id, "
+        "COALESCE(scoped.object_entity_id, '')) "
+        "OR f.object_name LIKE 'mesa-document-%' "
+        "OR f.object_name LIKE 'mesa-revision-%' "
+        "OR f.object_name LIKE 'mesa-chunk-%' "
+        "OR f.object_name LIKE 'mesa-tenant-%' "
+        "OR f.object_name LIKE 'mesa-workspace-%' "
+        "OR f.object_name LIKE 'mesa-dataset-%' "
+        "OR f.object_name LIKE 'mesa-session-%' "
+        "THEN '' ELSE f.object_name END, "
+        "f.chunk_payload, "
+        "COALESCE(ci_doc.external_id, scoped.document_id) || char(0) || "
+        "printf('%010d', COALESCE(r.revision_number, 0)) || char(0) || "
+        "printf('%010d', COALESCE(c.ordinal, 0)) || char(0) || "
+        "COALESCE(ci_chunk.external_id, scoped.chunk_id) || char(0) || "
+        "COALESCE(scoped.predicate, '') "
+        "FROM v4_assertions_fts f "
+        f"JOIN ({scoped_subquery}) scoped "
+        f"ON {rowid_match}scoped.assertion_id = f.assertion_id "
+        "LEFT JOIN source_chunks c ON c.chunk_id = scoped.chunk_id "
+        "LEFT JOIN document_revisions r ON r.revision_id = scoped.revision_id "
+        "LEFT JOIN v4_catalog_identities ci_doc "
+        "ON ci_doc.kind = 'document' AND ci_doc.physical_id = scoped.document_id "
+        "LEFT JOIN v4_catalog_identities ci_chunk "
+        "ON ci_chunk.kind = 'chunk' AND ci_chunk.physical_id = scoped.chunk_id"
+    )
 
 
 class QueueAdmissionError(RuntimeError):
@@ -519,11 +639,10 @@ class MemoryDAO:
     Every public method requires ``agent_id`` as its first positional
     argument.  All SQL queries embed ``WHERE agent_id = ?`` via
     parameterised binding.  All LanceDB filters embed
-    ``agent_id = '<value>'`` in the WHERE clause.  All Cypher queries
-    bind ``$agent_id`` via strict parameterisation.
+    ``agent_id = '<value>'`` in the WHERE clause.
 
-    Edge storage is owned exclusively by KùzuDB.  SQLite retains
-    ownership of canonical V4 tables and raw_logs.
+    SQLite owns canonical V4 tables and raw_logs; LanceDB stores derived
+    vector projections.
 
     This class does NOT own the lifecycle of the underlying engines —
     the caller is responsible for initialising and closing them.
@@ -531,24 +650,21 @@ class MemoryDAO:
     Args:
         sqlite_engine: An initialised ``AsyncEngine`` instance.
         vector_engine: An initialised ``VectorEngine`` instance.
-        graph_provider: An initialised ``KuzuGraphProvider`` instance
-                        for graph edge operations.
     """
 
     __slots__ = (
         "_sql",
         "_vec",
-        "_graph",
         "_catalog",
         "_operations",
         "_rebuild_admission",
         "_rebuild_health",
         "_canonical_v4_writes_enabled",
         "_embedding_enabled",
-        "_graph_enabled",
         "_rrf_k",
         "_rrf_weights",
         "_search_scope_cache_enabled",
+        "_persistent_dataset_fts_enabled",
         "_legal_rules_enabled",
         "_search_scope_cache",
         "_search_cache_db",
@@ -561,31 +677,29 @@ class MemoryDAO:
         self,
         sqlite_engine: AsyncEngine,
         vector_engine: VectorEngine,
-        graph_provider: KuzuGraphProvider | None = None,
         *,
         canonical_v4_writes_enabled: bool = True,
         embedding_enabled: bool = True,
-        graph_enabled: bool = True,
         rrf_k: int = V4_RRF_DEFAULT_K,
         rrf_weights: Mapping[str, float] | None = None,
         search_scope_cache_enabled: bool = True,
+        persistent_dataset_fts_enabled: bool = True,
         legal_rules_enabled: bool = True,
         reranker: Any = None,
         rerank_depth: int = 50,
     ) -> None:
         self._sql = sqlite_engine
         self._vec = vector_engine
-        self._graph = graph_provider
         self._catalog = CatalogRepository(sqlite_engine)
         self._operations = OperationRepository(sqlite_engine)
         self._rebuild_admission = RebuildAdmissionReader(sqlite_engine)
         self._rebuild_health = RebuildHealthReader(sqlite_engine)
         self._canonical_v4_writes_enabled = canonical_v4_writes_enabled
         self._embedding_enabled = embedding_enabled
-        self._graph_enabled = graph_enabled
         self._rrf_k = rrf_k
         self._rrf_weights = dict(rrf_weights or V4_RRF_LANE_WEIGHTS)
         self._search_scope_cache_enabled = search_scope_cache_enabled
+        self._persistent_dataset_fts_enabled = persistent_dataset_fts_enabled
         self._legal_rules_enabled = legal_rules_enabled
         self._search_scope_cache: OrderedDict[tuple[Any, ...], dict[str, Any]] = (
             OrderedDict()
@@ -620,30 +734,6 @@ class MemoryDAO:
         """Whether this runtime may produce or query semantic vectors."""
         return self._embedding_enabled
 
-    @property
-    def graph_enabled(self) -> bool:
-        """Whether this runtime may open, project or search the graph."""
-        return self._graph_enabled
-
-    @property
-    def graph_operational(self) -> bool:
-        """Return whether the graph provider is operational."""
-        if not self.graph_implementation_available:
-            return False
-        return getattr(self._graph, "is_operational", False) is True
-
-    @property
-    def graph_configured(self) -> bool:
-        """Return whether a graph provider was composed for this runtime."""
-        return self._graph is not None
-
-    @property
-    def graph_implementation_available(self) -> bool:
-        """Return whether the composed provider implements Graph V2 retrieval."""
-        return self._graph is not None and callable(
-            getattr(self._graph, "search_v4_graph", None)
-        )
-
     async def submit_system_operation(
         self,
         *,
@@ -667,6 +757,23 @@ class MemoryDAO:
         called via ``initialize_schema(engine)`` before this method.
         """
         logger.info("MemoryDAO.initialize() — schema owned by schemas.py")
+
+        if (
+            isinstance(self._vec, VectorEngine)
+            and self._vec.is_initialized
+            and await self._vec.needs_scope_backfill()
+        ):
+            scopes: dict[tuple[str, str], str] = {}
+            async with self._sql.connection() as db:
+                async with db.execute(
+                    "SELECT a.assertion_id, m.agent_id, a.tenant_id, a.dataset_id "
+                    "FROM v4_assertions a JOIN memory_mutations m USING (mutation_id)"
+                ) as cursor:
+                    async for node_id, agent_id, tenant_id, dataset_id in cursor:
+                        scopes[(node_id, agent_id)] = vector_scope_key(
+                            tenant_id, dataset_id
+                        )
+            await self._vec.backfill_scopes(scopes)
 
         parity = await self.reconcile_v4_projection_parity(limit=200, repair=True)
         recovered_logs = await self.recover_expired_raw_log_claims()
@@ -813,6 +920,7 @@ class MemoryDAO:
         revision_number: int,
         content_hash: str,
         supersedes_revision_id: str | None = None,
+        chunking_plan: str | None = None,
     ) -> dict[str, Any]:
         """Create one immutable document revision and retain its predecessor."""
         normalized_hash = content_hash.strip().casefold()
@@ -872,7 +980,8 @@ class MemoryDAO:
             await db.execute(
                 "INSERT OR IGNORE INTO document_revisions "
                 "(revision_id, tenant_id, document_id, revision_number, content_hash, "
-                "status, supersedes_revision_id, declared_content_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "status, supersedes_revision_id, declared_content_hash, chunking_plan) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     revision_id,
                     tenant_id,
@@ -884,6 +993,7 @@ class MemoryDAO:
                     "PENDING",
                     supersedes_revision_id,
                     normalized_hash,
+                    chunking_plan,
                 ),
             )
             async with db.execute(
@@ -918,10 +1028,17 @@ class MemoryDAO:
         result["revision_id"] = external_revision_id
         result["supersedes_revision_id"] = external_supersedes_id
         result["dataset_id"] = external_dataset_id
+        if chunking_plan is None:
+            result.pop("chunking_plan")
         return result
 
     async def list_v4_revisions(
-        self, *, tenant_id: str, dataset_id: str, document_id: str
+        self,
+        *,
+        tenant_id: str,
+        dataset_id: str,
+        document_id: str,
+        include_chunking_plan: bool = False,
     ) -> list[dict[str, Any]]:
         async with self._sql.connection() as db:
             dataset_id = await self._catalog.resolve_id_in_tx(
@@ -933,7 +1050,8 @@ class MemoryDAO:
             async with db.execute(
                 "SELECT ri.external_id AS revision_id, r.tenant_id, "
                 "di.external_id AS document_id, r.revision_number, "
-                "r.content_hash, r.declared_content_hash, r.manifest_hash, r.status, r.supersedes_revision_id, r.created_at "
+                "r.content_hash, r.declared_content_hash, r.manifest_hash, r.status, "
+                "r.supersedes_revision_id, r.created_at, r.chunking_plan "
                 "FROM document_revisions r JOIN documents d "
                 "ON d.document_id = r.document_id "
                 "JOIN v4_catalog_identities ri ON ri.tenant_id = r.tenant_id "
@@ -946,6 +1064,8 @@ class MemoryDAO:
             ) as cursor:
                 rows = [dict(row) for row in await cursor.fetchall()]
             for row in rows:
+                if not include_chunking_plan:
+                    row.pop("chunking_plan")
                 if row["supersedes_revision_id"]:
                     row[
                         "supersedes_revision_id"
@@ -956,6 +1076,37 @@ class MemoryDAO:
                         physical_id=str(row["supersedes_revision_id"]),
                     )
             return rows
+
+    async def record_v4_revision_chunking_plan(
+        self, *, tenant_id: str, dataset_id: str, revision_id: str, chunking_plan: str
+    ) -> None:
+        """Pin a legacy revision's verified plan before admitting more chunks."""
+        async with self._sql.transaction() as db:
+            dataset_id = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+            )
+            revision_id = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="revision", external_id=revision_id
+            )
+            cursor = await db.execute(
+                "UPDATE document_revisions SET chunking_plan = ? "
+                "WHERE revision_id = ? AND tenant_id = ? AND status IN ('PENDING', 'ACTIVE') "
+                "AND (chunking_plan IS NULL OR chunking_plan = ?) "
+                "AND EXISTS (SELECT 1 FROM documents d "
+                "WHERE d.document_id = document_revisions.document_id "
+                "AND d.tenant_id = ? AND d.dataset_id = ? AND d.status != 'PURGED')",
+                (
+                    chunking_plan,
+                    revision_id,
+                    tenant_id,
+                    chunking_plan,
+                    tenant_id,
+                    dataset_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("revision is unavailable or its chunking plan already differs")
+            await db.commit()
 
     async def list_v4_revision_mutations(
         self, *, tenant_id: str, dataset_id: str, revision_id: str
@@ -1388,12 +1539,20 @@ class MemoryDAO:
                     str(row[0]) for row in await cursor.fetchall() if row[0]
                 ]
 
+            dataset_fts = _dataset_fts_table_name(tenant_id, dataset_id)
+            has_dataset_fts = await self._dataset_fts_exists_in_tx(db, dataset_fts)
+
             # Earlier FTS5 secure-delete has false integrity failures (fixed
             # in SQLite 3.46.1). Rebuild those indexes after erasure instead.
             if sqlite3.sqlite_version_info >= (3, 46, 1):
                 for fts_table in ("v4_assertions_fts", "v4_entities_fts"):
                     await db.execute(
                         f"INSERT INTO {fts_table}({fts_table}, rank) "
+                        "VALUES('secure-delete', 1)"
+                    )
+                if has_dataset_fts:
+                    await db.execute(
+                        f"INSERT INTO main.{dataset_fts}({dataset_fts}, rank) "
                         "VALUES('secure-delete', 1)"
                     )
             purged_mutation_ids = await self._purge_mutations_in_tx(
@@ -1504,11 +1663,23 @@ class MemoryDAO:
                 "AND s.state = 'ACTIVE' AND s.document_id IS NOT ?)",
                 (tenant_id, dataset_id, document_id, document_id),
             )
+            if has_dataset_fts:
+                await db.execute(
+                    f"DELETE FROM main.{dataset_fts} WHERE rowid IN ("
+                    "SELECT rowid FROM v4_assertions "
+                    "WHERE tenant_id = ? AND dataset_id = ? AND document_id = ? "
+                    "AND status != 'ACTIVE')",
+                    (tenant_id, dataset_id, document_id),
+                )
             if sqlite3.sqlite_version_info < (3, 46, 1):
                 # ponytail: full index work on old SQLite; upgrade for secure-delete.
                 for fts_table in ("v4_assertions_fts", "v4_entities_fts"):
                     await db.execute(
                         f"INSERT INTO {fts_table}({fts_table}) VALUES('rebuild')"
+                    )
+                if has_dataset_fts:
+                    await db.execute(
+                        f"INSERT INTO main.{dataset_fts}({dataset_fts}) VALUES('rebuild')"
                     )
             await db.commit()
 
@@ -2362,7 +2533,7 @@ class MemoryDAO:
                         embedding_dimension,
                     ),
                 )
-                for projection_name in ("SQL", "VECTOR", "GRAPH"):
+                for projection_name in ("SQL", "VECTOR"):
                     await db.execute(
                         "INSERT INTO projection_outbox (projection_id, mutation_id, projection_name, state) "
                         "VALUES (?, ?, ?, 'BLOCKED_VALIDATION')",
@@ -2565,7 +2736,7 @@ class MemoryDAO:
                     candidate.get("embedding_dimension"),
                 ),
             )
-            for projection_name in ("SQL", "VECTOR", "GRAPH"):
+            for projection_name in ("SQL", "VECTOR"):
                 await db.execute(
                     "INSERT OR IGNORE INTO projection_outbox (projection_id, mutation_id, projection_name, state) "
                     "VALUES (?, ?, ?, 'BLOCKED_VALIDATION')",
@@ -2624,7 +2795,7 @@ class MemoryDAO:
             # policy is satisfied. The durable rows exist now so a rejection
             # can be audited/cancelled, but consumers cannot claim them until
             # ``VALIDATED``.
-            for projection_name in ("SQL", "VECTOR", "GRAPH"):
+            for projection_name in ("SQL", "VECTOR"):
                 await db.execute(
                     "INSERT OR IGNORE INTO projection_outbox "
                     "(projection_id, mutation_id, projection_name, state) VALUES (?, ?, ?, 'BLOCKED_VALIDATION')",
@@ -2966,6 +3137,246 @@ class MemoryDAO:
         )
 
     @staticmethod
+    async def _dataset_fts_exists_in_tx(db: Any, table_name: str) -> bool:
+        async with db.execute(
+            "SELECT 1 FROM main.sqlite_master WHERE type = 'table' AND name = ?",
+            (table_name,),
+        ) as cursor:
+            return await cursor.fetchone() is not None
+
+    @staticmethod
+    async def _ensure_and_populate_dataset_fts_in_tx(
+        db: Any, tenant_id: str, dataset_id: str
+    ) -> str:
+        """Create and populate the persistent per-(tenant, dataset) FTS5 table (D80)."""
+        table_name = _dataset_fts_table_name(tenant_id, dataset_id)
+        await db.execute(
+            f"CREATE VIRTUAL TABLE IF NOT EXISTS main.{table_name} "
+            f"USING fts5({_FTS5_SCHEMA_SQL})"
+        )
+        await db.execute(f"DELETE FROM main.{table_name}")
+        scoped_subquery = (
+            "SELECT a.* FROM v4_assertions a "
+            "WHERE a.tenant_id = ? AND a.dataset_id = ? AND a.status = 'ACTIVE' "
+            "AND EXISTS (SELECT 1 FROM memory_mutations m "
+            "WHERE m.mutation_id = a.mutation_id AND m.state = 'COMMITTED')"
+        )
+        await db.execute(
+            f"INSERT INTO main.{table_name} {_FTS5_INSERT_COLUMNS_SQL} "
+            + _fts5_select_from_scoped_sql(scoped_subquery),
+            (tenant_id, dataset_id),
+        )
+        return table_name
+
+    async def _rebuild_dataset_fts_index(
+        self, tenant_id: str, dataset_id: str
+    ) -> str:
+        """Rebuild a missing or out-of-sync per-dataset FTS5 index from SQLite."""
+        async with self._sql.transaction() as db:
+            table_name = await self._ensure_and_populate_dataset_fts_in_tx(
+                db, tenant_id, dataset_id
+            )
+            await db.commit()
+        return table_name
+
+    @staticmethod
+    async def _sync_dataset_fts_add_mutation_in_tx(db: Any, mutation_id: str) -> None:
+        async with db.execute(
+            "SELECT DISTINCT tenant_id, dataset_id FROM v4_assertions "
+            "WHERE mutation_id = ? AND status = 'ACTIVE'",
+            (mutation_id,),
+        ) as cursor:
+            datasets = [(str(row[0]), str(row[1])) for row in await cursor.fetchall()]
+        for tenant_id, dataset_id in datasets:
+            table_name = _dataset_fts_table_name(tenant_id, dataset_id)
+            if not await MemoryDAO._dataset_fts_exists_in_tx(db, table_name):
+                await MemoryDAO._ensure_and_populate_dataset_fts_in_tx(
+                    db, tenant_id, dataset_id
+                )
+                continue
+            await db.execute(
+                f"DELETE FROM main.{table_name} WHERE rowid IN ("
+                "SELECT rowid FROM v4_assertions INDEXED BY idx_v4_assertions_mutation "
+                "WHERE tenant_id = ? AND dataset_id = ? AND mutation_id = ?)",
+                (tenant_id, dataset_id, mutation_id),
+            )
+            # The canonical FTS triggers copy the assertion rowid. Point lookups
+            # avoid scanning the entire corpus for every committed mutation.
+            scoped_subquery = (
+                "SELECT a.rowid AS assertion_rowid, a.* "
+                "FROM v4_assertions a INDEXED BY idx_v4_assertions_mutation "
+                "WHERE a.tenant_id = ? AND a.dataset_id = ? "
+                "AND a.mutation_id = ? AND a.status = 'ACTIVE' "
+                "AND EXISTS (SELECT 1 FROM memory_mutations m "
+                "WHERE m.mutation_id = a.mutation_id AND m.state = 'COMMITTED')"
+            )
+            await db.execute(
+                f"INSERT INTO main.{table_name} {_FTS5_INSERT_COLUMNS_SQL} "
+                + _fts5_select_from_scoped_sql(scoped_subquery, join_by_rowid=True),
+                (tenant_id, dataset_id, mutation_id),
+            )
+
+    @staticmethod
+    async def _sync_dataset_fts_delete_mutation_in_tx(
+        db: Any, mutation_id: str
+    ) -> None:
+        async with db.execute(
+            "SELECT rowid, tenant_id, dataset_id FROM v4_assertions "
+            "WHERE mutation_id = ?",
+            (mutation_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        grouped: dict[tuple[str, str], list[int]] = {}
+        for row in rows:
+            grouped.setdefault((str(row[1]), str(row[2])), []).append(int(row[0]))
+        for (tenant_id, dataset_id), rowids in grouped.items():
+            table_name = _dataset_fts_table_name(tenant_id, dataset_id)
+            if not await MemoryDAO._dataset_fts_exists_in_tx(db, table_name):
+                continue
+            for offset in range(0, len(rowids), 500):
+                rowid_batch = rowids[offset : offset + 500]
+                marks = ",".join("?" for _ in rowid_batch)
+                await db.execute(
+                    f"DELETE FROM main.{table_name} WHERE rowid IN ({marks})",
+                    rowid_batch,
+                )
+
+    @staticmethod
+    async def _sync_dataset_fts_delete_assertions_in_tx(
+        db: Any, assertion_ids: list[str]
+    ) -> None:
+        if not assertion_ids:
+            return
+        grouped: dict[tuple[str, str], list[int]] = {}
+        for offset in range(0, len(assertion_ids), 500):
+            batch = list(assertion_ids[offset : offset + 500])
+            marks = ",".join("?" for _ in batch)
+            async with db.execute(
+                "SELECT rowid, tenant_id, dataset_id FROM v4_assertions "
+                f"WHERE assertion_id IN ({marks})",
+                batch,
+            ) as cursor:
+                for row in await cursor.fetchall():
+                    grouped.setdefault((str(row[1]), str(row[2])), []).append(
+                        int(row[0])
+                    )
+        for (tenant_id, dataset_id), rowids in grouped.items():
+            table_name = _dataset_fts_table_name(tenant_id, dataset_id)
+            if not await MemoryDAO._dataset_fts_exists_in_tx(db, table_name):
+                continue
+            for offset in range(0, len(rowids), 500):
+                rowid_batch = rowids[offset : offset + 500]
+                marks = ",".join("?" for _ in rowid_batch)
+                await db.execute(
+                    f"DELETE FROM main.{table_name} WHERE rowid IN ({marks})",
+                    rowid_batch,
+                )
+
+    @staticmethod
+    async def _sync_dataset_fts_delete_revision_in_tx(
+        db: Any, tenant_id: str, revision_id: str
+    ) -> None:
+        async with db.execute(
+            "SELECT DISTINCT dataset_id FROM v4_assertions "
+            "WHERE tenant_id = ? AND revision_id = ?",
+            (tenant_id, revision_id),
+        ) as cursor:
+            dataset_ids = [str(row[0]) for row in await cursor.fetchall()]
+        for dataset_id in dataset_ids:
+            table_name = _dataset_fts_table_name(tenant_id, dataset_id)
+            if not await MemoryDAO._dataset_fts_exists_in_tx(db, table_name):
+                continue
+            await db.execute(
+                f"DELETE FROM main.{table_name} WHERE rowid IN ("
+                "SELECT rowid FROM v4_assertions "
+                "WHERE tenant_id = ? AND dataset_id = ? AND revision_id = ? "
+                "AND status != 'ACTIVE')",
+                (tenant_id, dataset_id, revision_id),
+            )
+
+    @staticmethod
+    async def _sync_dataset_fts_upsert_assertions_in_tx(
+        db: Any, assertion_ids: list[str]
+    ) -> None:
+        if not assertion_ids:
+            return
+        grouped: dict[tuple[str, str], list[str]] = {}
+        for offset in range(0, len(assertion_ids), 500):
+            batch = list(assertion_ids[offset : offset + 500])
+            marks = ",".join("?" for _ in batch)
+            async with db.execute(
+                "SELECT a.assertion_id, a.tenant_id, a.dataset_id "
+                "FROM v4_assertions a "
+                "JOIN memory_mutations m ON m.mutation_id = a.mutation_id "
+                f"WHERE a.assertion_id IN ({marks}) "
+                "AND a.status = 'ACTIVE' AND m.state = 'COMMITTED'",
+                batch,
+            ) as cursor:
+                for row in await cursor.fetchall():
+                    grouped.setdefault((str(row[1]), str(row[2])), []).append(
+                        str(row[0])
+                    )
+        for (tenant_id, dataset_id), aids in grouped.items():
+            table_name = _dataset_fts_table_name(tenant_id, dataset_id)
+            if not await MemoryDAO._dataset_fts_exists_in_tx(db, table_name):
+                continue
+            for offset in range(0, len(aids), 500):
+                batch = aids[offset : offset + 500]
+                marks = ",".join("?" for _ in batch)
+                await db.execute(
+                    f"DELETE FROM main.{table_name} WHERE rowid IN ("
+                    "SELECT rowid FROM v4_assertions "
+                    f"WHERE assertion_id IN ({marks}))",
+                    batch,
+                )
+                scoped_subquery = (
+                    "SELECT a.* FROM v4_assertions a "
+                    f"WHERE a.assertion_id IN ({marks}) AND a.status = 'ACTIVE' "
+                    "AND EXISTS (SELECT 1 FROM memory_mutations m "
+                    "WHERE m.mutation_id = a.mutation_id AND m.state = 'COMMITTED')"
+                )
+                await db.execute(
+                    f"INSERT INTO main.{table_name} {_FTS5_INSERT_COLUMNS_SQL} "
+                    + _fts5_select_from_scoped_sql(scoped_subquery),
+                    batch,
+                )
+
+    @staticmethod
+    async def _sync_dataset_fts_upsert_revision_in_tx(
+        db: Any, tenant_id: str, revision_id: str
+    ) -> None:
+        async with db.execute(
+            "SELECT DISTINCT a.dataset_id FROM v4_assertions a "
+            "JOIN memory_mutations m ON m.mutation_id = a.mutation_id "
+            "WHERE a.tenant_id = ? AND a.revision_id = ? "
+            "AND a.status = 'ACTIVE' AND m.state = 'COMMITTED'",
+            (tenant_id, revision_id),
+        ) as cursor:
+            dataset_ids = [str(row[0]) for row in await cursor.fetchall()]
+        for dataset_id in dataset_ids:
+            table_name = _dataset_fts_table_name(tenant_id, dataset_id)
+            if not await MemoryDAO._dataset_fts_exists_in_tx(db, table_name):
+                continue
+            await db.execute(
+                f"DELETE FROM main.{table_name} WHERE rowid IN ("
+                "SELECT rowid FROM v4_assertions "
+                "WHERE tenant_id = ? AND dataset_id = ? AND revision_id = ?)",
+                (tenant_id, dataset_id, revision_id),
+            )
+            scoped_subquery = (
+                "SELECT a.* FROM v4_assertions a "
+                "WHERE a.tenant_id = ? AND a.dataset_id = ? "
+                "AND a.revision_id = ? AND a.status = 'ACTIVE' "
+                "AND EXISTS (SELECT 1 FROM memory_mutations m "
+                "WHERE m.mutation_id = a.mutation_id AND m.state = 'COMMITTED')"
+            )
+            await db.execute(
+                f"INSERT INTO main.{table_name} {_FTS5_INSERT_COLUMNS_SQL} "
+                + _fts5_select_from_scoped_sql(scoped_subquery),
+                (tenant_id, dataset_id, revision_id),
+            )
+
+    @staticmethod
     async def _transition_memory_mutation_in_tx(
         db: Any,
         mutation_id: str,
@@ -3031,6 +3442,7 @@ class MemoryDAO:
                 "CANCELLED",
             },
             "VECTOR_APPLIED": {
+                "COMMITTED",
                 "GRAPH_APPLIED",
                 "RETRY_PENDING",
                 "DEAD_LETTER",
@@ -3104,7 +3516,10 @@ class MemoryDAO:
                 if pr and pr[0]:
                     await MemoryDAO._recompute_pipeline_state_in_tx(db, str(pr[0]))
             if to_state == "COMMITTED":
+                await MemoryDAO._sync_dataset_fts_add_mutation_in_tx(db, mutation_id)
                 await MemoryDAO._activate_committed_revision_in_tx(db, mutation_id)
+            elif current == "COMMITTED":
+                await MemoryDAO._sync_dataset_fts_delete_mutation_in_tx(db, mutation_id)
             return True
         return False
 
@@ -3147,12 +3562,19 @@ class MemoryDAO:
             (mutation_id,),
         ) as cursor:
             targets = await cursor.fetchall()
+        superseded_ids: list[str] = []
         for target_id, source_valid_from in targets:
-            await db.execute(
+            res = await db.execute(
                 "UPDATE v4_assertions SET status = 'SUPERSEDED', "
                 "valid_to = CASE WHEN valid_to = '' AND ? != '' THEN ? ELSE valid_to END "
                 "WHERE assertion_id = ? AND status = 'ACTIVE'",
                 (source_valid_from or "", source_valid_from or "", target_id),
+            )
+            if res.rowcount > 0:
+                superseded_ids.append(str(target_id))
+        if superseded_ids:
+            await MemoryDAO._sync_dataset_fts_delete_assertions_in_tx(
+                db, superseded_ids
             )
 
     @staticmethod
@@ -3248,6 +3670,9 @@ class MemoryDAO:
                 "WHERE tenant_id = ? AND revision_id = ? AND status = 'ACTIVE'",
                 (valid_from, valid_from, tenant_id, supersedes_revision_id),
             )
+            await MemoryDAO._sync_dataset_fts_delete_revision_in_tx(
+                db, tenant_id, supersedes_revision_id
+            )
         else:
             cursor = await db.execute(
                 "UPDATE document_revisions SET status = 'ACTIVE' "
@@ -3300,6 +3725,7 @@ class MemoryDAO:
             (pipeline_run_id,),
         ) as cursor:
             fact_level_targets = [str(row[0]) for row in await cursor.fetchall()]
+        restored_target_ids: list[str] = []
         for target_id in fact_level_targets:
             async with db.execute(
                 "SELECT 1 FROM v4_assertion_links l "
@@ -3311,11 +3737,17 @@ class MemoryDAO:
             ) as cursor:
                 still_superseded = await cursor.fetchone()
             if still_superseded is None:
-                await db.execute(
+                res = await db.execute(
                     "UPDATE v4_assertions SET status = 'ACTIVE', valid_to = '' "
                     "WHERE assertion_id = ? AND status = 'SUPERSEDED'",
                     (target_id,),
                 )
+                if res.rowcount > 0:
+                    restored_target_ids.append(target_id)
+        if restored_target_ids:
+            await MemoryDAO._sync_dataset_fts_upsert_assertions_in_tx(
+                db, restored_target_ids
+            )
         async with db.execute(
             "SELECT DISTINCT m.tenant_id, m.revision_id, m.metadata_json, "
             "r.document_id, r.supersedes_revision_id, d.status "
@@ -3365,6 +3797,9 @@ class MemoryDAO:
                 "valid_to = CASE WHEN ? != '' AND valid_to = ? THEN '' ELSE valid_to END "
                 "WHERE tenant_id = ? AND revision_id = ? AND status = 'SUPERSEDED'",
                 (valid_from, valid_from, row[0], predecessor_id),
+            )
+            await MemoryDAO._sync_dataset_fts_upsert_revision_in_tx(
+                db, str(row[0]), predecessor_id
             )
 
     async def _purge_mutations_in_tx(
@@ -3840,12 +4275,9 @@ class MemoryDAO:
                 "AND (p.projection_name = 'SQL' "
                 "OR (p.projection_name = 'VECTOR' AND EXISTS "
                 "(SELECT 1 FROM projection_outbox s WHERE s.mutation_id = p.mutation_id "
-                "AND s.projection_name = 'SQL' AND s.state = 'COMPLETED')) "
-                "OR (p.projection_name = 'GRAPH' AND EXISTS "
-                "(SELECT 1 FROM projection_outbox v WHERE v.mutation_id = p.mutation_id "
-                "AND v.projection_name = 'VECTOR' AND v.state IN ('COMPLETED', 'SKIPPED')))) "
+                "AND s.projection_name = 'SQL' AND s.state = 'COMPLETED'))) "
                 "ORDER BY CASE p.projection_name WHEN 'SQL' THEN 0 WHEN 'VECTOR' THEN 1 "
-                "WHEN 'GRAPH' THEN 2 ELSE 99 END, p.created_at LIMIT ?",
+                "ELSE 99 END, p.created_at LIMIT ?",
                 (limit,),
             ) as cursor:
                 identifiers = [row[0] for row in await cursor.fetchall()]
@@ -3946,10 +4378,9 @@ class MemoryDAO:
             ),
         )
         if outcome == "SKIPPED" and not (
-            (row["projection_name"] == "VECTOR" and not self._embedding_enabled)
-            or (row["projection_name"] == "GRAPH" and not self._graph_enabled)
+            row["projection_name"] == "VECTOR" and not self._embedding_enabled
         ):
-            raise ValueError("only a disabled VECTOR or GRAPH lane may be skipped")
+            raise ValueError("only a disabled VECTOR lane may be skipped")
         cursor = await db.execute(
             "UPDATE projection_outbox SET state = ?, claim_token = NULL, claimed_by = NULL, "
             "lease_expires_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE projection_id = ? AND claim_token = ?",
@@ -4014,21 +4445,6 @@ class MemoryDAO:
                     await self._vec.hard_delete(a_id, agent_id_str)
                 except Exception:
                     failed_compensations.append((s_name, a_kind, a_id))
-            elif s_name == "GRAPH":
-                try:
-                    g = self._require_graph()
-                    if a_kind == "ASSERTION":
-                        await g.delete_assertions(
-                            agent_id=agent_id_str, assertion_ids=[a_id]
-                        )
-                    elif a_kind == "ENTITY":
-                        await g.delete_nodes(
-                            purge_id=f"fence_comp:{mutation_id_str}",
-                            agent_id=agent_id_str,
-                            node_ids=[a_id],
-                        )
-                except Exception:
-                    failed_compensations.append((s_name, a_kind, a_id))
         if failed_compensations:
             await self._enqueue_unowned_projection_cleanup(
                 mutation_id_str, failed_compensations
@@ -4075,19 +4491,15 @@ class MemoryDAO:
     async def requeue_skipped_vector_projections(
         self, *, projection_name: str = "VECTOR"
     ) -> int:
-        """Backfill a disabled lane under the combined runtime writer lock.
+        """Backfill a disabled VECTOR lane under the combined runtime writer lock.
 
         Every mutation whose VECTOR lane is unfinished and that has no vector
         artifact takes the active producer identity, so a vector-free store that
         adopted a new embedding model does not strand its pending lanes.
         """
-        if projection_name not in {"VECTOR", "GRAPH"}:
-            raise ValueError("only VECTOR and GRAPH lanes can be backfilled")
-        producer_identity = (
-            getattr(self._vec, "embedding_identity", None)
-            if projection_name == "VECTOR"
-            else None
-        )
+        if projection_name != "VECTOR":
+            raise ValueError("only the VECTOR lane can be backfilled")
+        producer_identity = getattr(self._vec, "embedding_identity", None)
         async with self._sql.transaction() as db:
             if producer_identity is not None:
                 identity_snapshot: dict[str, Any] = (
@@ -4326,6 +4738,9 @@ class MemoryDAO:
                         "WHERE assertion_id = ?",
                         (artifact["physical_artifact_id"],),
                     )
+                    await self._sync_dataset_fts_delete_assertions_in_tx(
+                        db, [str(artifact["physical_artifact_id"])]
+                    )
                 await db.execute(
                     "INSERT OR IGNORE INTO artifact_cleanup_outbox "
                     "(cleanup_id, pipeline_run_id, registry_id) VALUES (?, ?, ?)",
@@ -4539,44 +4954,31 @@ class MemoryDAO:
                         )
                         return
             await self._vec.hard_delete(artifact_id, agent_id)
-        elif store == "GRAPH":
-            graph = self._require_graph()
-            if kind == "ASSERTION":
-                async with self._sql.connection() as db:
-                    async with db.execute(
-                        "SELECT 1 FROM v4_assertions WHERE assertion_id = ? AND status != 'RETRACTED'",
-                        (artifact_id,),
-                    ) as cursor:
-                        if await cursor.fetchone() is not None:
-                            logger.warning(
-                                "SAFETY: skipping deletion of active assertion graph artifact %s",
-                                artifact_id,
-                            )
-                            return
-                await graph.delete_assertions(
-                    agent_id=agent_id, assertion_ids=[artifact_id]
-                )
-            elif kind == "ENTITY":
-                async with self._sql.connection() as db:
-                    async with db.execute(
-                        "SELECT 1 FROM v4_entities WHERE entity_id = ? AND status != 'RETRACTED' "
-                        "AND EXISTS (SELECT 1 FROM v4_assertions WHERE subject_id = ? OR object_entity_id = ?)",
-                        (artifact_id, artifact_id, artifact_id),
-                    ) as cursor:
-                        if await cursor.fetchone() is not None:
-                            logger.warning(
-                                "SAFETY: skipping deletion of active entity graph artifact %s",
-                                artifact_id,
-                            )
-                            return
-                await graph.delete_nodes(
-                    purge_id=f"rollback:{cleanup['cleanup_id']}",
-                    agent_id=agent_id,
-                    node_ids=[artifact_id],
-                )
         elif store == "SQL":
             async with self._sql.transaction() as db:
+                touched_dataset_fts: str | None = None
                 if kind == "ASSERTION":
+                    async with db.execute(
+                        "SELECT rowid, tenant_id, dataset_id FROM v4_assertions "
+                        "WHERE assertion_id = ?",
+                        (artifact_id,),
+                    ) as cursor:
+                        a_row = await cursor.fetchone()
+                    if a_row is not None:
+                        cand_fts = _dataset_fts_table_name(
+                            str(a_row[1]), str(a_row[2])
+                        )
+                        if await self._dataset_fts_exists_in_tx(db, cand_fts):
+                            touched_dataset_fts = cand_fts
+                            if sqlite3.sqlite_version_info >= (3, 46, 1):
+                                await db.execute(
+                                    f"INSERT INTO main.{cand_fts}({cand_fts}, rank) "
+                                    "VALUES('secure-delete', 1)"
+                                )
+                            await db.execute(
+                                f"DELETE FROM main.{cand_fts} WHERE rowid = ?",
+                                (int(a_row[0]),),
+                            )
                     await db.execute(
                         "DELETE FROM v4_assertion_links "
                         "WHERE source_assertion_id = ? OR target_assertion_id = ?",
@@ -4606,6 +5008,11 @@ class MemoryDAO:
                     for fts_table in ("v4_assertions_fts", "v4_entities_fts"):
                         await db.execute(
                             f"INSERT INTO {fts_table}({fts_table}) VALUES('rebuild')"
+                        )
+                    if touched_dataset_fts is not None:
+                        await db.execute(
+                            f"INSERT INTO main.{touched_dataset_fts}"
+                            f"({touched_dataset_fts}) VALUES('rebuild')"
                         )
                 await db.commit()
 
@@ -4724,7 +5131,6 @@ class MemoryDAO:
             "missing_artifacts": 0,
             "missing_sql": 0,
             "missing_vector": 0,
-            "missing_graph": 0,
             "requeued_lanes": 0,
         }
         missing: set[tuple[str, str]] = set()
@@ -4781,33 +5187,6 @@ class MemoryDAO:
                         and row["artifact_id"] not in existing_vector
                     ):
                         missing.add((row["mutation_id"], "VECTOR"))
-            if self._graph is not None:
-                # An Assertion is linked to both Graph V2 Entity endpoints;
-                # its existence is therefore the graph lane's compact parity
-                # proof.  Checking Entity artifacts separately would report a
-                # false mismatch for a duplicate canonical entity owned by a
-                # different assertion/mutation.
-                graph_rows = [
-                    row
-                    for row in rows
-                    if row["store_name"] == "GRAPH"
-                    and row["artifact_kind"] == "ASSERTION"
-                ]
-                if graph_rows:
-                    graph_ids = [
-                        self._graph._composite_id(agent_id, row["artifact_id"])
-                        for row in graph_rows
-                    ]
-                    found_rows = await self._graph.execute_query(
-                        "MATCH (n:Assertion {agent_id: $agent_id}) WHERE n.id IN $ids RETURN n.id",
-                        {"agent_id": agent_id, "ids": graph_ids},
-                    )
-                    # KuzuGraphProvider normalizes tenant composite IDs back
-                    # to their artifact IDs for every agent-scoped read.
-                    existing_graph = {row[0] for row in found_rows}
-                    for row in graph_rows:
-                        if row["artifact_id"] not in existing_graph:
-                            missing.add((row["mutation_id"], "GRAPH"))
         result["missing_artifacts"] = len(missing)
         for _mutation_id, lane in missing:
             result[f"missing_{lane.lower()}"] += 1
@@ -4963,35 +5342,6 @@ class MemoryDAO:
             and ("VECTOR", "ENTITY_VECTOR", item) not in other_registered
         }
 
-        graph_entities: set[str] = set()
-        graph_assertions: set[str] = set()
-        if self._graph is not None:
-            raw_graph_entities = {
-                str(row[0])
-                for row in await self._graph.execute_query(
-                    "MATCH (n:Entity {agent_id: $agent_id}) RETURN n.id",
-                    {"agent_id": agent_id},
-                )
-            }
-            graph_entities = {
-                e
-                for e in raw_graph_entities
-                if e not in other_dataset_entities
-                and ("GRAPH", "ENTITY", e) not in other_registered
-            }
-            raw_graph_assertions = {
-                str(row[0])
-                for row in await self._graph.execute_query(
-                    "MATCH (n:Assertion {agent_id: $agent_id}) RETURN n.id",
-                    {"agent_id": agent_id},
-                )
-            }
-            graph_assertions = {
-                a
-                for a in raw_graph_assertions
-                if a not in other_dataset_assertions
-                and ("GRAPH", "ASSERTION", a) not in other_registered
-            }
         physical = {
             *(("SQL", "ENTITY", item) for item in candidate_entities),
             *(("SQL", "ASSERTION", item) for item in sql_assertions),
@@ -5003,8 +5353,6 @@ class MemoryDAO:
                 )
                 for item in vector_entities
             ),
-            *(("GRAPH", "ENTITY", item) for item in graph_entities),
-            *(("GRAPH", "ASSERTION", item) for item in graph_assertions),
         }
         orphans = sorted(physical - registered)
         enqueued = 0
@@ -5149,6 +5497,23 @@ class MemoryDAO:
         self, *, mutation: dict[str, Any], assertion: dict[str, Any]
     ) -> str:
         """Embed canonical assertion text for supported V4 memory retrieval."""
+        return await self._project_v4_vector_payload(
+            mutation=mutation,
+            vector_id=str(assertion["assertion_id"]),
+            payload_text=self._v4_assertion_embedding_text(assertion),
+            artifact_kind="ASSERTION_VECTOR",
+            scope_key=self._v4_assertion_vector_scope(assertion),
+        )
+
+    def _v4_assertion_vector_scope(self, assertion: dict[str, Any]) -> str | None:
+        if isinstance(self._vec, VectorEngine):
+            return vector_scope_key(
+                str(assertion["tenant_id"]), str(assertion["dataset_id"])
+            )
+        return None
+
+    @staticmethod
+    def _v4_assertion_embedding_text(assertion: dict[str, Any]) -> str:
         subject = str(assertion.get("head") or "").strip()
         predicate = str(assertion.get("predicate") or "").strip()
         object_value = (
@@ -5165,13 +5530,70 @@ class MemoryDAO:
         )
         if not payload_text:
             raise ValueError("assertion vector representation is empty")
+        return payload_text
 
-        return await self._project_v4_vector_payload(
-            mutation=mutation,
-            vector_id=str(assertion["assertion_id"]),
-            payload_text=payload_text,
-            artifact_kind="ASSERTION_VECTOR",
-        )
+    async def project_v4_vector_assertions_batch(
+        self, inputs: list[tuple[dict[str, Any], dict[str, Any]]]
+    ) -> list[Exception | None]:
+        """Group one assertion per mutation into a write with independent receipts."""
+        outcomes: list[Exception | None] = [None] * len(inputs)
+        prepared: list[tuple[int, str, dict[str, Any], dict[str, Any]]] = []
+        for index, (mutation, assertion) in enumerate(inputs):
+            mutation_id = str(mutation["mutation_id"])
+            try:
+                record, metadata = await self._prepare_v4_vector_payload(
+                    mutation=mutation,
+                    vector_id=str(assertion["assertion_id"]),
+                    payload_text=self._v4_assertion_embedding_text(assertion),
+                    artifact_kind="ASSERTION_VECTOR",
+                    scope_key=self._v4_assertion_vector_scope(assertion),
+                )
+                prepared.append((index, mutation_id, record, metadata))
+            except Exception as exc:
+                outcomes[index] = exc
+
+        writable: list[tuple[int, str, dict[str, Any], dict[str, Any]]] = []
+        if not prepared:
+            return outcomes
+        try:
+            async with self._sql.connection() as db:
+                for item in prepared:
+                    index, mutation_id, _, _ = item
+                    try:
+                        await self._assert_v4_projection_write_allowed_in_db(
+                            db, mutation_id
+                        )
+                    except Exception as exc:
+                        outcomes[index] = exc
+                    else:
+                        writable.append(item)
+        except Exception as exc:
+            for index, _, _, _ in prepared:
+                if outcomes[index] is None:
+                    outcomes[index] = exc
+            return outcomes
+
+        if not writable:
+            return outcomes
+        batch_written = True
+        try:
+            await self._vec.bulk_upsert([record for _, _, record, _ in writable])
+        except Exception:
+            batch_written = False
+
+        for index, mutation_id, record, metadata in writable:
+            try:
+                # Isolate a failed batch write per mutation. Upsert also makes
+                # replay safe when the prior write succeeded before it raised.
+                if not batch_written:
+                    await self._assert_v4_projection_write_allowed(mutation_id)
+                    await self._vec.upsert(**record)
+                await self._record_v4_vector_receipt(
+                    mutation_id, "ASSERTION_VECTOR", record, metadata
+                )
+            except Exception as exc:
+                outcomes[index] = exc
+        return outcomes
 
     async def _project_v4_vector_payload(
         self,
@@ -5180,15 +5602,35 @@ class MemoryDAO:
         vector_id: str,
         payload_text: str,
         artifact_kind: str,
+        scope_key: str | None = None,
     ) -> str:
         """Project one explicitly selected semantic payload through EmbeddingService."""
+        record, metadata = await self._prepare_v4_vector_payload(
+            mutation=mutation,
+            vector_id=vector_id,
+            payload_text=payload_text,
+            artifact_kind=artifact_kind,
+            scope_key=scope_key,
+        )
+        await self._vec.upsert(**record)
+        await self._record_v4_vector_receipt(
+            str(mutation["mutation_id"]), artifact_kind, record, metadata
+        )
+        return vector_id
+
+    async def _prepare_v4_vector_payload(
+        self,
+        *,
+        mutation: dict[str, Any],
+        vector_id: str,
+        payload_text: str,
+        artifact_kind: str,
+        scope_key: str | None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         agent_id = str(mutation["agent_id"])
         _assert_valid_agent_id(agent_id)
-        # This is deliberately checked immediately before the non-transactional
-        # write.  ``record_mutation_artifact`` below is the post-write receipt
-        # fence; if it loses, its caller compensates the physical write.
+        # The receipt below fences lifecycle races after this pre-write check.
         await self._assert_v4_projection_write_allowed(str(mutation["mutation_id"]))
-        node_id = vector_id
         producer_identity = getattr(self._vec, "embedding_identity", None)
         if producer_identity is None and isinstance(self._vec, VectorEngine):
             raise ValueError("canonical vector projection requires producer identity")
@@ -5297,42 +5739,54 @@ class MemoryDAO:
             raise ValueError(
                 f"embedding dimension mismatch: expected {expected_dim}, got {len(embedding)}"
             )
-        await self._vec.upsert(
-            node_id=node_id,
-            agent_id=agent_id,
-            embedding=embedding,
-            content_hash=hashlib.sha256(payload_text.encode("utf-8")).hexdigest(),
-        )
+        record = {
+            "node_id": vector_id,
+            "agent_id": agent_id,
+            "embedding": embedding,
+            "content_hash": hashlib.sha256(payload_text.encode("utf-8")).hexdigest(),
+        }
+        if scope_key is not None:
+            record["scope_key"] = scope_key
+        return record, {
+            **producer_identity_metadata,
+            "embedding_dimension": len(embedding),
+            "representation_version": (
+                V4_VECTOR_REPRESENTATION_VERSION
+                if artifact_kind == "ASSERTION_VECTOR"
+                else "entity-v1"
+            ),
+        }
+
+    async def _record_v4_vector_receipt(
+        self,
+        mutation_id: str,
+        artifact_kind: str,
+        record: dict[str, Any],
+        metadata: dict[str, Any],
+    ) -> None:
+        node_id = record["node_id"]
+        agent_id = record["agent_id"]
         try:
             await self.record_mutation_artifact(
-                str(mutation["mutation_id"]),
+                mutation_id,
                 store_name="VECTOR",
                 artifact_kind=artifact_kind,
                 artifact_id=node_id,
-                metadata={
-                    **producer_identity_metadata,
-                    "embedding_dimension": len(embedding),
-                    "representation_version": (
-                        V4_VECTOR_REPRESENTATION_VERSION
-                        if artifact_kind == "ASSERTION_VECTOR"
-                        else "entity-v1"
-                    ),
-                },
+                metadata=metadata,
             )
         except Exception as exc:
             try:
                 await self._vec.hard_delete(node_id, agent_id)
             except Exception:
                 await self._enqueue_unowned_projection_cleanup(
-                    str(mutation["mutation_id"]),
+                    mutation_id,
                     [("VECTOR", artifact_kind, node_id)],
                 )
             else:
                 await self._finalize_terminal_projection_compensation(
-                    str(mutation["mutation_id"])
+                    mutation_id
                 )
             raise exc
-        return node_id
 
     async def _assert_v4_projection_write_allowed_in_db(
         self, db: Any, mutation_id: str
@@ -5672,6 +6126,8 @@ class MemoryDAO:
                 pipeline_run_id,
             ),
         )
+        if str(mutation.get("state") or "") == "COMMITTED":
+            await self._sync_dataset_fts_upsert_assertions_in_tx(db, [assertion_id])
         async with db.execute(
             "SELECT supersedes_revision_id FROM document_revisions "
             "WHERE revision_id = ?",
@@ -5745,12 +6201,7 @@ class MemoryDAO:
     async def project_v4_sql_assertion(
         self, *, mutation: dict[str, Any], triplet: dict[str, Any]
     ) -> str:
-        """Persist one canonical assertion after the SQL entity projection.
-
-        This method intentionally has no graph dependency.  Kuzu is a later,
-        derived projection and must never decide whether canonical fact truth
-        becomes durable.
-        """
+        """Persist one canonical assertion after the SQL entity projection."""
         resolved_entities: dict[tuple[str, str], str] = {}
         owner_cache: dict[str, Any] = {}
         async with self._sql.transaction() as db:
@@ -5843,321 +6294,6 @@ class MemoryDAO:
                     ]
             return assertions
 
-    async def load_v4_graph_projection_inputs_batch(
-        self, mutation_ids: list[str]
-    ) -> tuple[dict[str, dict[str, Any]], dict[str, list[dict[str, Any]]], set[str]]:
-        """Load mutations, terminal-fence flags, and assertions in one connection."""
-        unique_ids = list(dict.fromkeys(str(mid) for mid in mutation_ids if mid))
-        if not unique_ids:
-            return ({}, {}, set())
-        terminal = {
-            "ROLLING_BACK",
-            "ROLLED_BACK",
-            "PURGING",
-            "PURGED",
-            "CANCELLED",
-            "REJECTED",
-        }
-        mutations_by_id: dict[str, dict[str, Any]] = {}
-        assertions_by_mutation: dict[str, list[dict[str, Any]]] = {
-            mid: [] for mid in unique_ids
-        }
-        fenced_ids: set[str] = set()
-        all_assertion_ids: list[str] = []
-        superseded_by_source: dict[str, list[str]] = {}
-        all_assertions: list[dict[str, Any]] = []
-
-        async with self._sql.connection() as db:
-            for offset in range(0, len(unique_ids), 200):
-                batch_ids = unique_ids[offset : offset + 200]
-                placeholders = ",".join("?" * len(batch_ids))
-                async with db.execute(
-                    "SELECT m.*, pr.state AS _pipeline_state, d.status AS _document_status "
-                    "FROM memory_mutations m "
-                    "LEFT JOIN pipeline_runs pr ON pr.pipeline_run_id = m.pipeline_run_id "
-                    "LEFT JOIN documents d ON d.document_id = m.document_id "
-                    f"WHERE m.mutation_id IN ({placeholders})",
-                    batch_ids,
-                ) as cursor:
-                    rows = await cursor.fetchall()
-                for row in rows:
-                    row_dict = dict(row)
-                    pipeline_state = row_dict.pop("_pipeline_state", None)
-                    document_status = row_dict.pop("_document_status", None)
-                    mid = str(row_dict["mutation_id"])
-                    if (
-                        row_dict.get("state") in terminal
-                        or pipeline_state in terminal
-                        or document_status == "PURGED"
-                    ):
-                        fenced_ids.add(mid)
-                    mutations_by_id[mid] = self._parse_projection_mutation_row(row_dict)
-
-                async with db.execute(
-                    "SELECT a.*, subject.canonical_name AS head, "
-                    "object_entity.canonical_name AS tail, "
-                    "reg.metadata_json AS artifact_meta "
-                    "FROM v4_assertions a "
-                    "JOIN v4_entities subject ON subject.entity_id = a.subject_id "
-                    "LEFT JOIN v4_entities object_entity "
-                    "ON object_entity.entity_id = a.object_entity_id "
-                    "LEFT JOIN artifact_registry reg "
-                    "ON reg.tenant_id = a.tenant_id "
-                    "AND reg.physical_artifact_id = a.assertion_id "
-                    "AND reg.store_name = 'SQL' "
-                    "AND reg.artifact_kind = 'ASSERTION' "
-                    f"WHERE a.mutation_id IN ({placeholders}) "
-                    "AND a.status IN ('ACTIVE', 'SUPERSEDED') "
-                    "ORDER BY a.mutation_id, a.assertion_id",
-                    batch_ids,
-                ) as cursor:
-                    a_rows = await cursor.fetchall()
-                for a_row in a_rows:
-                    item = self._unpack_v4_assertion_row(a_row)
-                    all_assertions.append(item)
-                    all_assertion_ids.append(str(item["assertion_id"]))
-
-            for offset in range(0, len(all_assertion_ids), 200):
-                a_batch = all_assertion_ids[offset : offset + 200]
-                a_placeholders = ",".join("?" * len(a_batch))
-                async with db.execute(
-                    "SELECT source_assertion_id, target_assertion_id "
-                    "FROM v4_assertion_links "
-                    f"WHERE source_assertion_id IN ({a_placeholders}) "
-                    "AND relation_type = 'SUPERSEDES'",
-                    a_batch,
-                ) as l_cur:
-                    for src_id, dst_id in await l_cur.fetchall():
-                        superseded_by_source.setdefault(str(src_id), []).append(
-                            str(dst_id)
-                        )
-
-        for item in all_assertions:
-            item["superseded_ids"] = superseded_by_source.get(
-                str(item["assertion_id"]), []
-            )
-            assertions_by_mutation.setdefault(str(item["mutation_id"]), []).append(
-                item
-            )
-        return (mutations_by_id, assertions_by_mutation, fenced_ids)
-
-    async def _write_v4_graph_assertion_in_tx(
-        self,
-        graph: Any,
-        *,
-        mutation: dict[str, Any],
-        assertion: dict[str, Any],
-    ) -> tuple[str, list[tuple[str, str]]]:
-        """Write one assertion and its endpoint entities into an active graph tx."""
-        agent_id = str(mutation["agent_id"])
-        _assert_valid_agent_id(agent_id)
-        assertion_id = str(assertion["assertion_id"])
-        subject_id = str(assertion["subject_id"])
-        object_id = (
-            str(assertion["object_entity_id"])
-            if assertion.get("object_entity_id") is not None
-            else None
-        )
-        head = str(assertion["head"])
-        tail = str(assertion["tail"]) if assertion.get("tail") is not None else None
-        literal_value = (
-            str(assertion["literal_value"])
-            if assertion.get("literal_value") is not None
-            else None
-        )
-        if (object_id is None) == (literal_value is None):
-            raise ValueError("canonical assertion object is invalid")
-        graph_entities = [(subject_id, head)]
-        if object_id is not None:
-            graph_entities.append((object_id, tail or object_id))
-        superseded_assertion_ids = assertion.get("superseded_ids")
-        if superseded_assertion_ids is None:
-            async with self._sql.connection() as db:
-                async with db.execute(
-                    "SELECT target_assertion_id FROM v4_assertion_links "
-                    "WHERE source_assertion_id = ? AND relation_type = 'SUPERSEDES'",
-                    (assertion_id,),
-                ) as cursor:
-                    superseded_assertion_ids = [
-                        str(row[0]) for row in await cursor.fetchall()
-                    ]
-        for entity_id, entity_name in graph_entities:
-            await graph.insert_node(entity_id, entity_name, agent_id)
-        await graph.insert_assertion(
-            assertion_id=assertion_id,
-            subject_id=subject_id,
-            object_id=object_id,
-            object_value="" if literal_value is not None else None,
-            agent_id=agent_id,
-            predicate=str(assertion["predicate"]),
-            mutation_id=str(mutation["mutation_id"]),
-            source_ref="",
-            evidence_span="",
-            jurisdiction=str(assertion["jurisdiction"] or ""),
-            authority_level=str(assertion["authority_level"] or ""),
-            valid_from=str(assertion["valid_from"] or ""),
-            valid_to=str(assertion["valid_to"] or ""),
-            observed_at=str(assertion["observed_at"] or ""),
-            confidence=float(assertion["confidence"]),
-            pipeline_run_id=str(assertion["pipeline_run_id"] or ""),
-            object_type=str(assertion.get("object_type") or "LEGACY"),
-            representation_version=str(
-                assertion.get("representation_version") or "legacy-v0"
-            ),
-        )
-        for old_assertion_id in superseded_assertion_ids:
-            await graph.link_assertions(
-                source_assertion_id=assertion_id,
-                target_assertion_id=old_assertion_id,
-                agent_id=agent_id,
-                relation_type="SUPERSEDES",
-            )
-        return (assertion_id, graph_entities)
-
-    async def project_v4_graph_assertion(
-        self, *, mutation: dict[str, Any], assertion: dict[str, Any]
-    ) -> str:
-        """Project an already-persisted canonical SQL assertion into Kuzu."""
-        agent_id = str(mutation["agent_id"])
-        _assert_valid_agent_id(agent_id)
-        assertion_id = str(assertion["assertion_id"])
-        subject_id = str(assertion["subject_id"])
-        object_id = (
-            str(assertion["object_entity_id"])
-            if assertion.get("object_entity_id") is not None
-            else None
-        )
-        head = str(assertion["head"])
-        tail = str(assertion["tail"]) if assertion.get("tail") is not None else None
-        graph_entities = [(subject_id, head)]
-        if object_id is not None:
-            graph_entities.append((object_id, tail or object_id))
-        graph = self._require_graph()
-        try:
-            assertion_id, graph_entities = await self._write_v4_graph_assertion_in_tx(
-                graph, mutation=mutation, assertion=assertion
-            )
-            for entity_id, entity_name in graph_entities:
-                await self.record_mutation_artifact(
-                    str(mutation["mutation_id"]),
-                    store_name="GRAPH",
-                    artifact_kind="ENTITY",
-                    artifact_id=entity_id,
-                    metadata={"entity_name": entity_name},
-                )
-            await self.record_mutation_artifact(
-                str(mutation["mutation_id"]),
-                store_name="GRAPH",
-                artifact_kind="ASSERTION",
-                artifact_id=assertion_id,
-                metadata={"predicate": str(assertion["predicate"])},
-            )
-        except Exception:
-            await self._compensate_v4_graph_projection(
-                mutation=mutation,
-                assertion_id=assertion_id,
-                graph_entities=graph_entities,
-            )
-            raise
-        return assertion_id
-
-    async def project_v4_graph_triplet(
-        self, *, mutation: dict[str, Any], triplet: dict[str, Any]
-    ) -> str:
-        """Compatibility helper; supported workers use separate SQL/GRAPH lanes."""
-        assertion_id = await self.project_v4_sql_assertion(
-            mutation=mutation, triplet=triplet
-        )
-        assertions = await self.list_v4_assertions_for_mutation(
-            str(mutation["mutation_id"])
-        )
-        assertion = next(
-            item for item in assertions if item["assertion_id"] == assertion_id
-        )
-        return await self.project_v4_graph_assertion(
-            mutation=mutation, assertion=assertion
-        )
-
-    async def _compensate_v4_graph_projection(
-        self,
-        *,
-        mutation: dict[str, Any],
-        assertion_id: str,
-        graph_entities: list[tuple[str, str]],
-    ) -> None:
-        """Remove or durably queue every graph write after a lost fence."""
-        graph = self._require_graph()
-        agent_id = str(mutation["agent_id"])
-        failed: list[tuple[str, str, str]] = []
-        try:
-            await graph.delete_assertions(
-                agent_id=agent_id, assertion_ids=[assertion_id]
-            )
-        except Exception:
-            failed.append(("GRAPH", "ASSERTION", assertion_id))
-        async with self._sql.connection() as db:
-            async with db.execute(
-                "SELECT m.state, pr.state FROM memory_mutations m "
-                "LEFT JOIN pipeline_runs pr ON pr.pipeline_run_id = m.pipeline_run_id "
-                "WHERE m.mutation_id = ?",
-                (str(mutation["mutation_id"]),),
-            ) as cursor:
-                state_row = await cursor.fetchone()
-        terminal_states = {
-            "ROLLING_BACK",
-            "ROLLED_BACK",
-            "PURGING",
-            "PURGED",
-            "CANCELLED",
-            "REJECTED",
-        }
-        terminal = state_row is not None and (
-            state_row[0] in terminal_states or state_row[1] in terminal_states
-        )
-        if terminal:
-            # A concurrent terminal lifecycle transition owns canonical
-            # removal.  Ordinary graph unavailability never enters this path.
-            async with self._sql.transaction() as db:
-                await db.execute(
-                    "DELETE FROM v4_assertion_links WHERE source_assertion_id = ? "
-                    "OR target_assertion_id = ?",
-                    (assertion_id, assertion_id),
-                )
-                await db.execute(
-                    "DELETE FROM v4_assertions WHERE assertion_id = ? AND mutation_id = ?",
-                    (assertion_id, str(mutation["mutation_id"])),
-                )
-                await db.execute(
-                    "DELETE FROM memory_artifacts WHERE mutation_id = ? "
-                    "AND store_name = 'SQL' AND artifact_kind = 'ASSERTION' "
-                    "AND artifact_id = ?",
-                    (str(mutation["mutation_id"]), assertion_id),
-                )
-                await db.commit()
-        for entity_id, _entity_name in graph_entities:
-            async with self._sql.connection() as db:
-                async with db.execute(
-                    "SELECT 1 FROM artifact_registry r "
-                    "JOIN artifact_sources s ON s.registry_id = r.registry_id "
-                    "WHERE r.store_name = 'GRAPH' AND r.artifact_kind = 'ENTITY' "
-                    "AND r.physical_artifact_id = ? AND s.state = 'ACTIVE' LIMIT 1",
-                    (entity_id,),
-                ) as cursor:
-                    has_owner = await cursor.fetchone()
-            if has_owner is None:
-                try:
-                    await graph.delete_nodes(
-                        purge_id=f"fence_comp:{mutation['mutation_id']}",
-                        agent_id=agent_id,
-                        node_ids=[entity_id],
-                    )
-                except Exception:
-                    failed.append(("GRAPH", "ENTITY", entity_id))
-        if failed:
-            await self._enqueue_unowned_projection_cleanup(
-                str(mutation["mutation_id"]), failed
-            )
-
     async def search_v4_memory(
         self,
         *,
@@ -6172,7 +6308,6 @@ class MemoryDAO:
         valid_to: str | None = None,
         rrf_k: int | None = None,
         rrf_weights: Mapping[str, float] | None = None,
-        graph_enabled: bool = True,
         request_principal_id: str | None = None,
         certification_metadata: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
@@ -6201,73 +6336,125 @@ class MemoryDAO:
             valid_to=valid_to,
             rrf_k=rrf_k,
             rrf_weights=rrf_weights,
-            graph_enabled=graph_enabled,
             request_principal_id=request_principal_id,
             certification_metadata=certification_metadata,
             _query_vector=query_vector,
             _query_error=query_error,
         )
-        if not self._search_scope_cache_enabled:
-            if self._reranker is None:
-                return await self._search_v4_memory_uncached(**kwargs)
-            result = await self._search_v4_memory_uncached(**kwargs)
-            return await self._rerank_results(query, result, limit)
-        async with self._sql.search_connection() as db:
-            if self._search_cache_db is not db:
-                self._search_scope_cache.clear()
-                self._search_data_version = None
-                self._search_cache_db = db
-            previous_tables = {
-                scope["fts_table"] for scope in self._search_scope_cache.values()
-            }
+        initial_cert = (
+            dict(certification_metadata) if certification_metadata is not None else None
+        )
+        allow_persistent_fts = self._persistent_dataset_fts_enabled
+        result: list[dict[str, Any]] = []
+        for attempt in range(2):
+            if attempt > 0 and certification_metadata is not None and initial_cert is not None:
+                certification_metadata.clear()
+                certification_metadata.update(initial_cert)
             try:
-                await db.execute("BEGIN")
-                # Pin the WAL read snapshot before comparing the connection-local
-                # version. A concurrent commit cannot mix old FTS with new rows.
-                async with db.execute(
-                    "SELECT rootpage FROM main.sqlite_master LIMIT 1"
-                ) as cursor:
-                    await cursor.fetchone()
-                async with db.execute("PRAGMA data_version") as cursor:
-                    version = int((await cursor.fetchone())[0])
-                if version != self._search_data_version:
-                    await self._clear_search_scope_cache(db)
-                    self._search_data_version = version
-                key = (
-                    tenant_id,
-                    tuple(sorted(set(dataset_ids))),
-                    agent_id,
-                    jurisdiction,
-                    valid_at,
-                    valid_from,
-                    valid_to,
-                )
-                scope = self._search_scope_cache.get(key)
-                if scope is None:
-                    if len(self._search_scope_cache) == 4:
-                        _old_key, old_scope = self._search_scope_cache.popitem(
-                            last=False
-                        )
-                        await db.execute(
-                            f"DROP TABLE IF EXISTS temp.{old_scope['fts_table']}"
-                        )
-                    scope = {
-                        "fts_table": "v4_scoped_assertions_fts_" + uuid.uuid4().hex
+                if not self._search_scope_cache_enabled:
+                    result = await self._search_v4_memory_uncached(
+                        **kwargs, _allow_persistent_fts=allow_persistent_fts
+                    )
+                    break
+                async with self._sql.search_connection() as db:
+                    if self._search_cache_db is not db:
+                        self._search_scope_cache.clear()
+                        self._search_data_version = None
+                        self._search_cache_db = db
+                    previous_tables = {
+                        scope["fts_table"]
+                        for scope in self._search_scope_cache.values()
                     }
-                    self._search_scope_cache[key] = scope
-                self._search_scope_cache.move_to_end(key)
-                result = await self._search_v4_memory_uncached(
-                    **kwargs, _search_db=db, _scope=scope
-                )
-                await db.commit()  # Only TEMP can be written on this connection.
-            except BaseException:
-                await db.rollback()
-                # Rollback can restore tables evicted earlier in this search.
-                for table in previous_tables:
-                    await db.execute(f"DROP TABLE IF EXISTS temp.{table}")
-                await self._clear_search_scope_cache(db)
-                self._search_data_version = None
-                raise
+                    try:
+                        await db.execute("BEGIN")
+                        # Pin the WAL read snapshot before comparing the connection-local
+                        # version. A concurrent commit cannot mix old FTS with new rows.
+                        async with db.execute(
+                            "SELECT rootpage FROM main.sqlite_master LIMIT 1"
+                        ) as cursor:
+                            await cursor.fetchone()
+                        async with db.execute("PRAGMA data_version") as cursor:
+                            version = int((await cursor.fetchone())[0])
+                        if version != self._search_data_version:
+                            await self._clear_search_scope_cache(db)
+                            self._search_data_version = version
+                        key = (
+                            tenant_id,
+                            tuple(sorted(set(dataset_ids))),
+                            agent_id,
+                            jurisdiction,
+                            valid_at,
+                            valid_from,
+                            valid_to,
+                        )
+                        scope = self._search_scope_cache.get(key)
+                        if scope is None:
+                            if len(self._search_scope_cache) == 4:
+                                _old_key, old_scope = self._search_scope_cache.popitem(
+                                    last=False
+                                )
+                                await db.execute(
+                                    f"DROP TABLE IF EXISTS temp.{old_scope['fts_table']}"
+                                )
+                            scope = {
+                                "fts_table": "v4_scoped_assertions_fts_"
+                                + uuid.uuid4().hex
+                            }
+                            self._search_scope_cache[key] = scope
+                        self._search_scope_cache.move_to_end(key)
+                        result = await self._search_v4_memory_uncached(
+                            **kwargs,
+                            _search_db=db,
+                            _scope=scope,
+                            _allow_persistent_fts=allow_persistent_fts,
+                        )
+                        await db.commit()  # Only TEMP can be written on this connection.
+                    except BaseException:
+                        await db.rollback()
+                        # Rollback can restore tables evicted earlier in this search.
+                        for table in previous_tables:
+                            await db.execute(f"DROP TABLE IF EXISTS temp.{table}")
+                        await self._clear_search_scope_cache(db)
+                        self._search_data_version = None
+                        raise
+                break
+            except _DatasetFtsNeedsRebuild as rebuild_req:
+                if attempt == 0:
+                    try:
+                        await self._rebuild_dataset_fts_index(
+                            rebuild_req.tenant_id, rebuild_req.dataset_id
+                        )
+                        continue
+                    except (sqlite3.OperationalError, AttributeError):
+                        allow_persistent_fts = False
+                        continue
+                allow_persistent_fts = False
+                if not self._search_scope_cache_enabled:
+                    result = await self._search_v4_memory_uncached(
+                        **kwargs, _allow_persistent_fts=False
+                    )
+                else:
+                    async with self._sql.search_connection() as db:
+                        await db.execute("BEGIN")
+                        try:
+                            fallback_scope = {
+                                "fts_table": "v4_scoped_assertions_fts_"
+                                + uuid.uuid4().hex
+                            }
+                            result = await self._search_v4_memory_uncached(
+                                **kwargs,
+                                _search_db=db,
+                                _scope=fallback_scope,
+                                _allow_persistent_fts=False,
+                            )
+                            await db.execute(
+                                f"DROP TABLE IF EXISTS temp.{fallback_scope['fts_table']}"
+                            )
+                            await db.commit()
+                        except BaseException:
+                            await db.rollback()
+                            raise
+                break
         if self._reranker is not None:
             return await self._rerank_results(query, result, limit)
         return result
@@ -6320,17 +6507,16 @@ class MemoryDAO:
         valid_to: str | None = None,
         rrf_k: int | None = None,
         rrf_weights: Mapping[str, float] | None = None,
-        graph_enabled: bool = True,
         request_principal_id: str | None = None,
         certification_metadata: dict[str, Any] | None = None,
         _search_db: aiosqlite.Connection | None = None,
         _scope: dict[str, Any] | None = None,
         _query_vector: list[float] | None = None,
         _query_error: Exception | None = None,
+        _allow_persistent_fts: bool = True,
     ) -> list[dict[str, Any]]:
         """Dataset-filter every retrieval lane, then combine ranks with RRF."""
         _assert_valid_agent_id(agent_id)
-        graph_enabled = graph_enabled and self._graph_enabled
         if (
             not tenant_id
             or not dataset_ids
@@ -6394,6 +6580,63 @@ class MemoryDAO:
                 )
                 scope["datasets"] = datasets
             placeholders = ",".join("?" for _ in datasets)
+            # Check persistent per-dataset FTS readiness before scope loading
+            # or vector search so a missing/stale index rebuild never repeats
+            # scope queries or LanceDB scans.
+            if "exact_dataset_scope" in scope:
+                exact_dataset_scope = bool(scope["exact_dataset_scope"])
+            elif (
+                _allow_persistent_fts
+                and len(datasets) == 1
+                and not provenance_filters
+                and not historical_query
+            ):
+                async with db.execute(
+                    "SELECT 1 FROM v4_assertions a "
+                    "JOIN memory_mutations m ON m.mutation_id = a.mutation_id "
+                    "WHERE a.tenant_id = ? AND a.dataset_id = ? "
+                    "AND a.status = 'ACTIVE' AND m.state = 'COMMITTED' "
+                    "AND m.agent_id != ? LIMIT 1",
+                    (tenant_id, datasets[0], agent_id),
+                ) as cursor:
+                    exact_dataset_scope = await cursor.fetchone() is None
+                scope["exact_dataset_scope"] = exact_dataset_scope
+            else:
+                exact_dataset_scope = False
+                scope["exact_dataset_scope"] = False
+
+            if exact_dataset_scope and _allow_persistent_fts:
+                dataset_fts = _dataset_fts_table_name(tenant_id, datasets[0])
+                if scope.get("persistent_fts_table") != dataset_fts:
+                    async with db.execute(
+                        "SELECT COUNT(*), COALESCE(SUM(a.rowid), 0) "
+                        "FROM v4_assertions a "
+                        "WHERE a.tenant_id = ? AND a.dataset_id = ? "
+                        "AND a.status = 'ACTIVE' "
+                        "AND EXISTS (SELECT 1 FROM memory_mutations m "
+                        "WHERE m.mutation_id = a.mutation_id "
+                        "AND m.state = 'COMMITTED')",
+                        (tenant_id, datasets[0]),
+                    ) as cursor:
+                        canon_stats = await cursor.fetchone()
+                    canon_count = int(canon_stats[0]) if canon_stats is not None else 0
+                    canon_sum = int(canon_stats[1]) if canon_stats is not None else 0
+                    if not await self._dataset_fts_exists_in_tx(db, dataset_fts):
+                        if canon_count > 0:
+                            raise _DatasetFtsNeedsRebuild(tenant_id, datasets[0])
+                    else:
+                        async with db.execute(
+                            f"SELECT COUNT(*), COALESCE(SUM(id), 0) "
+                            f"FROM main.{dataset_fts}_docsize"
+                        ) as cursor:
+                            fts_stats = await cursor.fetchone()
+                        if (
+                            fts_stats is None
+                            or int(fts_stats[0]) != canon_count
+                            or int(fts_stats[1]) != canon_sum
+                        ):
+                            raise _DatasetFtsNeedsRebuild(tenant_id, datasets[0])
+                        scope["persistent_fts_table"] = dataset_fts
             if "artifact_rows" in scope:
                 artifact_rows = scope["artifact_rows"]
             else:
@@ -6448,7 +6691,6 @@ class MemoryDAO:
                     degraded_sources = []
                     for lane, enabled in (
                         ("VECTOR", self._embedding_enabled),
-                        ("GRAPH", self._graph_enabled),
                     ):
                         incomplete = False
                         if enabled:
@@ -6519,13 +6761,6 @@ class MemoryDAO:
             }
             requested_scope_identity = stable_contract_hash(requested_scope)
             query_identity = stable_contract_hash({"query": query})
-            retrieval_config_identity = stable_contract_hash(
-                {
-                    "limit": limit,
-                    "rrf_k": effective_k,
-                    "rrf_weights": dict(effective_weights),
-                }
-            )
             if "audit_decisions" in scope:
                 audit_decisions, eligible_count = scope["audit_decisions"]
             else:
@@ -6571,20 +6806,6 @@ class MemoryDAO:
                                 "decisions": audit_decisions,
                             }
                         ),
-                    },
-                    "graph_ablation": {
-                        "contract_version": V4_GRAPH_ABLATION_CONTRACT_VERSION,
-                        "mode": "enabled" if graph_enabled else "disabled",
-                        "pair_identity": stable_contract_hash(
-                            {
-                                "query_identity": query_identity,
-                                "retrieval_config_identity": retrieval_config_identity,
-                                "scope_identity": requested_scope_identity,
-                            }
-                        ),
-                        "query_identity": query_identity,
-                        "retrieval_config_identity": retrieval_config_identity,
-                        "scope_identity": requested_scope_identity,
                     },
                 }
             )
@@ -6996,43 +7217,48 @@ class MemoryDAO:
         vector_assertions: dict[str, dict[str, Any]] = {}
         if self._embedding_enabled and self._vec is not None and allowed_vector_ids:
             try:
-                searchable_vector_ids = allowed_vector_ids
-                if callable(getattr(type(self._vec), "get_existing_node_ids", None)):
-                    existing_vector_ids = await self._vec.get_existing_node_ids(
-                        agent_id, sorted(allowed_vector_ids)
-                    )
-                    searchable_vector_ids = allowed_vector_ids & existing_vector_ids
-                    missing_vector_ids = allowed_vector_ids - existing_vector_ids
-                    vector_lane_diagnostics["physical_vector_id_count"] = len(
-                        searchable_vector_ids
-                    )
-                    vector_lane_diagnostics["missing_vector_id_count"] = len(
-                        missing_vector_ids
-                    )
-                    if missing_vector_ids:
-                        logger.warning(
-                            "V4_VECTOR_REGISTRY_PHYSICAL_MISMATCH | tenant_id=%s "
-                            "agent_id=%s missing_vector_ids=%s",
-                            tenant_id,
-                            agent_id,
-                            len(missing_vector_ids),
-                        )
-                    if not searchable_vector_ids:
-                        vector_lane_diagnostics["status"] = "registry_vector_mismatch"
-                if not searchable_vector_ids:
-                    vector_rows = []
-                else:
-                    if _query_error is not None:
-                        raise _query_error
-                    if _query_vector is None:
-                        raise VectorSearchError("query embedding is unavailable")
-                    vector_rows = await self._vec.search(
+                if _query_error is not None:
+                    raise _query_error
+                if _query_vector is None:
+                    raise VectorSearchError("query embedding is unavailable")
+                vector_limit = min(500, max(limit * 10, 50))
+                if isinstance(self._vec, VectorEngine):
+                    vector_rows, physical_count = await self._vec.search_scoped(
                         _query_vector,
                         agent_id=agent_id,
-                        allowed_node_ids=searchable_vector_ids,
-                        limit=min(500, max(limit * 10, 50)),
+                        scope_keys={vector_scope_key(tenant_id, key) for key in datasets},
+                        allowed_node_ids=allowed_vector_ids,
+                        limit=vector_limit,
                     )
-                    vector_lane_diagnostics["search_executed"] = True
+                else:
+                    # Other storage providers still have the explicit allowlist seam.
+                    searchable_vector_ids = allowed_vector_ids
+                    if callable(getattr(type(self._vec), "get_existing_node_ids", None)):
+                        existing_vector_ids = await self._vec.get_existing_node_ids(
+                            agent_id, sorted(allowed_vector_ids)
+                        )
+                        searchable_vector_ids = allowed_vector_ids & existing_vector_ids
+                    physical_count = len(searchable_vector_ids)
+                    vector_rows = []
+                    if physical_count:
+                        vector_rows = await self._vec.search(
+                            _query_vector,
+                            agent_id=agent_id,
+                            allowed_node_ids=searchable_vector_ids,
+                            limit=vector_limit,
+                        )
+                missing_count = len(allowed_vector_ids) - physical_count
+                vector_lane_diagnostics["physical_vector_id_count"] = physical_count
+                vector_lane_diagnostics["missing_vector_id_count"] = missing_count
+                vector_lane_diagnostics["search_executed"] = bool(physical_count)
+                if missing_count:
+                    logger.warning(
+                        "V4_VECTOR_REGISTRY_PHYSICAL_MISMATCH | tenant_id=%s "
+                        "agent_id=%s missing_vector_ids=%s",
+                        tenant_id,
+                        agent_id,
+                        missing_count,
+                    )
                 vector_lane_diagnostics["search_result_count"] = len(vector_rows)
                 seen_vec: set[str] = set()
                 ranked_assertion_ids: list[str] = []
@@ -7080,7 +7306,7 @@ class MemoryDAO:
                 vector_lane_diagnostics["candidate_count"] = len(vector_lane)
                 if vector_lane:
                     vector_lane_diagnostics["status"] = "active"
-                elif not vector_rows and searchable_vector_ids:
+                elif not vector_rows:
                     vector_lane_diagnostics["status"] = "registry_vector_mismatch"
                     logger.warning(
                         "V4_VECTOR_REGISTRY_PHYSICAL_MISMATCH | tenant_id=%s "
@@ -7168,7 +7394,6 @@ class MemoryDAO:
         lexical_lane: list[str] = []
         lexical_assertions: dict[str, dict[str, Any]] = {}
         lexical_scores: dict[str, float] = {}
-        lexical_entity_lane: list[str] = []
 
         # 1. Passage/article FTS5 retrieval.  Authorization and assertion
         # lifecycle predicates execute in the same query before BM25 LIMIT.
@@ -7200,79 +7425,168 @@ class MemoryDAO:
                 for variant in (base, base.replace("ı", "i")):
                     fts_terms.append(f'"{variant}"{suffix}')
             fts_expression = " OR ".join(dict.fromkeys(fts_terms))
-            passage_sql = (
-                "SELECT a.*, s.canonical_name AS subject_name, "
-                "o.canonical_name AS object_name, "
-                f"bm25({scoped_fts}, 0.0, 1.5, 5.0, 3.0, 1.0, 3.0, 2.0, 4.0, 0.0) "
-                f"AS bm25_score FROM {scoped_fts} "
-                f"JOIN v4_assertions a ON a.rowid = {scoped_fts}.rowid "
-                "LEFT JOIN v4_entities s ON s.entity_id = a.subject_id "
-                "LEFT JOIN v4_entities o ON o.entity_id = a.object_entity_id "
-                f"WHERE {scoped_fts} MATCH ? AND a.tenant_id = ? "
-                f"AND a.dataset_id IN ({placeholders}) "
-                f"AND {assertion_status_sql} "
-                "AND EXISTS (SELECT 1 FROM memory_mutations m "
-                "WHERE m.mutation_id = a.mutation_id AND m.agent_id = ? "
-                "AND m.state = 'COMMITTED') "
-                + (
-                    "AND " + " AND ".join(provenance_filters)
-                    if provenance_filters
-                    else ""
-                )
-                + " "
-                f"ORDER BY bm25_score, {scoped_fts}.stable_key, a.assertion_id LIMIT ?"
-            )
+            passage_limit = min(1000, max(limit * 25, 100))
             async with self._search_read_connection(_search_db) as db:
-                if not scope.get("fts_built"):
-                    # WHERE filters do not scope FTS5's corpus statistics. Build a
-                    # connection-local index of the authorized corpus so foreign
-                    # rows cannot change scores, rank or the pre-rank LIMIT. The
-                    # cache retains it only for this scope and main data_version.
-                    await db.execute(
-                        f"CREATE VIRTUAL TABLE temp.{scoped_fts} USING fts5("
-                        "assertion_id UNINDEXED, predicate, evidence_span, literal_value, "
-                        "source_ref, subject_name, object_name, chunk_payload, "
-                        "stable_key UNINDEXED, "
-                        "tokenize='unicode61 remove_diacritics 2', prefix='5')"
-                    )
-                    await db.execute(
-                        f"INSERT INTO temp.{scoped_fts} "
-                        "(rowid, assertion_id, predicate, evidence_span, literal_value, "
-                        "source_ref, subject_name, object_name, chunk_payload, stable_key) "
-                        "SELECT f.rowid, f.assertion_id, f.predicate, f.evidence_span, "
-                        "f.literal_value, f.source_ref, f.subject_name, f.object_name, "
-                        "f.chunk_payload, "
-                        "COALESCE(ci_doc.external_id, scoped.document_id) || char(0) || "
-                        "printf('%010d', COALESCE(r.revision_number, 0)) || char(0) || "
-                        "printf('%010d', COALESCE(c.ordinal, 0)) || char(0) || "
-                        "COALESCE(ci_chunk.external_id, scoped.chunk_id) || char(0) || "
-                        "COALESCE(scoped.predicate, '') "
-                        "FROM v4_assertions_fts f "
-                        f"JOIN ({in_scope_assertion_query}) scoped "
-                        "ON scoped.assertion_id = f.assertion_id "
-                        "LEFT JOIN source_chunks c ON c.chunk_id = scoped.chunk_id "
-                        "LEFT JOIN document_revisions r ON r.revision_id = scoped.revision_id "
-                        "LEFT JOIN v4_catalog_identities ci_doc "
-                        "ON ci_doc.kind = 'document' AND ci_doc.physical_id = scoped.document_id "
-                        "LEFT JOIN v4_catalog_identities ci_chunk "
-                        "ON ci_chunk.kind = 'chunk' AND ci_chunk.physical_id = scoped.chunk_id",
-                        (tenant_id, *datasets, agent_id, *provenance_params),
-                    )
-                    scope["fts_built"] = True
+                persistent_fts_table = scope.get("persistent_fts_table")
+                if (
+                    exact_dataset_scope
+                    and _allow_persistent_fts
+                    and isinstance(persistent_fts_table, str)
+                    and persistent_fts_table
+                ):
+                    active_fts_ref = f"main.{persistent_fts_table}"
+                    active_fts_name = persistent_fts_table
+                else:
+                    if not scope.get("fts_built"):
+                        # WHERE filters do not scope FTS5's corpus statistics. Build a
+                        # connection-local index of the authorized corpus so foreign
+                        # rows cannot change scores, rank or the pre-rank LIMIT. The
+                        # cache retains it only for this scope and main data_version.
+                        await db.execute(
+                            f"CREATE VIRTUAL TABLE temp.{scoped_fts} "
+                            f"USING fts5({_FTS5_SCHEMA_SQL})"
+                        )
+                        await db.execute(
+                            f"INSERT INTO temp.{scoped_fts} {_FTS5_INSERT_COLUMNS_SQL} "
+                            + _fts5_select_from_scoped_sql(in_scope_assertion_query),
+                            (tenant_id, *datasets, agent_id, *provenance_params),
+                        )
+                        scope["fts_built"] = True
+                    active_fts_ref = f"temp.{scoped_fts}"
+                    active_fts_name = scoped_fts
+
+                # Index-only FTS5 top-K scan avoids touching FTS5 content blobs
+                # and joining canonical tables on non-top-K rows. Any tie at the
+                # exact K-th score boundary is broken identically by
+                # (stable_key, assertion_id).
                 async with db.execute(
-                    passage_sql,
-                    (
-                        fts_expression,
-                        tenant_id,
-                        *datasets,
-                        agent_id,
-                        *provenance_params,
-                        min(1000, max(limit * 25, 100)),
-                    ),
+                    f"SELECT rowid, bm25({active_fts_name}, {_FTS5_BM25_WEIGHTS}) "
+                    f"AS bm25_score FROM {active_fts_ref} "
+                    f"WHERE {active_fts_name} MATCH ? "
+                    "ORDER BY bm25_score LIMIT ?",
+                    (fts_expression, passage_limit + 1),
                 ) as cursor:
-                    passage_candidate_rows = [
-                        dict(row) for row in await cursor.fetchall()
+                    scored_hits = [
+                        (int(r[0]), float(r[1])) for r in await cursor.fetchall()
                     ]
+
+                top_hits: list[tuple[int, float]] | None = None
+                if (
+                    len(scored_hits) > passage_limit
+                    and scored_hits[passage_limit - 1][1] == scored_hits[passage_limit][1]
+                ):
+                    cutoff = scored_hits[passage_limit - 1][1]
+                    strict_hits = [
+                        item for item in scored_hits[:passage_limit] if item[1] < cutoff
+                    ]
+                    remaining = passage_limit - len(strict_hits)
+                    async with db.execute(
+                        f"SELECT rowid, bm25({active_fts_name}, {_FTS5_BM25_WEIGHTS}) "
+                        f"AS bm25_score FROM {active_fts_ref} "
+                        f"WHERE {active_fts_name} MATCH ? "
+                        f"AND bm25({active_fts_name}, {_FTS5_BM25_WEIGHTS}) = ? "
+                        "ORDER BY stable_key, assertion_id LIMIT ?",
+                        (fts_expression, cutoff, remaining),
+                    ) as cursor:
+                        tied_hits = [
+                            (int(r[0]), float(r[1])) for r in await cursor.fetchall()
+                        ]
+                    if len(tied_hits) == remaining:
+                        top_hits = strict_hits + tied_hits
+                else:
+                    top_hits = scored_hits[:passage_limit]
+
+                if top_hits is None:
+                    passage_sql = (
+                        "SELECT a.*, s.canonical_name AS subject_name, "
+                        "o.canonical_name AS object_name, "
+                        f"bm25({active_fts_name}, {_FTS5_BM25_WEIGHTS}) "
+                        f"AS bm25_score FROM {active_fts_ref} "
+                        f"JOIN v4_assertions a ON a.rowid = {active_fts_name}.rowid "
+                        "LEFT JOIN v4_entities s ON s.entity_id = a.subject_id "
+                        "LEFT JOIN v4_entities o ON o.entity_id = a.object_entity_id "
+                        f"WHERE {active_fts_name} MATCH ? AND a.tenant_id = ? "
+                        f"AND a.dataset_id IN ({placeholders}) "
+                        f"AND {assertion_status_sql} "
+                        "AND EXISTS (SELECT 1 FROM memory_mutations m "
+                        "WHERE m.mutation_id = a.mutation_id AND m.agent_id = ? "
+                        "AND m.state = 'COMMITTED') "
+                        + (
+                            "AND " + " AND ".join(provenance_filters)
+                            if provenance_filters
+                            else ""
+                        )
+                        + " "
+                        f"ORDER BY bm25_score, {active_fts_name}.stable_key, a.assertion_id LIMIT ?"
+                    )
+                    async with db.execute(
+                        passage_sql,
+                        (
+                            fts_expression,
+                            tenant_id,
+                            *datasets,
+                            agent_id,
+                            *provenance_params,
+                            passage_limit,
+                        ),
+                    ) as cursor:
+                        passage_candidate_rows = [
+                            dict(row) for row in await cursor.fetchall()
+                        ]
+                elif top_hits:
+                    score_by_rowid = dict(top_hits)
+                    hit_rowids = [rowid for rowid, _ in top_hits]
+                    joined_rows: list[tuple[float, str, str, dict[str, Any]]] = []
+                    for offset in range(0, len(hit_rowids), 500):
+                        batch_ids = hit_rowids[offset : offset + 500]
+                        id_marks = ",".join("?" for _ in batch_ids)
+                        join_sql = (
+                            "SELECT a.*, a.rowid AS _fts_rowid, "
+                            "s.canonical_name AS subject_name, "
+                            "o.canonical_name AS object_name, "
+                            "f.stable_key AS _fts_stable_key "
+                            "FROM v4_assertions a "
+                            f"JOIN {active_fts_ref} f ON f.rowid = a.rowid "
+                            "LEFT JOIN v4_entities s ON s.entity_id = a.subject_id "
+                            "LEFT JOIN v4_entities o ON o.entity_id = a.object_entity_id "
+                            f"WHERE a.rowid IN ({id_marks}) AND a.tenant_id = ? "
+                            f"AND a.dataset_id IN ({placeholders}) "
+                            f"AND {assertion_status_sql} "
+                            "AND EXISTS (SELECT 1 FROM memory_mutations m "
+                            "WHERE m.mutation_id = a.mutation_id AND m.agent_id = ? "
+                            "AND m.state = 'COMMITTED') "
+                            + (
+                                "AND " + " AND ".join(provenance_filters)
+                                if provenance_filters
+                                else ""
+                            )
+                        )
+                        async with db.execute(
+                            join_sql,
+                            (
+                                *batch_ids,
+                                tenant_id,
+                                *datasets,
+                                agent_id,
+                                *provenance_params,
+                            ),
+                        ) as cursor:
+                            for raw_row in await cursor.fetchall():
+                                row_dict = dict(raw_row)
+                                rowid = int(row_dict.pop("_fts_rowid"))
+                                stable_key = str(row_dict.pop("_fts_stable_key") or "")
+                                bm25_score = score_by_rowid[rowid]
+                                row_dict["bm25_score"] = bm25_score
+                                joined_rows.append(
+                                    (
+                                        bm25_score,
+                                        stable_key,
+                                        str(row_dict["assertion_id"]),
+                                        row_dict,
+                                    )
+                                )
+                    joined_rows.sort(key=lambda item: (item[0], item[1], item[2]))
+                    passage_candidate_rows = [item[3] for item in joined_rows]
 
             # Trusted typed legal identity participates in candidate generation
             # before lane ranking.  It is sourced only from canonical assertion
@@ -7296,11 +7610,16 @@ class MemoryDAO:
                     (aid, p_row.get("subject_name"), p_row.get("object_name")), {}
                 )
                 if "passage_text" not in features:
+                    p_subject_name = _scoring_entity_name(
+                        p_row.get("subject_name"), p_row
+                    )
+                    p_object_name = _scoring_entity_name(
+                        p_row.get("object_name"), p_row
+                    )
                     p_raw_text = (
-                        f"{p_row.get('subject_name') or ''} {p_row.get('source_ref') or ''} "
-                        f"{p_row.get('document_id') or ''} "
+                        f"{p_subject_name} {p_row.get('source_ref') or ''} "
                         f"{p_row.get('literal_value') or ''} {p_row.get('evidence_span') or ''} "
-                        f"{p_row.get('predicate') or ''} {p_row.get('object_name') or ''}"
+                        f"{p_row.get('predicate') or ''} {p_object_name}"
                     )
                     features["passage_raw_text"] = p_raw_text
                     features["passage_text"] = _normalize_identity_text(p_raw_text)
@@ -7387,38 +7706,6 @@ class MemoryDAO:
                     lexical_assertions[aid] = p_row
                     lexical_scores[aid] = float(p_row.get("bm25_score") or 0.0)
 
-        # 2. Entity FTS5 Retrieval with clean content tokens (anti-pattern fix: no stopwords / OR pollution)
-        fts_tokens = content_tokens if content_tokens else raw_tokens
-        if fts_tokens:
-            clean_fts_tokens = [t.replace('"', "") for t in fts_tokens if len(t) >= 2][
-                :8
-            ]
-            if clean_fts_tokens:
-                variants = dict.fromkeys(
-                    variant
-                    for token in clean_fts_tokens
-                    for variant in (token, token.replace("ı", "i"))
-                )
-                expression = " OR ".join(f'"{t}"' for t in variants)
-                async with self._search_read_connection(_search_db) as db:
-                    async with db.execute(
-                        build_v4_lexical_query(dataset_count=len(datasets)),
-                        (
-                            expression,
-                            tenant_id,
-                            agent_id,
-                            *datasets,
-                            min(500, max(limit * 10, 50)),
-                        ),
-                    ) as cursor:
-                        for row in await cursor.fetchall():
-                            eid = str(row[0])
-                            if (
-                                eid in allowed_entity_ids
-                                and eid not in lexical_entity_lane
-                            ):
-                                lexical_entity_lane.append(eid)
-
         # Assertion Lane Redesign (Phase 5)
         tokens_to_match = (content_tokens if content_tokens else raw_tokens)[:64]
         # Reuse the scoped FTS candidate pool.  This avoids admitting rows
@@ -7443,10 +7730,10 @@ class MemoryDAO:
                 pred_raw = str(a_row.get("predicate") or "").lower()
                 pred_norm = _normalize_identity_text(pred_raw)
                 s_name_norm = _normalize_identity_text(
-                    str(a_row.get("subject_name") or "")
+                    _scoring_entity_name(a_row.get("subject_name"), a_row)
                 )
                 o_name_norm = _normalize_identity_text(
-                    str(a_row.get("object_name") or "")
+                    _scoring_entity_name(a_row.get("object_name"), a_row)
                 )
                 lit_norm = _normalize_identity_text(
                     str(a_row.get("literal_value") or "")
@@ -7519,16 +7806,19 @@ class MemoryDAO:
                             await asyncio.to_thread(
                                 legal_resolver.extract_citations,
                                 " ".join(
-                                    str(a_row.get(field) or "")
-                                    for field in (
-                                        "predicate",
-                                        "subject_name",
-                                        "object_name",
-                                        "literal_value",
-                                        "evidence_span",
-                                        "source_ref",
+                                    (
+                                        str(a_row.get("predicate") or ""),
+                                        _scoring_entity_name(
+                                            a_row.get("subject_name"), a_row
+                                        ),
+                                        _scoring_entity_name(
+                                            a_row.get("object_name"), a_row
+                                        ),
+                                        str(a_row.get("literal_value") or ""),
+                                        str(a_row.get("evidence_span") or ""),
+                                        str(a_row.get("source_ref") or ""),
                                     )
-                                )
+                                ),
                             )
                         )
                     row_citations = features["assertion_citations"]
@@ -7583,255 +7873,6 @@ class MemoryDAO:
                 if len(assertion_lane) >= limit:
                     break
 
-        # Real Kùzu Graph V2 Traversal Lane
-        graph_lane: list[str] = []
-        graph_evidence_by_candidate: dict[str, dict[str, Any]] = {}
-        allowed_graph_assertion_ids = in_scope_assertion_ids
-        graph_provider = self._graph
-        effective_graph = (
-            graph_enabled
-            and graph_provider is not None
-            and self.graph_implementation_available
-            and bool(allowed_graph_assertion_ids)
-        )
-        if effective_graph:
-            seed_scores: dict[str, float] = {}
-
-            # 1. Legal citation entity seeds (high relevance)
-            if legal_citations and allowed_entity_ids:
-                legal_entity_names = set(legal_resolver.extract_entities(query))
-                for c in legal_citations:
-                    legal_entity_names.add(c.statute_code)
-                    legal_entity_names.add(c.statute_canonical)
-                    if c.article:
-                        legal_entity_names.add(f"{c.statute_code} {c.article}")
-                        legal_entity_names.add(f"{c.statute_code} m.{c.article}")
-                norm_legal_names = {
-                    _normalize_identity_text(n) for n in legal_entity_names
-                }
-                async with self._search_read_connection(_search_db) as db:
-                    placeholders_ae = ",".join("?" for _ in allowed_entity_ids)
-                    async with db.execute(
-                        f"SELECT entity_id, normalized_name FROM v4_entities "
-                        f"WHERE tenant_id = ? AND entity_id IN ({placeholders_ae})",
-                        (tenant_id, *allowed_entity_ids),
-                    ) as cursor:
-                        for row in await cursor.fetchall():
-                            eid = str(row["entity_id"])
-                            nname = str(row["normalized_name"] or "")
-                            if nname in norm_legal_names:
-                                seed_scores[eid] = 1.0
-
-            # 2. Query text direct entity matches in allowed_entity_ids
-            if allowed_entity_ids:
-                clean_query_norm = _normalize_identity_text(query).strip()
-                async with self._search_read_connection(_search_db) as db:
-                    placeholders_ae = ",".join("?" for _ in allowed_entity_ids)
-                    async with db.execute(
-                        f"SELECT entity_id, normalized_name FROM v4_entities "
-                        f"WHERE tenant_id = ? AND entity_id IN ({placeholders_ae})",
-                        (tenant_id, *allowed_entity_ids),
-                    ) as cursor:
-                        for row in await cursor.fetchall():
-                            eid = str(row["entity_id"])
-                            nname = str(row["normalized_name"] or "")
-                            if nname and (
-                                nname in clean_query_norm or clean_query_norm in nname
-                            ):
-                                seed_scores[eid] = max(seed_scores.get(eid, 0.0), 0.95)
-
-            # 3. Top vector lane assertions: subjects and objects
-            for rank, aid in enumerate(vector_lane[:8], start=1):
-                cand_assertion = vector_assertions.get(aid)
-                if cand_assertion:
-                    s_id = str(cand_assertion.get("subject_id") or "")
-                    o_id = str(cand_assertion.get("object_entity_id") or "")
-                    v_rel = max(0.4, 0.9 - 0.05 * rank)
-                    if s_id in allowed_entity_ids:
-                        seed_scores[s_id] = max(seed_scores.get(s_id, 0.0), v_rel)
-                    if o_id in allowed_entity_ids:
-                        seed_scores[o_id] = max(seed_scores.get(o_id, 0.0), v_rel * 0.9)
-
-            # 4. Top lexical evidence plus entity-name-only graph seeds.  Entity
-            # name hits are deliberately not fused as assertion evidence.
-            for rank, hit_id in enumerate(lexical_lane[:8], start=1):
-                l_rel = max(0.35, 0.85 - 0.05 * rank)
-                if hit_id in lexical_assertions:
-                    ass = lexical_assertions[hit_id]
-                    s_id = str(ass.get("subject_id") or "")
-                    o_id = str(ass.get("object_entity_id") or "")
-                    if s_id in allowed_entity_ids:
-                        seed_scores[s_id] = max(seed_scores.get(s_id, 0.0), l_rel)
-                    if o_id in allowed_entity_ids:
-                        seed_scores[o_id] = max(seed_scores.get(o_id, 0.0), l_rel * 0.9)
-            for hit_id in lexical_entity_lane[:8]:
-                seed_scores[hit_id] = max(seed_scores.get(hit_id, 0.0), 0.9)
-
-            graph_seed_ids = sorted(
-                seed_scores, key=lambda sid: (-seed_scores[sid], sid)
-            )
-        else:
-            graph_seed_ids = []
-
-        if effective_graph and graph_seed_ids and graph_provider is not None:
-            if not self.graph_operational:
-                raise GraphSearchError("configured graph backend is unavailable")
-            graph_legal_options: dict[str, Any] = {}
-            if not self._legal_rules_enabled:
-                graph_legal_options["legal_rules_enabled"] = False
-            try:
-                graph_hits = await graph_provider.search_v4_graph(
-                    agent_id=agent_id,
-                    seed_entity_ids=graph_seed_ids[:20],
-                    allowed_entity_ids=allowed_entity_ids,
-                    allowed_assertion_ids=allowed_graph_assertion_ids,
-                    assertion_evidence={
-                        aid: str(assertion.get("evidence_span") or "")
-                        for aid, assertion in in_scope_assertions.items()
-                    },
-                    assertion_sort_keys=assertion_stable_keys,
-                    max_hops=3,
-                    limit=min(500, max(limit * 10, 50)),
-                    query=query,
-                    seed_scores=seed_scores,
-                    **graph_legal_options,
-                )
-                seen_graph_paths: set[tuple[tuple[str, ...], tuple[str, ...]]] = set()
-                for hit in graph_hits:
-                    target_entity_id = str(hit.get("entity_id") or "")
-                    if target_entity_id not in allowed_entity_ids:
-                        continue
-                    paths = hit.get("paths") or [
-                        {
-                            "assertion_ids": hit.get(
-                                "best_path_assertion_ids",
-                                hit.get("path_assertion_ids", []),
-                            ),
-                            "entity_ids": hit.get("path_entity_ids", []),
-                            "seed_id": hit.get("seed_id", ""),
-                            "score": hit.get("score", 0.0),
-                        }
-                    ]
-                    for path in paths:
-                        path_aids = [str(aid) for aid in path.get("assertion_ids", [])]
-                        path_entities = [str(eid) for eid in path.get("entity_ids", [])]
-                        # Reject an incomplete proof; never trim unauthorized edges
-                        # into an apparently valid shorter path.
-                        if not path_aids or any(
-                            aid not in allowed_graph_assertion_ids for aid in path_aids
-                        ):
-                            continue
-                        if len(path_entities) != len(path_aids) + 1 or any(
-                            eid not in allowed_entity_ids for eid in path_entities
-                        ):
-                            continue
-                        directions: list[str] = []
-                        predicates: list[str] = []
-                        for idx, aid in enumerate(path_aids):
-                            assertion = in_scope_assertions[aid]
-                            endpoints = (
-                                str(assertion["subject_id"]),
-                                str(assertion["object_entity_id"]),
-                            )
-                            traversal = (path_entities[idx], path_entities[idx + 1])
-                            if endpoints == traversal:
-                                directions.append("forward")
-                            elif endpoints == traversal[::-1]:
-                                directions.append("reverse")
-                            else:
-                                break
-                            predicates.append(str(assertion["predicate"]))
-                        if len(directions) != len(path_aids):
-                            continue
-                        cand_id = path_aids[-1]
-                        evidence = graph_evidence_by_candidate.setdefault(
-                            cand_id,
-                            {
-                                "matched_assertion_id": cand_id,
-                                "graph_paths": [],
-                            },
-                        )
-                        normalized_path = {
-                            "assertion_ids": path_aids,
-                            "entity_ids": path_entities,
-                            "edge_directions": directions,
-                            "predicates": predicates,
-                            "seed_id": path_entities[0],
-                            "score": float(path.get("score") or 0.0),
-                        }
-                        normalized_path["graph_path_id"] = stable_graph_path_id(
-                            assertion_ids=path_aids,
-                            entity_ids=path_entities,
-                            edge_directions=directions,
-                            predicates=predicates,
-                        )
-                        path_key = (tuple(path_entities), tuple(path_aids))
-                        if path_key not in seen_graph_paths:
-                            seen_graph_paths.add(path_key)
-                            evidence["graph_paths"].append(normalized_path)
-
-                for cand_id, evidence in graph_evidence_by_candidate.items():
-                    paths = evidence["graph_paths"]
-                    paths.sort(
-                        key=lambda p: (
-                            -p["score"],
-                            len(p["assertion_ids"]),
-                            tuple(p["entity_ids"]),
-                            tuple(
-                                _assertion_stable_key(aid)
-                                for aid in p["assertion_ids"]
-                            ),
-                        )
-                    )
-                    best = paths[0]
-                    seeds = sorted({p["seed_id"] for p in paths})
-                    targets = sorted({p["entity_ids"][-1] for p in paths})
-                    support_bonus = min(
-                        0.5, 0.12 * (len(paths) - 1) + 0.08 * (len(seeds) - 1)
-                    )
-                    evidence.update(
-                        {
-                            "graph_hop_count": len(best["assertion_ids"]),
-                            "graph_seed_entity_id": best["seed_id"],
-                            "graph_seed_entity_ids": seeds,
-                            "graph_distinct_seed_count": len(seeds),
-                            "graph_target_entity_id": best["entity_ids"][-1],
-                            "graph_target_entity_ids": targets,
-                            "graph_path_assertion_ids": list(best["assertion_ids"]),
-                            "graph_path_entity_ids": list(best["entity_ids"]),
-                            "graph_path_id": best["graph_path_id"],
-                            "graph_edge_directions": list(best["edge_directions"]),
-                            "graph_predicates": list(best["predicates"]),
-                            "graph_direction": (
-                                best["edge_directions"][0]
-                                if len(set(best["edge_directions"])) == 1
-                                else "mixed"
-                            ),
-                            "graph_support_count": len(paths),
-                            "graph_score": best["score"] * (1.0 + support_bonus),
-                            "graph_supporting_assertion_ids": list(
-                                dict.fromkeys(
-                                    aid for p in paths for aid in p["assertion_ids"]
-                                )
-                            ),
-                        }
-                    )
-                graph_lane = sorted(
-                    graph_evidence_by_candidate,
-                    key=lambda aid: (
-                        -graph_evidence_by_candidate[aid]["graph_score"],
-                        _assertion_stable_key(aid),
-                    ),
-                )
-            except GraphSearchError as exc:
-                logger.warning(
-                    "V4_GRAPH_RETRIEVAL_DEGRADED | agent_id=%s seeds=%s error=%s",
-                    agent_id,
-                    graph_seed_ids[:20],
-                    exc,
-                )
-                raise
-
         # Internal candidate aggregation and fusion
         candidates: dict[str, dict[str, Any]] = {}
         candidate_assertions = dict(in_scope_assertions)
@@ -7841,12 +7882,9 @@ class MemoryDAO:
         lane_rankings = {
             "vector": vector_lane,
             "bm25": lexical_lane,
-            "assertion": assertion_lane,
-            "graph": graph_lane,
+            "assertion": assertion_lane
+            + [aid for aid in exact_ids if aid not in assertion_lane],
         }
-        lane_rankings["assertion"] = assertion_lane + [
-            aid for aid in exact_ids if aid not in assertion_lane
-        ]
         for candidate_id, fused_score, lane_ranks in rrf_fuse_lanes(
             lane_rankings,
             k=effective_k,
@@ -7863,21 +7901,9 @@ class MemoryDAO:
                 raw_scores["bm25"] = lexical_scores[candidate_id]
             if candidate_id in assertion_scores:
                 raw_scores["assertion"] = assertion_scores[candidate_id]
-            graph_evidence = graph_evidence_by_candidate.get(candidate_id, {})
             assertion_id = candidate_id
             origins_set = set(lane_ranks)
-            if origins_set - {"graph"}:
-                cand_entity_id = str(
-                    fused_assertion.get("subject_id")
-                    or graph_evidence.get("graph_target_entity_id")
-                    or ""
-                )
-            else:
-                cand_entity_id = str(
-                    graph_evidence.get("graph_target_entity_id")
-                    or fused_assertion.get("subject_id")
-                    or ""
-                )
+            cand_entity_id = str(fused_assertion.get("subject_id") or "")
             candidates[candidate_id] = {
                 "candidate_id": candidate_id,
                 "assertion_id": assertion_id,
@@ -7895,10 +7921,8 @@ class MemoryDAO:
                     if "vector" in origins_set
                     else None
                 ),
-                "supporting_evidence_ids": list(
-                    graph_evidence.get("graph_supporting_assertion_ids", [])
-                ),
-                "graph_evidence": graph_evidence,
+                "supporting_evidence_ids": [],
+                "graph_evidence": {},
                 "rrf_score": fused_score,
                 "legal_factor": 1.0,
                 "materialized_provenance": [],
@@ -7970,26 +7994,31 @@ class MemoryDAO:
                 if ass is not None:
                     cand_texts.extend(
                         [
-                            str(ass.get("document_id") or ""),
                             str(ass.get("source_ref") or ""),
                             str(ass.get("predicate") or ""),
                             str(ass.get("literal_value") or ""),
                             str(ass.get("evidence_span") or ""),
                         ]
                     )
-                    sub_name = cand_entity_names.get(
-                        str(ass.get("subject_id") or ""), ""
+                    sub_name = _scoring_entity_name(
+                        cand_entity_names.get(str(ass.get("subject_id") or ""), ""),
+                        ass,
                     )
                     if sub_name:
                         cand_texts.append(sub_name)
-                    obj_name = cand_entity_names.get(
-                        str(ass.get("object_entity_id") or ""), ""
+                    obj_name = _scoring_entity_name(
+                        cand_entity_names.get(
+                            str(ass.get("object_entity_id") or ""), ""
+                        ),
+                        ass,
                     )
                     if obj_name:
                         cand_texts.append(obj_name)
                 eid = str(cand.get("entity_id") or "")
                 if eid and eid in cand_entity_names:
-                    cand_texts.append(cand_entity_names[eid])
+                    ent_name = _scoring_entity_name(cand_entity_names[eid], ass)
+                    if ent_name:
+                        cand_texts.append(ent_name)
 
                 citation_key = (
                     "candidate_citations",
@@ -8337,9 +8366,7 @@ class MemoryDAO:
             milestones.append("SQL_APPLIED")
         if states.get("VECTOR") in {"COMPLETED", "SKIPPED"}:
             milestones.append("VECTOR_APPLIED")
-        if states.get("GRAPH") in {"COMPLETED", "SKIPPED"}:
-            milestones.append("GRAPH_APPLIED")
-        if len(milestones) == 3:
+        if len(milestones) == 2:
             milestones.append("COMMITTED")
         if not milestones:
             return
@@ -8395,11 +8422,6 @@ class MemoryDAO:
         """Return the underlying vector engine (read-only access)."""
         return self._vec
 
-    @property
-    def graph_provider(self) -> KuzuGraphProvider | None:
-        """Return the underlying graph provider (read-only access)."""
-        return self._graph
-
     # ------------------------------------------------------------------
     # E1 FIX: Startup orphan reconciliation
     # ------------------------------------------------------------------
@@ -8434,20 +8456,6 @@ class MemoryDAO:
     # ==================================================================
     # MARK CONSOLIDATED — agent-scoped
     # ==================================================================
-
-
-    # ==================================================================
-    # EDGE OPERATIONS — KùzuDB (Single Source of Truth)
-    # ==================================================================
-
-    def _require_graph(self) -> KuzuGraphProvider:
-        """Return the graph provider or raise if not wired."""
-        if self._graph is None:
-            raise RuntimeError(
-                "KuzuGraphProvider is not configured. "
-                "Pass graph_provider to MemoryDAO constructor."
-            )
-        return self._graph
 
 
     # ==================================================================
@@ -9469,21 +9477,6 @@ class MemoryDAO:
             "sqlite": sql_health,
             "vector": vec_health,
         }
-        if self._graph is not None:
-            graph_status = "not_initialized"
-            if self._graph.is_initialized:
-                try:
-                    await self._graph.execute_query(
-                        "MATCH (n:Entity) RETURN COUNT(n) AS c"
-                    )
-                    graph_status = "healthy"
-                except Exception:
-                    graph_status = "unhealthy"
-            result["graph"] = {
-                "status": graph_status,
-                "db_path": self._graph.db_path,
-                "timeout_seconds": getattr(self._graph, "search_timeout_seconds", None),
-            }
         if not detailed:
             # /health consumes only backend status and rebuild maintenance.
             # Keep corpus-sized integrity/ownership audits in full diagnostics.

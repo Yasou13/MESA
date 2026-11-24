@@ -27,7 +27,7 @@ async def test_retrieval_eligibility_and_temporal_truth(tmp_path):
     mock_graph.insert_node = AsyncMock()
     mock_graph.insert_assertion = AsyncMock()
 
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=mock_vec, graph_provider=mock_graph)
+    dao = MemoryDAO(sqlite_engine=engine, vector_engine=mock_vec)
 
     tenant_id = "tenant_elig"
     agent_id = "agent_elig"
@@ -90,7 +90,7 @@ async def test_retrieval_eligibility_and_temporal_truth(tmp_path):
     await dao.project_v4_sql_entity(mutation=mut1, entity_name="Acme Corp")
 
     t1 = {"head": "Acme Corp", "relation": "STATUS", "literal_value": "ACTIVE_2020", "confidence": 1.0}
-    await dao.project_v4_graph_triplet(mutation=mut1, triplet=t1)
+    await dao.project_v4_sql_assertion(mutation=mut1, triplet=t1)
 
     # Physical artifacts are not authoritative until the mutation commits.
     assert (

@@ -96,9 +96,7 @@ async def _dao(root: Path):
     dao = MemoryDAO(
         engine,
         vector,
-        graph,
         embedding_enabled=True,
-        graph_enabled=True,
     )
     await dao.ensure_v4_catalog_scope(
         tenant_id="tenant-a", workspace_id="ws-a", dataset_id="ds-a"

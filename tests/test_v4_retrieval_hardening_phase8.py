@@ -49,7 +49,7 @@ def _make_dao_with_recording_graph(
         upsert=AsyncMock(),
         search=AsyncMock(return_value=[]),
     )
-    return MemoryDAO(engine, vector, graph), graph
+    return MemoryDAO(engine, vector), graph
 
 
 # 1. Unit Tests for classify_graph_object
@@ -163,7 +163,7 @@ async def test_p8_long_phrase_does_not_create_entity_node(tmp_path):
             "tail": long_sentence,
             "evidence_span": long_sentence,
         }
-        assertion_id = await dao.project_v4_graph_triplet(mutation=mut, triplet=triplet)
+        assertion_id = await dao.project_v4_sql_assertion(mutation=mut, triplet=triplet)
         assert assertion_id
 
         # Verify SQL assertion: object_entity_id must be None, literal_value must contain the phrase
@@ -176,17 +176,15 @@ async def test_p8_long_phrase_does_not_create_entity_node(tmp_path):
         assert ass["object_type"] == "LITERAL"
         assert ass["representation_version"] == "assertion-v1"
 
-        # Verify Kùzu Graph: Only 1 node (head: 'BorçlarKanunu') was inserted, NOT the sentence!
-        inserted_names = [name for _, name, _ in mock_graph.inserted_nodes]
+        # Verify canonical entities: Only 1 entity (head: 'BorçlarKanunu') was inserted, NOT the sentence!
+        async with engine.connection() as db:
+            async with db.execute(
+                "SELECT canonical_name FROM v4_entities WHERE tenant_id = ?",
+                (tenant_id,),
+            ) as cursor:
+                inserted_names = [str(row[0]) for row in await cursor.fetchall()]
         assert "BorçlarKanunu" in inserted_names
         assert long_sentence not in inserted_names
-        # Graph keeps the literal type/structure; its text remains in SQLite.
-        assert len(mock_graph.inserted_assertions) == 1
-        assert mock_graph.inserted_assertions[0]["object_value"] == ""
-        assert mock_graph.inserted_assertions[0]["source_ref"] == ""
-        assert mock_graph.inserted_assertions[0]["evidence_span"] == ""
-        assert mock_graph.inserted_assertions[0]["object_id"] is None
-        assert mock_graph.inserted_assertions[0]["object_type"] == "LITERAL"
     finally:
         await engine.close()
 
@@ -234,7 +232,7 @@ async def test_p8_real_entity_creates_graph_node_and_link(tmp_path):
             "tail": "AnayasaMahkemesi",
             "evidence_span": "Yargıtay norm denetimi için Anayasa Mahkemesine başvurur.",
         }
-        assertion_id = await dao.project_v4_graph_triplet(mutation=mut, triplet=triplet)
+        assertion_id = await dao.project_v4_sql_assertion(mutation=mut, triplet=triplet)
         assert assertion_id
 
         assertions = await dao.list_v4_assertions_for_mutation(str(mut["mutation_id"]))
@@ -245,11 +243,15 @@ async def test_p8_real_entity_creates_graph_node_and_link(tmp_path):
         assert ass["literal_value"] is None
         assert ass["object_type"] == "ENTITY"
 
-        # Both head and tail nodes are inserted into graph
-        inserted_names = [name for _, name, _ in mock_graph.inserted_nodes]
+        # Both head and tail entities are created in canonical SQLite
+        async with engine.connection() as db:
+            async with db.execute(
+                "SELECT canonical_name FROM v4_entities WHERE tenant_id = ?",
+                (tenant_id,),
+            ) as cursor:
+                inserted_names = [str(row[0]) for row in await cursor.fetchall()]
         assert "Yargıtay" in inserted_names
         assert "AnayasaMahkemesi" in inserted_names
-        assert mock_graph.inserted_assertions[0]["object_id"] is not None
     finally:
         await engine.close()
 

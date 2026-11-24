@@ -8,7 +8,7 @@ from typing import Any, Literal, Mapping, Optional
 
 import psutil
 from dotenv import load_dotenv
-from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_settings.sources import (
@@ -71,6 +71,9 @@ REMOVED_IGNORED_MESA_ENV_VARS: tuple[str, ...] = (
     "MESA_CIRCUIT_BREAKER_COOLDOWN",
     "MESA_HUMAN_REVIEW_QUEUE_PATH",
     "MESA_DEAD_LETTER_QUEUE_PATH",
+    "MESA_GRAPH_ENABLED",
+    "MESA_RRF_GRAPH_WEIGHT",
+    "MESA_V4_GRAPH_TIMEOUT_SECONDS",
 )
 
 
@@ -121,7 +124,6 @@ class RuntimeProfileConfig:
     require_worker_readiness: bool
     embedding_enabled: bool = False
     extraction_enabled: bool = False
-    graph_enabled: bool = False
 
 
 NEMOTRON_EMBEDDING_MODEL = "nvidia/nemotron-3-embed-1b"
@@ -225,9 +227,6 @@ def load_runtime_profile(
         name="MESA_EXTRACTION_ENABLED",
         default=False,
     )
-    graph_enabled = _parse_runtime_bool(
-        values.get("MESA_GRAPH_ENABLED"), name="MESA_GRAPH_ENABLED", default=False
-    )
     provider_enabled = _parse_runtime_bool(
         values.get("MESA_EXTERNAL_PROVIDER_ENABLED"),
         name="MESA_EXTERNAL_PROVIDER_ENABLED",
@@ -292,7 +291,6 @@ def load_runtime_profile(
         require_worker_readiness,
         embedding_enabled,
         extraction_enabled,
-        graph_enabled,
     )
 
 
@@ -545,36 +543,6 @@ class MesaConfig(BaseSettings):
         True, validation_alias="MESA_EMBEDDING_NORMALIZED"
     )
 
-    @field_validator("v4_graph_timeout_seconds", mode="before")
-    @classmethod
-    def validate_v4_graph_timeout_seconds_input(cls, v: Any) -> float:
-        if isinstance(v, bool):
-            raise ValueError(
-                f"MESA_V4_GRAPH_TIMEOUT_SECONDS must be a positive finite number, got boolean {v}"
-            )
-        if isinstance(v, str):
-            v_str = v.strip()
-            if not v_str:
-                raise ValueError("MESA_V4_GRAPH_TIMEOUT_SECONDS cannot be empty")
-            try:
-                val = float(v_str)
-            except ValueError as exc:
-                raise ValueError(
-                    f"MESA_V4_GRAPH_TIMEOUT_SECONDS must be a valid float, got '{v}'"
-                ) from exc
-        elif isinstance(v, (int, float)):
-            val = float(v)
-        else:
-            raise ValueError(
-                f"MESA_V4_GRAPH_TIMEOUT_SECONDS must be a number, got {type(v).__name__}"
-            )
-
-        if math.isnan(val) or math.isinf(val) or val <= 0:
-            raise ValueError(
-                f"MESA_V4_GRAPH_TIMEOUT_SECONDS must be a positive finite number, got {val}"
-            )
-        return val
-
     context_window_limit: int = 8000
     lancedb_memory_limit_bytes: int = _SAFE_MODE_RAM_BYTES
 
@@ -594,7 +562,7 @@ class MesaConfig(BaseSettings):
     legal_rules_enabled: bool = Field(True, validation_alias="MESA_LEGAL_RULES_ENABLED")
 
     # Hybrid retrieval parameters (Module 9).  V4 fuses independent
-    # vector/lexical/graph rankings with Reciprocal Rank Fusion; do not add
+    # vector/lexical rankings with Reciprocal Rank Fusion; do not add
     # score-space weights here because scores from those lanes are not
     # comparable.
     rrf_k: int = Field(60, validation_alias="MESA_RRF_K")
@@ -603,7 +571,6 @@ class MesaConfig(BaseSettings):
     rrf_assertion_weight: float = Field(
         0.0, validation_alias="MESA_RRF_ASSERTION_WEIGHT"
     )
-    rrf_graph_weight: float = Field(1.0, validation_alias="MESA_RRF_GRAPH_WEIGHT")
     search_scope_cache: bool = Field(
         True, validation_alias="MESA_SEARCH_SCOPE_CACHE"
     )
@@ -616,13 +583,6 @@ class MesaConfig(BaseSettings):
     # V4 projection rebuild remains an explicit operator opt-in. Enabling this
     # flag advertises and admits the durable workflow; it never makes it online.
     v4_rebuild_enabled: bool = Field(False, validation_alias="MESA_V4_REBUILD_ENABLED")
-
-    # V4 bounded graph retrieval timeout (seconds). Protects runtime against
-    # genuinely stuck queries while allowing production 20-seed / 3-hop workloads
-    # to complete reliably.
-    v4_graph_timeout_seconds: float = Field(
-        15.0, validation_alias="MESA_V4_GRAPH_TIMEOUT_SECONDS"
-    )
 
     crossencoder_pool_multiplier: int = Field(
         3, validation_alias="MESA_CROSSENCODER_POOL_MULTIPLIER"
@@ -767,7 +727,6 @@ class MesaConfig(BaseSettings):
             "vector": self.rrf_vector_weight,
             "bm25": self.rrf_bm25_weight,
             "assertion": self.rrf_assertion_weight,
-            "graph": self.rrf_graph_weight,
         }.items():
             if (
                 not isinstance(weight, (int, float))
@@ -779,16 +738,6 @@ class MesaConfig(BaseSettings):
         if self.crossencoder_pool_multiplier < 1:
             raise ValueError(
                 f"crossencoder_pool_multiplier MUST be >= 1, got {self.crossencoder_pool_multiplier}"
-            )
-        if (
-            isinstance(self.v4_graph_timeout_seconds, bool)
-            or not isinstance(self.v4_graph_timeout_seconds, (int, float))
-            or math.isnan(self.v4_graph_timeout_seconds)
-            or math.isinf(self.v4_graph_timeout_seconds)
-            or self.v4_graph_timeout_seconds <= 0
-        ):
-            raise ValueError(
-                f"v4_graph_timeout_seconds MUST be a positive finite number, got {self.v4_graph_timeout_seconds}"
             )
         return self
 

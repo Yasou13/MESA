@@ -381,7 +381,6 @@ async def test_retrieval_and_planner_call_bounds(
         valid_at="2026-01-01T00:00:00+00:00",
         valid_from=None,
         valid_to=None,
-        graph_enabled=False,
         request_principal_id="principal",
     )
 
@@ -399,7 +398,6 @@ async def test_retrieval_and_planner_call_bounds(
             "valid_at": "2026-01-01T00:00:00+00:00",
             "valid_from": None,
             "valid_to": None,
-            "graph_enabled": False,
             "request_principal_id": "principal",
         }
 
@@ -477,7 +475,6 @@ async def test_scope_looking_expansion_text_cannot_modify_authoritative_scope() 
         valid_at="2026-01-01T00:00:00+00:00",
         valid_from="2025-01-01T00:00:00+00:00",
         valid_to="2027-01-01T00:00:00+00:00",
-        graph_enabled=False,
         request_principal_id="principal",
     )
 
@@ -493,7 +490,6 @@ async def test_scope_looking_expansion_text_cannot_modify_authoritative_scope() 
             "valid_at": "2026-01-01T00:00:00+00:00",
             "valid_from": "2025-01-01T00:00:00+00:00",
             "valid_to": "2027-01-01T00:00:00+00:00",
-            "graph_enabled": False,
             "request_principal_id": "principal",
         }
 
@@ -684,12 +680,7 @@ async def _real_searchable_legal_memory(tmp_path):
         compute_query_embedding=AsyncMock(return_value=[0.1, 0.2, 0.3]),
         search=AsyncMock(return_value=[]),
     )
-    graph = SimpleNamespace(
-        is_operational=False,
-        insert_node=AsyncMock(),
-        insert_assertion=AsyncMock(),
-    )
-    dao = MemoryDAO(engine, vector, graph)
+    dao = MemoryDAO(engine, vector)
     await dao.ensure_v4_catalog_scope(
         tenant_id="tenant-integration",
         workspace_id="workspace-integration",

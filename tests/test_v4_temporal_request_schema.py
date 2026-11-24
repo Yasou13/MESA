@@ -370,7 +370,6 @@ async def test_v4_http_search_exact_vm_shape(asgi_client: Any) -> None:
         valid_at="2026-06-01T00:00:00+00:00",
         valid_from="2026-01-01T00:00:00+00:00",
         valid_to="2026-12-31T23:59:59+00:00",
-        graph_enabled=True,
         request_principal_id="principal-a",
         certification_metadata={},
     )
@@ -419,13 +418,7 @@ def _make_phase7_dao(engine: AsyncEngine) -> MemoryDAO:
         upsert=AsyncMock(),
         search=AsyncMock(return_value=[]),
     )
-    graph = SimpleNamespace(
-        insert_node=AsyncMock(),
-        insert_assertion=AsyncMock(),
-        link_assertions=AsyncMock(),
-        traverse_paths=AsyncMock(return_value=[]),
-    )
-    return MemoryDAO(engine, vector, graph)
+    return MemoryDAO(engine, vector)
 
 
 async def _seed_test_assertion(
@@ -478,7 +471,7 @@ async def _seed_test_assertion(
             "valid_to": valid_to,
         },
     }
-    await dao.project_v4_graph_triplet(mutation=mut, triplet=triplet)
+    await dao.project_v4_sql_assertion(mutation=mut, triplet=triplet)
     assertions = await dao.list_v4_assertions_for_mutation(str(mut["mutation_id"]))
     assertion = assertions[0]
 
@@ -695,7 +688,6 @@ async def test_sdk_temporal_search_round_trip() -> None:
             valid_at="2026-06-01T00:00:00+00:00",
             valid_from="2026-01-01T00:00:00+00:00",
             valid_to="2026-12-31T23:59:59+00:00",
-            graph_enabled=True,
             request_principal_id="principal-a",
             certification_metadata={},
         )

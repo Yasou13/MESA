@@ -1,6 +1,5 @@
-"""Real SQLite/LanceDB/Kùzu proof for the V4 outbox projector."""
+"""Real SQLite/LanceDB proof for the V4 outbox projector."""
 
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -8,8 +7,6 @@ import pytest
 from mesa_memory.consolidation.schemas import MemoryCandidate
 from mesa_memory.embedding.service import EmbeddingIdentity, EmbeddingService
 from mesa_storage.dao import MemoryDAO
-from mesa_storage.kuzu_provider import KuzuGraphProvider
-from mesa_storage.kuzu_setup import initialize_schema_artifact
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
@@ -20,8 +17,7 @@ from mesa_workers.projection_worker import (
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("fail_graph_commit", [False, True])
-async def test_real_outbox_projects_sql_vector_and_graph_v2(tmp_path, monkeypatch, fail_graph_commit) -> None:
+async def test_real_outbox_projects_sql_and_vector(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("mesa_storage.dao._retry_delay_seconds", lambda _attempt: 0)
     sql = AsyncEngine(str(tmp_path / "mesa.db"))
     identity = EmbeddingIdentity(
@@ -32,14 +28,10 @@ async def test_real_outbox_projects_sql_vector_and_graph_v2(tmp_path, monkeypatc
         max_workers=1,
         embedding_service=EmbeddingService(identity=identity),
     )
-    graph_path = tmp_path / "graph"
     await sql.initialize()
     await initialize_schema(sql)
     await vector.initialize()
-    initialize_schema_artifact(str(graph_path))
-    graph = KuzuGraphProvider(str(graph_path), max_workers=1)
-    await graph.initialize()
-    dao = MemoryDAO(sqlite_engine=sql, vector_engine=vector, graph_provider=graph)
+    dao = MemoryDAO(sqlite_engine=sql, vector_engine=vector)
     await dao.create_v4_workspace(
         tenant_id="tenant-a",
         workspace_id="__legacy__",
@@ -68,18 +60,6 @@ async def test_real_outbox_projects_sql_vector_and_graph_v2(tmp_path, monkeypatc
             [{"head": "Alice", "relation": "KNOWS", "tail": "Bob"}],
         )
         await dao.set_mutation_state("tenant-a", candidate["mutation_id"], "VALIDATED")
-        if fail_graph_commit:
-            native_write = graph._sync_execute_write
-            failed_once = False
-
-            def fail_commit_once(query, parameters):
-                nonlocal failed_once
-                if query == "COMMIT" and not failed_once:
-                    failed_once = True
-                    raise RuntimeError("injected graph commit failure")
-                return native_write(query, parameters)
-
-            monkeypatch.setattr(graph, "_sync_execute_write", fail_commit_once)
         with patch.object(
             VectorEngine, "compute_embedding", new=AsyncMock(return_value=[0.1] * 8)
         ):
@@ -89,38 +69,28 @@ async def test_real_outbox_projects_sql_vector_and_graph_v2(tmp_path, monkeypatc
                 "retry_pending": 0,
                 "dead_letter": 0,
             }
-            for _ in range(4 if fail_graph_commit else 3):
+            for _ in range(2):
                 single = await process_projection_outbox_once(
                     dao, worker_id="projector-a"
                 )
                 for key in result:
                     result[key] += single[key]
-                if fail_graph_commit and single["retry_pending"]:
-                    mutation = await dao.get_mutation("tenant-a", candidate["mutation_id"])
-                    assert mutation["state"] != "COMMITTED"
-                    assert await graph.execute_query("MATCH (a:Assertion) RETURN count(a)") == [[0]]
 
         assert result == {
-            "claimed": 4 if fail_graph_commit else 3,
-            "completed": 3,
-            "retry_pending": int(fail_graph_commit),
+            "claimed": 2,
+            "completed": 2,
+            "retry_pending": 0,
             "dead_letter": 0,
         }
         mutation = await dao.get_mutation("tenant-a", candidate["mutation_id"])
         assert mutation is not None and mutation["state"] == "COMMITTED"
         vector_ids = await vector.get_active_node_ids("tenant-a")
         assert len(vector_ids) == 1
-        assertions = await graph.execute_query(
-            "MATCH (a:Assertion {agent_id: $agent_id}) RETURN a.id",
-            {"agent_id": "tenant-a"},
-        )
-        assert len(assertions) == 1
         assert await dao.reconcile_v4_projection_parity() == {
-            "checked_artifacts": 7,
+            "checked_artifacts": 4,
             "missing_artifacts": 0,
             "missing_sql": 0,
             "missing_vector": 0,
-            "missing_graph": 0,
             "requeued_lanes": 0,
         }
 
@@ -140,29 +110,20 @@ async def test_real_outbox_projects_sql_vector_and_graph_v2(tmp_path, monkeypatc
             embedding=[0.2] * 8,
             content_hash="orphan",
         )
-        await graph.insert_node(
-            node_id="orphan-graph",
-            name="Orphan",
-            agent_id="tenant-a",
-        )
         orphan_report = await dao.reconcile_v4_bidirectional(
             tenant_id="tenant-a",
             agent_id="tenant-a",
             dataset_ids=["__legacy__"],
             repair=True,
         )
-        assert orphan_report["physical_orphans"] == 2
-        assert orphan_report["cleanup_enqueued"] == 2
+        assert orphan_report["physical_orphans"] == 1
+        assert orphan_report["cleanup_enqueued"] == 1
         cleanup = await process_artifact_cleanup_once(
             dao, worker_id="reconciler-cleanup", limit=2
         )
-        assert cleanup["completed"] == 2
+        assert cleanup["completed"] == 1
         assert "orphan-vector" not in await vector.get_active_node_ids("tenant-a")
-        assert await graph.verify_nodes_absent(
-            agent_id="tenant-a", node_ids=["orphan-graph"]
-        )
     finally:
-        await graph.close()
         await vector.close()
         await sql.close()
 
@@ -196,17 +157,10 @@ async def test_integrated_canonical_fact_retrieval_smoke(tmp_path) -> None:
         max_workers=1,
         embedding_service=EmbeddingService(identity=identity, provider_fn=provider),
     )
-    graph = SimpleNamespace(
-        insert_node=AsyncMock(),
-        insert_assertion=AsyncMock(),
-        link_assertions=AsyncMock(),
-        delete_assertions=AsyncMock(),
-        delete_nodes=AsyncMock(),
-    )
     await sql.initialize()
     await initialize_schema(sql)
     await vector.initialize()
-    dao = MemoryDAO(sqlite_engine=sql, vector_engine=vector, graph_provider=graph)
+    dao = MemoryDAO(sqlite_engine=sql, vector_engine=vector)
     cases = [
         ("ThemePreference", "PREFERS", "dark", "dark tema", "dark"),
         ("DatabaseConfig", "USES", "postgres", "postgres yapılandırması", "postgres"),
@@ -265,7 +219,7 @@ async def test_integrated_canonical_fact_retrieval_smoke(tmp_path) -> None:
             await dao.set_mutation_state(
                 "agent-a", candidate["mutation_id"], "VALIDATED"
             )
-            for _ in range(3):
+            for _ in range(2):
                 assert (await process_projection_outbox_once(dao))["completed"] == 1
 
         for subject, _predicate, _object, _fact_text, query in cases:

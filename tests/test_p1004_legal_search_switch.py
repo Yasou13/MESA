@@ -6,7 +6,6 @@ import pytest
 
 import mesa_storage.dao as dao_module
 from mesa_storage import legal_rules
-from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.legal_identity import LegalEntityResolver
 from tests.test_document_ingestion import _add, _rows
 from tests.test_model_optional_runtime import _consume
@@ -23,11 +22,10 @@ def _forbidden(*args, **kwargs):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("graph_enabled", [False, True])
 async def test_disabled_search_matches_untyped_store(
-    model_runtime, monkeypatch, graph_enabled
+    model_runtime, monkeypatch
 ):
-    async with model_runtime(MESA_GRAPH_ENABLED=graph_enabled) as env:
+    async with model_runtime() as env:
         document = await _add(
             env,
             "Türk Borçlar Kanunu\nKanun Numarası: 6098\n"
@@ -52,7 +50,6 @@ async def test_disabled_search_matches_untyped_store(
             return await env.dao.search_v4_memory(
                 tenant_id="model-tenant", agent_id="model-agent",
                 dataset_ids=["main"], query=query, limit=50,
-                graph_enabled=graph_enabled,
             )
 
         queries = ["TBK m. 49", "2024/123 E. 2025/456 K."]
@@ -82,25 +79,3 @@ async def test_disabled_search_matches_untyped_store(
         await env.restart()
         without_identities = [await search(query) for query in queries]
         assert with_identities == without_identities
-
-
-@pytest.mark.asyncio
-async def test_graph_switch_keeps_generic_traversal_without_resolver(monkeypatch):
-    graph = KuzuGraphProvider("unused")
-    monkeypatch.setattr(graph, "_ensure_initialized", lambda: None)
-    monkeypatch.setattr(LegalEntityResolver, "__init__", _forbidden)
-
-    async def expand(**kwargs):
-        return [["seed", "target", "TBK", "a", "relates", 1.0, "TR", "forward"]]
-
-    monkeypatch.setattr(graph, "_step_expand", expand)
-    try:
-        hits = await graph.search_v4_graph(
-            agent_id="agent", seed_entity_ids=["seed"],
-            allowed_entity_ids={"seed", "target"}, allowed_assertion_ids={"a"},
-            assertion_evidence={"a": "TBK m. 49"}, query="TBK m. 49",
-            max_hops=1, legal_rules_enabled=False,
-        )
-        assert [hit["entity_id"] for hit in hits] == ["target"]
-    finally:
-        await graph.close()

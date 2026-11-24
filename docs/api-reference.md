@@ -18,8 +18,7 @@ response must not be used as a fixed feature promise.
 | `canonical_ledger`, `projection_outbox`, `idempotent_ingestion` | Durable canonical work and projection contracts |
 | `vector_retrieval` | Operational embedding generation, not merely configured identity |
 | `lexical_retrieval`, `assertion_relational_lane` | SQLite lexical/assertion retrieval; not graph traversal |
-| `graph_projection` | Graph projection availability |
-| `graph_neighbor_retrieval` | Operational neighbor retrieval implementation |
+| `graph_projection`, `graph_neighbor_retrieval` | Always `false`; kept for client compatibility after the graph store was removed |
 | `validity_interval_filtering` | Validity filtering, not bitemporal semantics |
 | `durable_rebuild` | Enabled by `MESA_V4_REBUILD_ENABLED`; still offline and full-root |
 | `associative_ppr`, `bitemporal_query`, `human_review` | Not advertised as implemented Core capabilities |
@@ -103,7 +102,7 @@ The HTTP insert contract accepts optional typed `legal_identity`: `law_id` and
 through the bounded legal aliases. Caller metadata cannot supply trusted
 `_mesa_*` fields. The producer remains responsible for source truth.
 
-Search responses include `degraded_sources`: `vector` when embedding is off or any in-scope committed record has an incomplete VECTOR lane, and `graph` under the same rule for GRAPH or `MESA_GRAPH_ENABLED=false`; otherwise `[]`.
+Search responses include `degraded_sources`: `vector` when embedding is off or any in-scope committed record has an incomplete VECTOR lane; otherwise `[]`.
 
 Search and context both accept `jurisdiction`, `valid_at`, `valid_from` and
 `valid_to`. Context uses query parameters and defaults to `token_budget=2048`,
@@ -232,9 +231,9 @@ Public/source ID validator farkları için çalışan OpenAPI kullanılır.
 
 Search request `session_id`, `query` gerektirir; query 1..4096 karakter,
 `limit` default 10 ve 1..50, `dataset_ids` verilirse 1..64 ve session altkümesi,
-`graph_mode` enabled/disabled'dır. ISO timestamp string'leri timezone offset
+`graph_mode` is accepted as a compatibility no-op. ISO timestamp string'leri timezone offset
 içermelidir. `valid_from > valid_to` reddedilir. Response `session_id`,
-`dataset_ids`, `results`, optional `scope_audit`, `graph_ablation`, `vector_lane`
+`dataset_ids`, `results`, optional `scope_audit`, `vector_lane`
 taşır. Sonuç provenance'ın varlığı source truth garantisi değildir.
 
 SDK sync/async client timeout default 10s ve max_retries 3; yalnız güvenli

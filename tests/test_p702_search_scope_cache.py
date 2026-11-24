@@ -78,7 +78,7 @@ async def scope_env(tmp_path, monkeypatch):
     sql, vector, graph, dao = await _environment(tmp_path)
     await _seed(dao, 1)
     await _seed(dao, 2)
-    uncached = MemoryDAO(sql, vector, graph, search_scope_cache_enabled=False)
+    uncached = MemoryDAO(sql, vector, search_scope_cache_enabled=False)
     try:
         yield sql, dao, uncached
     finally:
@@ -124,10 +124,10 @@ async def test_30_query_results_scores_provenance_and_audits_are_identical(scope
 async def test_unchanged_scope_does_not_rebuild_or_reload(scope_env, monkeypatch):
     _sql, cached, _uncached = scope_env
     statements = _trace(monkeypatch)
-    first = await _search(cached)
+    first = await _search(cached, valid_to="2099-01-01")
     assert len(_builds(statements)) == 1
     statements.clear()
-    assert await _search(cached) == first
+    assert await _search(cached, valid_to="2099-01-01") == first
     assert not _builds(statements)
     assert not any(
         "INSERT INTO temp.v4_scoped_assertions_fts" in sql for sql in statements
@@ -141,11 +141,13 @@ async def test_data_version_invalidates_on_insert_and_unrelated_commit(
     scope_env, monkeypatch
 ):
     sql, cached, uncached = scope_env
-    await _search(cached)
+    await _search(cached, valid_to="2099-01-01")
     statements = _trace(monkeypatch)
     await _seed(cached, 3)
-    assert await _search(cached) == await _search(uncached)
-    assert len(await _search(cached)) == 3
+    assert await _search(cached, valid_to="2099-01-01") == await _search(
+        uncached, valid_to="2099-01-01"
+    )
+    assert len(await _search(cached, valid_to="2099-01-01")) == 3
     assert len(_builds(statements)) == 2  # one cached rebuild, one uncached build
     statements.clear()
     async with sql.transaction() as db:
@@ -153,7 +155,7 @@ async def test_data_version_invalidates_on_insert_and_unrelated_commit(
             "INSERT INTO tenants(tenant_id, display_name) VALUES ('cache-test', 'changed')"
         )
         await db.commit()
-    await _search(cached)
+    await _search(cached, valid_to="2099-01-01")
     assert len(_builds(statements)) == 1
 
 
@@ -167,9 +169,13 @@ async def test_scope_identity_isolates_tenants_datasets_agents(
     _sql, cached, uncached = scope_env
     await _seed(cached, 3, *foreign)
     statements = _trace(monkeypatch)
-    base = await _search(cached)
+    base = await _search(cached, valid_to="2099-01-01")
     foreign_result = await _search(
-        cached, tenant_id=foreign[0], dataset_ids=[foreign[1]], agent_id=foreign[2]
+        cached,
+        tenant_id=foreign[0],
+        dataset_ids=[foreign[1]],
+        agent_id=foreign[2],
+        valid_to="2099-01-01",
     )
     assert base and foreign_result
     assert {r["assertion_id"] for r in base}.isdisjoint(
@@ -177,7 +183,11 @@ async def test_scope_identity_isolates_tenants_datasets_agents(
     )
     assert len(_builds(statements)) == 2
     statements.clear()
-    assert await _search(cached) == base == await _search(uncached)
+    assert (
+        await _search(cached, valid_to="2099-01-01")
+        == base
+        == await _search(uncached, valid_to="2099-01-01")
+    )
     assert len(_builds(statements)) == 1  # only uncached builds
 
 
@@ -185,11 +195,11 @@ async def test_scope_identity_isolates_tenants_datasets_agents(
 async def test_filters_and_four_scope_lru(scope_env, monkeypatch):
     _sql, cached, uncached = scope_env
     scopes = [
-        {},
-        {"jurisdiction": "TR"},
         {"valid_at": "2024-01-01"},
+        {"valid_at": "2025-01-01"},
         {"valid_from": "2020-01-01"},
         {"valid_to": "2030-01-01"},
+        {"valid_to": "2031-01-01"},
     ]
     for scope in scopes:
         assert await _search(cached, **scope) == await _search(uncached, **scope)
@@ -226,7 +236,7 @@ async def test_lifecycle_and_grant_changes_cannot_serve_stale_results(model_runt
     from tests.test_document_ingestion import _add
     from tests.test_model_optional_runtime import _consume
 
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
 
         async def search():
             return await env.client.post(
@@ -453,22 +463,6 @@ async def test_active_vector_graph_and_query_options_remain_identical(scope_env)
     cached._vec.search.return_value = [
         {"node_id": assertion["assertion_id"], "_distance": 0.042}
     ]
-    cached._graph.search_v4_graph.return_value = [
-        {
-            "entity_id": assertion["object_entity_id"],
-            "paths": [
-                {
-                    "assertion_ids": [assertion["assertion_id"]],
-                    "entity_ids": [
-                        assertion["subject_id"],
-                        assertion["object_entity_id"],
-                    ],
-                    "seed_id": assertion["subject_id"],
-                    "score": 0.8,
-                }
-            ],
-        }
-    ]
     for query in QUERIES[:5]:
         for options in [
             {},
@@ -479,10 +473,8 @@ async def test_active_vector_graph_and_query_options_remain_identical(scope_env)
                     "bm25": 0.0,
                     "vector": 1.0,
                     "assertion": 1.0,
-                    "graph": 2.0,
                 },
             },
-            {"graph_enabled": False},
         ]:
             on_meta, off_meta = {}, {}
             result = await _search(
@@ -493,15 +485,11 @@ async def test_active_vector_graph_and_query_options_remain_identical(scope_env)
             )
             assert on_meta == off_meta
             assert on_meta["vector_lane"]["search_executed"]
-            if options.get("graph_enabled", True):
-                assert any(
-                    "graph" in row["retrieval_provenance"]["origins"] for row in result
-                )
 
 
 def test_dao_search_scope_cache_enabled_parameter():
-    dao_enabled = MemoryDAO(None, None, None, search_scope_cache_enabled=True)  # type: ignore[arg-type]
+    dao_enabled = MemoryDAO(None, None, search_scope_cache_enabled=True)  # type: ignore[arg-type]
     assert dao_enabled._search_scope_cache_enabled is True
-    dao_disabled = MemoryDAO(None, None, None, search_scope_cache_enabled=False)  # type: ignore[arg-type]
+    dao_disabled = MemoryDAO(None, None, search_scope_cache_enabled=False)  # type: ignore[arg-type]
     assert dao_disabled._search_scope_cache_enabled is False
 

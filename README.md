@@ -72,16 +72,6 @@ MESA_EMBEDDING_MODEL=ollama:bge-m3
 
 Local `openai_compatible` servers (such as vLLM started with `--port 8001`, at `MESA_LLM_BASE_URL=http://127.0.0.1:8001/v1`; MESA itself uses port 8000) are also allowed with `MESA_EXTERNAL_PROVIDER_ENABLED=false` on a local endpoint (`localhost`, `127.0.0.1`, `::1`, `host.docker.internal`) and require no API key (D31). For cloud model providers (OpenAI, Anthropic), set `MESA_EXTERNAL_PROVIDER_ENABLED=true` and provide the required API keys.
 
-## Graph toggle
-
-The Kùzu graph database is off by default (`MESA_GRAPH_ENABLED=false`), so fresh installs do not open or create Kùzu files and GRAPH lanes end `SKIPPED`. To enable it, set:
-
-```bash
-MESA_GRAPH_ENABLED=true
-```
-
-Enabling it on an existing store backfills skipped GRAPH lanes at startup.
-
 ## Docker
 
 Run MESA in a single-user local container (D32):

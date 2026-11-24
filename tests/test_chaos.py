@@ -5,7 +5,7 @@ Proves that:
    consistent and the vector outbox lane in RETRY_PENDING with zero active
    vector registry artifacts.
 2. Normal V4 projection commits and becomes searchable (control).
-3. A Kùzu/vector crash during document purge keeps canonical text erased,
+3. A vector crash during document purge keeps canonical text erased,
    the document PURGED and invisible to search, and cleanup RETRY_PENDING.
 """
 
@@ -19,8 +19,6 @@ import pytest_asyncio
 from mesa_memory.config import QueueAdmissionPolicy
 from mesa_memory.embedding.service import EmbeddingIdentity, EmbeddingService
 from mesa_storage.dao import MemoryDAO, PurgeRetryPendingError
-from mesa_storage.kuzu_provider import KuzuGraphProvider
-from mesa_storage.kuzu_setup import initialize_schema_artifact
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
@@ -47,19 +45,13 @@ async def dao_env(tmp_path):
             identity=identity, provider_fn=lambda _text: list(VEC8)
         ),
     )
-    graph_path = tmp_path / "graph"
-    initialize_schema_artifact(str(graph_path))
-    graph = KuzuGraphProvider(db_path=str(graph_path), max_workers=1)
     await sql.initialize()
     await initialize_schema(sql)
     await vec.initialize()
-    await graph.initialize()
     dao = MemoryDAO(
         sqlite_engine=sql,
         vector_engine=vec,
-        graph_provider=graph,
         embedding_enabled=True,
-        graph_enabled=True,
     )
     await dao.initialize()
     await dao.ensure_v4_catalog_scope(
@@ -73,9 +65,8 @@ async def dao_env(tmp_path):
         principal_id="principal-chaos",
     )
     try:
-        yield dao, sql, vec, graph, identity, session["session_id"]
+        yield dao, sql, vec, identity, session["session_id"]
     finally:
-        await graph.close()
         await vec.close()
         await sql.close()
 
@@ -127,7 +118,7 @@ class TestV4ProjectionAndPurgeChaos:
     async def test_lancedb_failure_leaves_vector_lane_retryable_without_active_registry(
         self, dao_env
     ):
-        dao, sql, vec, _graph, identity, session_id = dao_env
+        dao, sql, vec, identity, session_id = dao_env
         mutation_id = await _admit_and_validate(
             dao,
             identity,
@@ -169,7 +160,7 @@ class TestV4ProjectionAndPurgeChaos:
 
     @pytest.mark.asyncio
     async def test_successful_projection_commits_and_is_searchable(self, dao_env):
-        dao, _sql, _vec, _graph, identity, session_id = dao_env
+        dao, _sql, _vec, identity, session_id = dao_env
         mutation_id = await _admit_and_validate(
             dao,
             identity,
@@ -194,7 +185,7 @@ class TestV4ProjectionAndPurgeChaos:
 
     @pytest.mark.asyncio
     async def test_purge_downstream_failure_keeps_fail_closed_erasure(self, dao_env):
-        dao, sql, vec, _graph, identity, session_id = dao_env
+        dao, sql, vec, identity, session_id = dao_env
         await _admit_and_validate(
             dao,
             identity,

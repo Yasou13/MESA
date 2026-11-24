@@ -57,7 +57,7 @@ def test_numbered_grammar_is_identical_with_and_without_a_store_name(numbered):
 
 @pytest.mark.asyncio
 async def test_both_typed_articles_use_the_existing_exact_slot(model_runtime):
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         first = await _add(
             env,
             "Kanun Numarası: 7201\nMADDE 21- Tebligat hükmü.\n"
@@ -78,7 +78,6 @@ async def test_both_typed_articles_use_the_existing_exact_slot(model_runtime):
             agent_id="model-agent",
             dataset_ids=["main"],
             query="Tebligat Kanunu 21. madde ve 6325 sayılı Kanunun 2. maddesi",
-            graph_enabled=False,
             limit=10,
         )
         promoted = [r for r in results if "exact_match" in r["retrieval_provenance"]]

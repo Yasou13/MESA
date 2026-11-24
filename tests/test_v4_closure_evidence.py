@@ -36,7 +36,7 @@ def test_evidence_manifest_is_deterministic_bounded_and_content_free(
 
     assert manifest["kind"] == "mesa-v4-closure-evidence"
     assert manifest["schema_version"] == 1
-    assert manifest["alembic_head"] == "f8b9c0d1e2f3"
+    assert manifest["alembic_head"] == "a0d1e2f3a4b5"
     assert len(manifest["openapi"]["sha256"]) == 64
     assert manifest["openapi"]["path_count"] > 0
     assert manifest["openapi"]["operation_count"] >= manifest["openapi"]["path_count"]
@@ -52,7 +52,7 @@ def test_evidence_manifest_is_deterministic_bounded_and_content_free(
     assert manifest["rrf_ablation"] == {
         "sha256": "b17232b14a65571428664b8aa0d3b80b442a4bac0d9fa47b750ee176f80b0b97",
         "metric": "MRR",
-        "lane_order": ["vector", "bm25", "assertion", "graph"],
+        "lane_order": ["vector", "bm25", "assertion"],
         "query_count": 2,
         "lane_set_count": 4,
         "scores": {

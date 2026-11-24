@@ -89,19 +89,7 @@ Missing extras raise clear, actionable installation messages:
 - Anthropic LLM requires the adapters extra: `pip install "mesa-memory[adapters]"`
 - Local embedding (`sentence-transformers`) → `pip install "mesa-memory[ml]"`
 
-### 6. Graph toggle
-
-The Kùzu graph database is off by default (`MESA_GRAPH_ENABLED=false`), so fresh
-installs do not open or create Kùzu files and GRAPH lanes end `SKIPPED`. To
-enable the graph lane, set:
-
-```bash
-MESA_GRAPH_ENABLED=true
-```
-
-Enabling it on an existing store backfills skipped GRAPH lanes at startup.
-
-### 7. Docker
+### 6. Docker
 
 Run MESA in a single-user local container (D32):
 
@@ -173,7 +161,7 @@ Choose `--python 3.11`, `3.12` or `3.13` if appropriate. Leaving the interpreter
 unspecified can select a newer Python outside the tested matrix. Use
 `uv sync --locked --python 3.11 --extra dev` when running developer tests.
 
-SQLite (with FTS5) comes from the Python interpreter; LanceDB, PyArrow and Kùzu
+SQLite (with FTS5) comes from the Python interpreter; LanceDB and PyArrow
 are installed as core Python dependencies. No separate database server, Docker
 container, manual SQL import or ML extra is needed for models-disabled startup.
 Native wheels depend on Python/platform availability. The isolated installation
@@ -208,7 +196,7 @@ credentials and operational provider endpoints are separate prerequisites.
 Choose a dedicated absolute writable storage root. Do not use the repository,
 home directory or filesystem root.
 Fresh combined startup initializes the databases automatically; keep SQLite,
-LanceDB, Kùzu and the policy database together under that root. The runtime has
+LanceDB and the policy database together under that root. The runtime has
 one owner: stop it before running offline admin or migration commands.
 The runtime does not load `.env` implicitly; the explicit dotenv precedence is
 explained in [configuration](configuration.md).
@@ -375,9 +363,7 @@ block closes HTTP resources; ending a session is a separate server operation.
 Developer-experience verification on Linux/Python 3.11 used an isolated,
 non-editable locked Core install, models-disabled startup/health checks,
 and this V4 example with explicitly injected deterministic extraction/embedding.
-SQLite, LanceDB, Kùzu and background processing were real. The test limited Kùzu
-to a 64 MiB buffer pool, 256 MiB mapping and one query thread to fit the host's
-available RAM; this is test sizing, not a production capacity result. No real
+SQLite, LanceDB and background processing were real. No real
 model was called. Real-provider V4 and Docker were **not verified** in this pass.
 
 ### Restart and cleanup

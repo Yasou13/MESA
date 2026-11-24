@@ -15,7 +15,7 @@ from tests.test_model_optional_runtime import model_runtime as model_runtime
 async def test_document_waits_for_transient_queue_room_without_replanning(
     model_runtime, monkeypatch
 ):
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         original = env.dao.admit_v4_memory
         waits = 0
 
@@ -43,7 +43,7 @@ async def test_document_waits_for_transient_queue_room_without_replanning(
 
 @pytest.mark.asyncio
 async def test_persistent_queue_pressure_still_returns_503(model_runtime, monkeypatch):
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
 
         async def pressure(self, **kwargs):
             raise QueueOverCapacityError("tenant")

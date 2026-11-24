@@ -100,7 +100,7 @@ async def test_public_writes_report_mutations_after_success(monkeypatch) -> None
 
     assert result == 3
     assert record_mutations.await_args_list[1].args == (
-        {"mesa_vectors_2": 2, "mesa_vectors_3": 1},
+        {"mesa_vectors_2": 1, "mesa_vectors_3": 1},
     )
     await engine.close()
 

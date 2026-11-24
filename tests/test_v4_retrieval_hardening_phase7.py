@@ -35,13 +35,7 @@ def _make_dao(
         upsert=AsyncMock(),
         search=AsyncMock(return_value=mock_vector_rows or []),
     )
-    graph = SimpleNamespace(
-        insert_node=AsyncMock(),
-        insert_assertion=AsyncMock(),
-        link_assertions=AsyncMock(),
-        traverse_paths=AsyncMock(return_value=[]),
-    )
-    return MemoryDAO(engine, vector, graph)
+    return MemoryDAO(engine, vector)
 
 
 async def _seed_versioned_assertion(
@@ -97,7 +91,7 @@ async def _seed_versioned_assertion(
             "valid_to": valid_to,
         },
     }
-    await dao.project_v4_graph_triplet(mutation=mut, triplet=triplet)
+    await dao.project_v4_sql_assertion(mutation=mut, triplet=triplet)
     assertions = await dao.list_v4_assertions_for_mutation(str(mut["mutation_id"]))
     assertion = assertions[0]
 

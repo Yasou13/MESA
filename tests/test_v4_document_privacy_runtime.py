@@ -385,7 +385,7 @@ async def test_purge_leaves_no_text_in_raw_storage_files(model_runtime, extracti
         storage = server.state.runtime_profile.storage_root
         assert _raw_file_hits(storage, marker)
         await _purge_document(env, "privacy")
-        # SQLite, LanceDB, Kuzu and JSONL queues while running.
+        # SQLite, LanceDB and JSONL queues while running.
         assert _raw_file_hits(storage, marker) == {}
         assert "Other durable memory." in await _context(env)
         await env.stop()

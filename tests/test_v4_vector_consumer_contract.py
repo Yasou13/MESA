@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
+import lancedb
 import pytest
 
 from mesa_memory.consolidation.schemas import MemoryCandidate
@@ -15,7 +14,7 @@ from mesa_storage.dao import MemoryDAO
 from mesa_storage.representation import V4_VECTOR_REPRESENTATION_VERSION
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
-from mesa_storage.vector_engine import VectorEngine
+from mesa_storage.vector_engine import VectorEngine, vector_scope_key
 
 IDENTITY = EmbeddingIdentity(
     provider="test",
@@ -147,17 +146,10 @@ async def _build_fixture(tmp_path) -> _Fixture:
             query_provider_fn=_concept_vector,
         ),
     )
-    graph = SimpleNamespace(
-        is_operational=True,
-        search_v4_graph=AsyncMock(return_value=[]),
-        insert_node=AsyncMock(),
-        insert_assertion=AsyncMock(),
-        link_assertions=AsyncMock(),
-    )
     await sql.initialize()
     await initialize_schema(sql)
     await vector.initialize()
-    fixture = _Fixture(sql, vector, MemoryDAO(sql, vector, graph), {}, {})
+    fixture = _Fixture(sql, vector, MemoryDAO(sql, vector), {}, {})
     await _ingest_assertion(
         fixture,
         raw_log_id=1,
@@ -218,7 +210,6 @@ async def test_real_lancedb_vector_lane_activation_rrf_and_provenance(tmp_path) 
     fixture = await _build_fixture(tmp_path)
     try:
         cipher = fixture.assertions["cipher"]
-        fixture.dao._graph.search_v4_graph.return_value = [_graph_hit(cipher)]
         diagnostics: dict = {}
         searches_before = fixture.vector.metrics.searches
         exact = await fixture.dao.search_v4_memory(
@@ -234,8 +225,8 @@ async def test_real_lancedb_vector_lane_activation_rrf_and_provenance(tmp_path) 
         )
         provenance = hit["retrieval_provenance"]
         assert fixture.vector.metrics.searches == searches_before + 1
-        assert set(provenance["origins"]) == {"vector", "bm25", "assertion", "graph"}
-        assert set(provenance["lane_ranks"]) == {"vector", "bm25", "assertion", "graph"}
+        assert set(provenance["origins"]) == {"vector", "bm25", "assertion"}
+        assert set(provenance["lane_ranks"]) == {"vector", "bm25", "assertion"}
         assert provenance["vector"]["distance"] == provenance["raw_scores"]["vector"]
         assert provenance["vector"]["rank"] == provenance["lane_ranks"]["vector"]
         assert provenance["vector"]["registry_id"]
@@ -256,7 +247,6 @@ async def test_real_lancedb_vector_lane_activation_rrf_and_provenance(tmp_path) 
         assert diagnostics["vector_lane"]["allowed_vector_id_count"] == 3
         assert diagnostics["vector_lane"]["compatible_registry_artifact_count"] == 3
 
-        fixture.dao._graph.search_v4_graph.return_value = []
         semantic = await fixture.dao.search_v4_memory(
             tenant_id="tenant-a",
             agent_id="agent-a",
@@ -271,6 +261,107 @@ async def test_real_lancedb_vector_lane_activation_rrf_and_provenance(tmp_path) 
         )
         assert "vector" in remote["retrieval_provenance"]["origins"]
         assert "bm25" not in remote["retrieval_provenance"]["origins"]
+    finally:
+        await fixture.close()
+
+
+@pytest.mark.asyncio
+async def test_vector_search_rechecks_scope_after_physical_write(tmp_path):
+    async with VectorEngine(str(tmp_path / "vectors.lance")) as vector:
+        scope_key = vector_scope_key("tenant-a", "dataset-a")
+        await vector.upsert("allowed", "agent-a", [0.0, 1.0], scope_key=scope_key)
+        query = [1.0, 0.0]
+        search = {
+            "agent_id": "agent-a",
+            "scope_keys": {scope_key},
+            "allowed_node_ids": {"allowed"},
+            "limit": 1,
+        }
+        before = await vector.search_scoped(query, **search)
+        assert [row["node_id"] for row in before[0]] == ["allowed"]
+
+        # Even a closer vector in the same dataset must not fill the top slot
+        # when it has no SQLite ownership in the caller's snapshot.
+        await vector.upsert("unowned", "agent-a", query, scope_key=scope_key)
+        after = await vector.search_scoped(query, **search)
+        assert after == before
+
+
+@pytest.mark.asyncio
+async def test_legacy_vectors_backfill_preserves_dataset_and_agent_ranking(tmp_path):
+    fixture = await _build_fixture(tmp_path)
+    try:
+        for index, dataset, agent, key in (
+            (4, "dataset-b", "agent-a", "other-dataset"),
+            (5, "dataset-a", "agent-b", "other-agent"),
+        ):
+            await _ingest_assertion(
+                fixture,
+                raw_log_id=index,
+                tenant_id="tenant-a",
+                agent_id=agent,
+                dataset_id=dataset,
+                key=key,
+                head="OtherMobilityRule",
+                relation="ALLOWS",
+                tail=f"Staff-{key}",
+                evidence="Other personnel may operate away from headquarters.",
+            )
+        query = "telecommuting arrangement"
+        first_dataset = fixture.assertions["remote"]["dataset_id"]
+        scope_key = vector_scope_key("tenant-a", first_dataset)
+        allowed_ids = {
+            fixture.assertions[key]["assertion_id"] for key in ("remote", "cipher", "retention")
+        }
+        expected = await fixture.vector.search(
+            _concept_vector(query), agent_id="agent-a", allowed_node_ids=allowed_ids
+        )
+        baseline = await fixture.dao.search_v4_memory(
+            tenant_id="tenant-a", agent_id="agent-a", dataset_ids=["dataset-a"], query=query
+        )
+
+        table = lancedb.connect(fixture.vector.uri).open_table("mesa_vectors_4")
+        table.drop_columns(["scope_key"])
+        assert await fixture.vector.needs_scope_backfill()
+        await fixture.dao.initialize()
+        assert not await fixture.vector.needs_scope_backfill()
+
+        # These physical rows share the dataset and are closer than the legal
+        # results. SQLite has no ownership receipts for them.
+        await fixture.vector.bulk_upsert(
+            [
+                {
+                    "node_id": f"orphan-{i}",
+                    "agent_id": "agent-a",
+                    "scope_key": scope_key,
+                    "embedding": _concept_vector(query),
+                }
+                for i in range(55)
+            ]
+        )
+        rows, physical_count = await fixture.vector.search_scoped(
+            _concept_vector(query),
+            agent_id="agent-a",
+            scope_keys={scope_key},
+            allowed_node_ids=allowed_ids,
+            limit=10,
+        )
+        assert physical_count == 3
+        assert {row["node_id"]: row["_distance"] for row in rows} == {
+            row["node_id"]: row["_distance"] for row in expected
+        }
+        upgraded = await fixture.dao.search_v4_memory(
+            tenant_id="tenant-a", agent_id="agent-a", dataset_ids=["dataset-a"], query=query
+        )
+        assert [(row["assertion_id"], row["final_score"]) for row in upgraded] == [
+            (row["assertion_id"], row["final_score"]) for row in baseline
+        ]
+        both_datasets = await fixture.dao.search_v4_memory(
+            tenant_id="tenant-a", agent_id="agent-a", dataset_ids=["dataset-a", "dataset-b"], query=query
+        )
+        found = {row["assertion_id"] for row in both_datasets}
+        assert fixture.assertions["other-dataset"]["assertion_id"] in found
+        assert fixture.assertions["other-agent"]["assertion_id"] not in found
     finally:
         await fixture.close()
 

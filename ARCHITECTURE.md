@@ -1,23 +1,58 @@
 # MESA architecture
 
-The maintained design is [MESA Core V4 architecture](docs/architecture-v4.md).
-Start there for module ownership, storage, authorization, ingestion and recovery.
+MESA Core is a memory engine for applications that need to find evidence in
+source documents. A search returns relevant passages with their source,
+revision and location, so an application can show where its evidence came
+from. [API reference](docs/api-reference.md)
 
-| Question | Canonical document |
-|---|---|
-| Which module owns a behavior? | [Architecture and module map](docs/architecture-v4.md) |
-| How do source revisions and mutations progress? | [Concepts and ingestion](docs/concepts-and-ingestion.md) |
-| How are evidence and relevance computed? | [Retrieval and graph](docs/retrieval-and-graph.md) |
-| What can a client call? | [API and SDK](docs/api-reference.md), [MCP](README_MCP.md) |
-| How is storage operated and recovered? | [Operations](docs/RUNBOOK.md), [projection rebuild](docs/v4-rebuild-runbook.md) |
-| Why were these choices made? | [Architecture decisions](docs/adr/README.md) |
+## What MESA stores
 
-V4 uses SQLite as canonical authority and LanceDB/Kùzu as derived projections,
-with one combined storage owner per root. MESA Core 0.9.4 serves the `/v4`
-memory API.
+SQLite is the source of truth. It keeps the catalog, documents, revisions,
+text chunks and the ledger that records whether each change completed. When
+an embedding model is enabled, LanceDB stores a derived index for finding
+passages with similar meaning. MESA can rebuild that index from SQLite.
+[Storage and module map](docs/architecture-v4.md#module-ownership) ·
+[Vector rebuild](docs/v4-rebuild-runbook.md)
 
-The obsolete V3 whitepaper has been removed from the working tree. Previous
-versions remain in Git history; the ADRs explain the decisions that superseded
-Saga, agent-as-tenant, alpha-reranking and PageRank-quarantine assumptions for V4.
+## How a document becomes searchable
 
-See the [documentation index](docs/README.md) for all maintained guides.
+An application submits text and a source reference through an authorized
+session. MESA splits the text into chunks and records the revision and its
+chosen chunking plan. A retry can resume from the saved chunks. Background
+workers process each chunk, and the new revision becomes visible after all
+its chunks commit. [Whole-document API](docs/api-reference.md#whole-documents-post-v4documents)
+
+## How search works
+
+MESA starts with the committed evidence the session may read. It applies
+tenant, dataset and agent boundaries and any date or jurisdiction filters.
+BM25 ranks text matches and supports prefix matching. When the authorized
+corpus is exactly one dataset's active committed chunks, search uses that
+dataset's persistent text index. Other scopes get a temporary index built
+from eligible evidence. [Scoring and scope](docs/retrieval-and-graph.md#lanes-and-scoring)
+
+When a compatible embedding model is available, vector search adds matches
+by meaning. It filters to the authorized scope and checks ownership against
+SQLite. MESA combines the available rankings. Assertion scoring has zero
+weight by default. Built-in legal rules are on by default and help rank
+recognized statute and article matches. Operators can enable a reranker.
+[Retrieval details](docs/retrieval-and-graph.md#lanes-and-scoring) ·
+[Configuration](docs/configuration.md)
+
+## How applications use it
+
+Applications integrate through the HTTP API, the Python SDK or the MCP
+tools. Data producers acquire and parse source files. Applications handle
+answer generation and the user interface. [HTTP API](docs/api-reference.md) ·
+[Python SDK](docs/api-reference.md#v4-python-sdk) · [MCP tools](README_MCP.md#tools) ·
+[Ecosystem responsibilities](docs/architecture-v4.md#ecosystem-and-ownership)
+
+## What MESA does not do yet
+
+- MESA does not generate answers with an LLM. Built-in answering is planned
+  for Round 26; until then, applications write answers from the passages MESA
+  returns.
+- MESA has no graph database. Legal citations and article identities are
+  stored and looked up in SQLite.
+- LLM fact extraction is off by default and is not covered by the MVP
+  documentation.

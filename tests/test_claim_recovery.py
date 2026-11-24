@@ -15,7 +15,7 @@ async def test_claim_recovery_after_worker_crash(tmp_path):
     await engine.initialize()
     await initialize_schema(engine)
 
-    dao = MemoryDAO(sqlite_engine=engine, vector_engine=None, graph_provider=None)
+    dao = MemoryDAO(sqlite_engine=engine, vector_engine=None)
     runtime = load_runtime_profile({
         "MESA_RUNTIME_PROFILE": "combined",
         "MESA_STORAGE_ROOT": str(tmp_path),

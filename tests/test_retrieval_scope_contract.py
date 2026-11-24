@@ -207,19 +207,17 @@ def test_mesaconfig_accepts_zero_rrf_lane_weight() -> None:
         rrf_vector_weight=0.0,
         rrf_bm25_weight=0.0,
         rrf_assertion_weight=0.0,
-        rrf_graph_weight=0.0,
     )
     assert cfg.rrf_vector_weight == 0.0
     assert cfg.rrf_bm25_weight == 0.0
     assert cfg.rrf_assertion_weight == 0.0
-    assert cfg.rrf_graph_weight == 0.0
 
     with pytest.raises(ValueError, match="rrf vector weight MUST be positive and finite"):
         MesaConfig(rrf_vector_weight=-0.01)
     with pytest.raises(ValueError, match="rrf bm25 weight MUST be positive and finite"):
         MesaConfig(rrf_bm25_weight=float("nan"))
-    with pytest.raises(ValueError, match="rrf graph weight MUST be positive and finite"):
-        MesaConfig(rrf_graph_weight=float("inf"))
+    with pytest.raises(ValueError, match="rrf assertion weight MUST be positive and finite"):
+        MesaConfig(rrf_assertion_weight=float("inf"))
 
     lanes = {
         "vector": ["c1", "c2"],

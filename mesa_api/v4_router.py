@@ -1,9 +1,9 @@
 # mypy: disable-error-code="no-untyped-def,untyped-decorator,no-any-return"
 """Versioned V4 full-cognitive API contract.
 
-V3 remains the lexical-core compatibility surface.  V4 admission creates a
-canonical mutation before background processing and every later operation is
-authorized against a verified principal-to-agent-to-session binding.
+Admission creates a canonical mutation before background processing. Every
+later operation is authorized against a verified principal-to-agent-to-session
+binding.
 """
 
 from __future__ import annotations
@@ -59,7 +59,6 @@ from mesa_storage.dao import (
     QueueRecordTooLargeError,
     QueueUnavailableError,
 )
-from mesa_storage.kuzu_provider import GraphSearchError
 from mesa_storage.legal_identity import canonicalize_trusted_legal_identity
 from mesa_storage.repositories.catalog import CatalogIdentityNotFoundError
 from mesa_storage.repositories.operations import (
@@ -100,7 +99,7 @@ class V4CapabilityFlags(BaseModel):
     lexical_retrieval: bool = True
     assertion_relational_lane: bool = True
     validity_interval_filtering: bool = True
-    graph_projection: bool = True
+    graph_projection: bool = False
     graph_neighbor_retrieval: bool = False
     associative_ppr: bool = False
     bitemporal_query: bool = False
@@ -387,19 +386,6 @@ class V4ScopeAudit(BaseModel):
     exclusion_audit_hash: str
 
 
-class V4GraphAblation(BaseModel):
-    """Versioned identity for a supported graph ON/OFF matched execution."""
-
-    model_config = ConfigDict(frozen=True)
-
-    contract_version: str
-    mode: Literal["enabled", "disabled"]
-    pair_identity: str
-    query_identity: str
-    retrieval_config_identity: str
-    scope_identity: str
-
-
 class V4VectorLaneDiagnostics(BaseModel):
     """Bounded explanation of vector-lane availability for one search."""
 
@@ -429,7 +415,6 @@ class V4SearchResponse(BaseModel):
     results: list[dict[str, Any]]
     degraded_sources: list[str] = []
     scope_audit: V4ScopeAudit | None = None
-    graph_ablation: V4GraphAblation | None = None
     vector_lane: V4VectorLaneDiagnostics | None = None
 
 
@@ -958,7 +943,6 @@ def create_v4_router(
             vector_contract_available = (
                 vector_consumer.get("compatible_registry_artifacts", 0) > 0
             )
-        graph_available = getattr(dao, "graph_operational", False)
         canonical_writes_available = dao.canonical_v4_writes_enabled is not False
         capabilities = V4CapabilityFlags(
             projection_outbox=canonical_writes_available,
@@ -969,11 +953,8 @@ def create_v4_router(
                 if isinstance(vector_available, bool)
                 else False
             ),
-            graph_projection=canonical_writes_available
-            and dao.graph_enabled is not False,
-            graph_neighbor_retrieval=(
-                graph_available if isinstance(graph_available, bool) else False
-            ),
+            graph_projection=False,
+            graph_neighbor_retrieval=False,
         )
         val_cap = V4ValidationCapability(
             mode=0,
@@ -1264,6 +1245,7 @@ def create_v4_router(
             "tenant_id": str(session["tenant_id"]),
             "dataset_id": payload.dataset_id,
         }
+        configured_plan = config.chunking
         async with document_admission_lock:
             try:
                 document = await dao.create_v4_document(
@@ -1272,7 +1254,7 @@ def create_v4_router(
                 if document["status"] == "PURGED":
                     raise ValueError("document is purged")
                 revisions = await dao.list_v4_revisions(
-                    **scope, document_id=payload.document_id
+                    **scope, document_id=payload.document_id, include_chunking_plan=True
                 )
                 revision = next(
                     (r for r in revisions if r["revision_id"] == revision_id), None
@@ -1293,6 +1275,7 @@ def create_v4_router(
                         supersedes_revision_id=active["revision_id"]
                         if active
                         else None,
+                        chunking_plan=configured_plan,
                     )
                 if revision["status"] not in {"ACTIVE", "PENDING"}:
                     raise ValueError(
@@ -1315,52 +1298,32 @@ def create_v4_router(
                     "mutation_ids": [admitted[i] for i in sorted(admitted)],
                     "duplicate": True,
                 }
-            legal_plan = config.chunking == "auto"
+            stored_plan = revision.get("chunking_plan")
+            chunking_plan = stored_plan or configured_plan
+            legal_plan = chunking_plan == "auto"
             chunks = (
                 await asyncio.to_thread(chunk_legal_document, payload.content)
-                if config.chunking == "auto"
+                if legal_plan
                 else await asyncio.to_thread(chunk_document, payload.content)
             )
-            if admitted:
-                # Admissions are already scoped above. Their durable payloads,
-                # including chunks committed before a restart, pin the plan.
-                texts = {}
-                for ordinal, mutation_id in admitted.items():
-                    mutation = await dao.get_projection_mutation(mutation_id)
-                    if mutation is None:
-                        raise HTTPException(409, "admitted chunk is unavailable")
-                    texts[ordinal] = mutation["content_payload"]
-
-                def matches(plan: list[str]) -> bool:
-                    return all(
-                        ordinal < len(plan) and plan[ordinal] == text
-                        for ordinal, text in texts.items()
-                    )
-
-                alternative = (
-                    await asyncio.to_thread(chunk_document, payload.content)
-                    if config.chunking == "auto"
-                    else await asyncio.to_thread(chunk_legal_document, payload.content)
-                )
-                preferred_matches = matches(chunks)
-                alternative_matches = matches(alternative)
-                if preferred_matches and alternative_matches and chunks != alternative:
+            for ordinal, mutation_id in admitted.items():
+                mutation = await dao.get_projection_mutation(mutation_id)
+                if mutation is None:
+                    raise HTTPException(409, "admitted chunk is unavailable")
+                if ordinal >= len(chunks) or chunks[ordinal] != mutation["content_payload"]:
                     raise HTTPException(
                         409,
-                        "admitted chunking plan is ambiguous; no chunks appended. "
+                        "admitted chunks do not match a supported chunking plan. "
                         "Retry with the MESA_CHUNKING value used when this revision was "
                         "first added, or add the content under a new document_id.",
                     )
-                if not preferred_matches:
-                    if not alternative_matches:
-                        raise HTTPException(
-                            409,
-                            "admitted chunks do not match a supported chunking plan. "
-                            "Retry with the MESA_CHUNKING value used when this revision was "
-                            "first added, or add the content under a new document_id.",
-                        )
-                    chunks = alternative
-                    legal_plan = not legal_plan
+            if stored_plan is None:
+                try:
+                    await dao.record_v4_revision_chunking_plan(
+                        **scope, revision_id=revision_id, chunking_plan=chunking_plan
+                    )
+                except ValueError as exc:
+                    raise HTTPException(status_code=409, detail=str(exc)) from exc
             identities: list[dict[str, str] | None] = [None] * len(chunks)
             if config.legal_rules_enabled and legal_plan:
                 headings = list(_ARTICLE_HEADING.finditer(payload.content))
@@ -1476,7 +1439,6 @@ def create_v4_router(
                     payload.valid_from.isoformat() if payload.valid_from else None
                 ),
                 valid_to=payload.valid_to.isoformat() if payload.valid_to else None,
-                graph_enabled=payload.graph_mode == "enabled",
                 request_principal_id=str(principal.principal_id),
                 certification_metadata=certification_metadata,
             )
@@ -1495,11 +1457,6 @@ def create_v4_router(
             raise HTTPException(
                 status_code=503,
                 detail="vector_backend_unavailable",
-            )
-        except GraphSearchError:
-            raise HTTPException(
-                status_code=503,
-                detail="graph_backend_unavailable",
             )
         return {
             "session_id": payload.session_id,
@@ -1694,11 +1651,6 @@ def create_v4_router(
             raise HTTPException(
                 status_code=503,
                 detail="vector_backend_unavailable",
-            )
-        except GraphSearchError:
-            raise HTTPException(
-                status_code=503,
-                detail="graph_backend_unavailable",
             )
         mutations = await dao.list_session_mutation_summaries(
             agent_id, session_id, limit=20

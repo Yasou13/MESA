@@ -1,6 +1,5 @@
 """One seeded harness for caller-text parsers and the R16 audit regressions."""
 
-import asyncio
 import gc
 import random
 import re
@@ -20,7 +19,6 @@ from mesa_memory.retrieval.adaptive import normalize_planner_query
 from mesa_memory.security.input_validation import validate_write_payload
 from mesa_memory.security.untrusted_memory import render_untrusted_memory
 from mesa_storage import legal_rules
-from mesa_storage.kuzu_provider import KuzuGraphProvider, _normalize_text
 from mesa_storage.legal_identity import LegalEntityResolver
 from tests.test_model_optional_runtime import model_runtime as model_runtime
 from tests.test_p908_search_limits import _insert, _search
@@ -82,7 +80,6 @@ def _exercise_api_limit_parsers(bounded_call):
             bounded_call("citations", resolver.extract_citations, text)
         bounded_call("rules", legal_rules.extract, text)
         bounded_call("DAO normalize", dao_module._normalize_identity_text, text)
-        bounded_call("graph normalize", _normalize_text, text)
         bounded_call("planner normalize", normalize_planner_query, query)
         bounded_call("admission validation", validate_write_payload, text, {})
         bounded_call("MCP validation", reject_secrets, text[:20000])
@@ -108,22 +105,6 @@ def _exercise_api_limit_parsers(bounded_call):
             bounded_call(
                 "chunk window " + pattern.pattern, lambda: list(pattern.finditer(text))
             )
-        bounded_call(
-            "graph path scoring",
-            KuzuGraphProvider._compute_path_score,
-            hop=3,
-            seed_id="seed",
-            seed_scores=None,
-            query_tokens=["zz", *["z" * 7 + chr(97 + i % 26) for i in range(63)]],
-            predicates=["relates"] * 3,
-            evidence_spans=[text] * 3,
-            jurisdictions=["TR"] * 3,
-            confidences=[1.0] * 3,
-            edge_directions=["forward"] * 3,
-            target_statutes={"TCK"},
-            competing_statutes=[],
-            resolver=resolvers[0],
-        )
 
 
 @pytest.mark.no_cover
@@ -247,7 +228,7 @@ def test_stored_names_keep_unicode_punctuation_and_late_matches(
 
 @pytest.mark.asyncio
 async def test_normalized_store_names_keep_the_200_character_bound(model_runtime):
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         ordinary = "a" * 193 + " kanunu"
         expanded = "ﷺ" * 193 + " kanunu"
         for index, name in enumerate((ordinary, expanded)):
@@ -266,7 +247,7 @@ async def test_normalized_store_names_keep_the_200_character_bound(model_runtime
 
 @pytest.mark.asyncio
 async def test_scoped_resolver_is_built_off_loop_and_reused(model_runtime, monkeypatch):
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         await _insert(
             env, 0, "TBK m. 49 uygulanır.", title="Türk Borçlar Kanunu", legal=True
         )
@@ -285,51 +266,3 @@ async def test_scoped_resolver_is_built_off_loop_and_reused(model_runtime, monke
         await _search(env, "TBK m. 49")
         await _search(env, "TBK m. 1")
         assert len(calls) == 1
-
-
-@pytest.mark.no_cover
-@pytest.mark.asyncio
-async def test_graph_scoring_yields_between_many_api_sized_edges(monkeypatch):
-    graph = KuzuGraphProvider("unused")
-    monkeypatch.setattr(graph, "_ensure_initialized", lambda: None)
-    count = 400
-
-    async def expand(**kwargs):
-        return [
-            ["seed", f"target-{i}", "name", f"a-{i}", "relates", 1.0, "TR", "forward"]
-            for i in range(count)
-        ]
-
-    monkeypatch.setattr(graph, "_step_expand", expand)
-    tokens = ["z" * 7 + chr(97 + i % 25) for i in range(63)]
-    query = " ".join(["zz", *tokens, "TBK m. 49"])
-    gaps = []
-
-    async def heartbeat():
-        last = time.perf_counter()
-        while True:
-            await asyncio.sleep(0.002)
-            now = time.perf_counter()
-            gaps.append(now - last - 0.002)
-            last = now
-
-    pulse = asyncio.create_task(heartbeat())
-    await asyncio.sleep(0.005)
-    try:
-        hits = await graph.search_v4_graph(
-            agent_id="agent",
-            seed_entity_ids=["seed"],
-            allowed_entity_ids={"seed", *[f"target-{i}" for i in range(count)]},
-            allowed_assertion_ids={f"a-{i}" for i in range(count)},
-            assertion_evidence={f"a-{i}": "zz " + "z" * 32765 for i in range(count)},
-            query=query,
-            max_hops=1,
-            limit=50,
-        )
-        await asyncio.sleep(0.005)
-        assert len(hits) == 50
-        assert max(gaps) < 0.2
-    finally:
-        pulse.cancel()
-        await asyncio.gather(pulse, return_exceptions=True)
-        await graph.close()

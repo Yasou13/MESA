@@ -19,7 +19,7 @@ def test_memory_candidate_is_retry_stable_and_preserves_payload() -> None:
         raw_log_id=41,
         agent_id="tenant-a",
         session_id="session-a",
-        content_payload="The exact text passed to Tier-3.",
+        content_payload="The original text submitted for validation.",
         metadata={"source_ref": "test"},
         embedding_provider="provider-a",
         embedding_model="model-a",
@@ -30,14 +30,14 @@ def test_memory_candidate_is_retry_stable_and_preserves_payload() -> None:
         raw_log_id=41,
         agent_id="tenant-a",
         session_id="session-a",
-        content_payload="The exact text passed to Tier-3.",
+        content_payload="The original text submitted for validation.",
     )
 
     record = first.as_consolidation_record()
     assert first.candidate_id == second.candidate_id
     assert first.mutation_id == second.mutation_id
     assert record["cmb_id"] == first.candidate_id
-    assert record["content_payload"] == "The exact text passed to Tier-3."
+    assert record["content_payload"] == "The original text submitted for validation."
     assert record["embedding_provider"] == "provider-a"
 
 
@@ -381,9 +381,8 @@ async def test_mutation_ledger_is_idempotent_and_creates_projection_outbox(
                 (candidate["mutation_id"],),
             ) as cursor:
                 projections = [row[0] for row in await cursor.fetchall()]
-        assert projections == ["GRAPH", "SQL", "VECTOR"]
-        # Tier-3 rejection cannot race a projector: lanes begin blocked until
-        # the exact validated extraction is durably recorded.
+        assert projections == ["SQL", "VECTOR"]
+        # Projection lanes stay blocked until validation records the extraction.
         assert await dao.claim_projection_outbox(worker_id="projector-a", limit=1) == []
         assert await dao.record_mutation_extraction(
             "tenant-a",
@@ -453,11 +452,6 @@ async def test_outbox_projects_each_lane_then_commits_mutation(tmp_path) -> None
                     return_value=[{"assertion_id": "assertion", "subject_id": "entity"}]
                 ),
             ),
-            patch.object(
-                MemoryDAO,
-                "project_v4_graph_assertion",
-                new=AsyncMock(return_value="assertion"),
-            ),
         ):
             result = {
                 "claimed": 0,
@@ -465,15 +459,15 @@ async def test_outbox_projects_each_lane_then_commits_mutation(tmp_path) -> None
                 "retry_pending": 0,
                 "dead_letter": 0,
             }
-            for _ in range(3):
+            for _ in range(2):
                 single = await process_projection_outbox_once(
                     dao, worker_id="projector-a"
                 )
                 for key in result:
                     result[key] += single[key]
         assert result == {
-            "claimed": 3,
-            "completed": 3,
+            "claimed": 2,
+            "completed": 2,
             "retry_pending": 0,
             "dead_letter": 0,
         }
@@ -553,7 +547,7 @@ async def test_projection_retry_is_fenced_and_moves_to_dlq_after_limit(
                 (candidate["mutation_id"],),
             ) as cursor:
                 lanes = {row[0]: row[1] for row in await cursor.fetchall()}
-        assert lanes == {"GRAPH": "PENDING", "SQL": "DEAD_LETTER", "VECTOR": "PENDING"}
+        assert lanes == {"SQL": "DEAD_LETTER", "VECTOR": "PENDING"}
     finally:
         await engine.close()
 

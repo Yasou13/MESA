@@ -40,7 +40,6 @@ async def test_integrated_backup_quiescence_and_canonical_readback(
         sqlite_engine=engine,
         vector_engine=vec_mock,
         embedding_enabled=False,
-        graph_enabled=False,
     )
     await dao.ensure_v4_catalog_scope(
         tenant_id="r8-tenant", workspace_id="ws-r8", dataset_id="ds-r8"
@@ -124,7 +123,6 @@ async def test_integrated_backup_quiescence_and_canonical_readback(
             sqlite_engine=restored_engine,
             vector_engine=vec_mock,
             embedding_enabled=False,
-            graph_enabled=False,
         )
         found = await restored_dao.search_v4_memory(
             tenant_id="r8-tenant",
@@ -132,7 +130,6 @@ async def test_integrated_backup_quiescence_and_canonical_readback(
             dataset_ids=["ds-r8"],
             query="backup snapshot restore",
             limit=5,
-            graph_enabled=False,
         )
         assert any(r["document_id"] == "r8-doc-1" for r in found)
     finally:

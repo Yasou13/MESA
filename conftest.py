@@ -17,16 +17,3 @@ try:
         mesa_memory.__path__.append(original_path)
 except ImportError:
     pass
-
-# Also extend consolidation specifically just in case
-try:
-    import mesa_memory.consolidation
-
-    original_cons_path = os.path.join(root_dir, "mesa_memory", "consolidation")
-    if (
-        hasattr(mesa_memory.consolidation, "__path__")
-        and original_cons_path not in mesa_memory.consolidation.__path__
-    ):
-        mesa_memory.consolidation.__path__.append(original_cons_path)
-except ImportError:
-    pass

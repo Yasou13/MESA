@@ -19,7 +19,7 @@ from tests.test_model_optional_runtime import model_runtime as model_runtime
 async def test_v4_context_rejects_mixed_naive_and_aware_dates(
     model_runtime, naive_field
 ):
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         params = {
             "query": "temporal evidence",
             "valid_from": "2025-01-01T00:00:00Z",
@@ -100,11 +100,7 @@ async def test_fallback_projection_preserves_full_multi_paragraph_source_in_cont
         compute_query_embedding=AsyncMock(return_value=[0.1, 0.2, 0.3]),
         search=AsyncMock(return_value=[]),
     )
-    graph = SimpleNamespace(
-        insert_node=AsyncMock(),
-        insert_assertion=AsyncMock(),
-    )
-    dao = MemoryDAO(engine, vector, graph)
+    dao = MemoryDAO(engine, vector)
     later_rule = (
         "SONRAKI_OPERATIF_KURAL: borçluya Türkçe bildirim eksiksiz yapılmalıdır."
     )

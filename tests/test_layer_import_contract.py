@@ -34,7 +34,6 @@ def test_legal_import_guard_allows_existing_importers_and_ignores_tests(tmp_path
     for relative in (
         "mesa_api/v4_router.py",
         "mesa_storage/dao.py",
-        "mesa_storage/kuzu_provider.py",
         "mesa_storage/legal_identity.py",
         "mesa_storage/legal_rules.py",
         "tests/test_legal.py",

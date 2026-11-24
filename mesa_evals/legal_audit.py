@@ -24,10 +24,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import sqlite3
 import sys
 from dataclasses import dataclass, field
-
-from mesa_storage.kuzu_provider import KuzuGraphProvider
 
 logger = logging.getLogger("MESA_LegalAudit")
 
@@ -406,14 +405,14 @@ async def audit_graph(
     *,
     threshold: float = DEFAULT_THRESHOLD,
 ) -> AuditResult:
-    """Run the graph poisoning audit against a live KùzuDB database.
+    """Run the assertion poisoning audit against a MESA SQLite database.
 
-    Connects to the KùzuDB database directory (derived from db_path), queries
-    all Observed edges, resolves target node entity names, and validates them
-    against the canonical Turkish law reference set.
+    Connects to the canonical SQLite database, queries active committed
+    assertions scoped to ``agent_id``, resolves subject and object names, and
+    validates target references against the canonical Turkish law reference set.
 
     Args:
-        db_path: Path to the MESA SQLite database file (Kuzu path derived by replacing .db with _graph).
+        db_path: Path to the MESA SQLite database file.
         agent_id: Agent ID to scope the audit (RLS / Zero-Trust).
         threshold: Maximum acceptable poisoning rate (default 0.05).
 
@@ -422,45 +421,43 @@ async def audit_graph(
     """
     result = AuditResult(agent_id=agent_id)
 
-    # Derive KuzuDB path from the SQLite db path
-    graph_path = db_path.replace(".db", "_graph")
-
-    # Initialize KuzuGraphProvider
-    graph_provider = KuzuGraphProvider(graph_path)
-    await graph_provider.initialize()
-
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
-        # Query all active legal edges using Cypher
-        # Zero-Trust isolation enforced via agent_id properties
-        cypher = (
-            "MATCH (src:Entity)-[e:Observed]->(tgt:Entity) "
-            "WHERE src.agent_id = $agent_id "
-            "  AND tgt.agent_id = $agent_id "
-            "  AND e.agent_id = $agent_id "
-            "RETURN src.name, tgt.name"
-        )
-
-        rows = await graph_provider.execute_query(cypher, {"agent_id": agent_id})
-
-        result.total_legal_edges = len(rows)
-
-        for row in rows:
-            source_name = row[0]
-            target_name = row[1]
-            if is_valid_law(target_name):
-                result.valid_edges += 1
-            else:
-                result.poisoned_edges.append(
-                    PoisonedEdge(
-                        edge_id="kuzu-edge",  # Legacy ID field no longer explicitly stored in Kuzu
-                        source_entity=source_name,
-                        target_entity=target_name,
-                        relation_type="Observed",  # Unified relation type in Kuzu
-                        agent_id=agent_id,
-                    )
-                )
+        conn.execute("PRAGMA query_only=ON")
+        rows = conn.execute(
+            """
+            SELECT a.assertion_id,
+                   subj.canonical_name,
+                   COALESCE(obj.canonical_name, a.literal_value, ''),
+                   a.predicate
+            FROM v4_assertions a
+            JOIN memory_mutations m ON m.mutation_id = a.mutation_id
+            JOIN v4_entities subj ON subj.entity_id = a.subject_id
+            LEFT JOIN v4_entities obj ON obj.entity_id = a.object_entity_id
+            WHERE m.agent_id = ?
+              AND m.state = 'COMMITTED'
+              AND a.status = 'ACTIVE'
+            """,
+            (agent_id,),
+        ).fetchall()
     finally:
-        await graph_provider.close()
+        conn.close()
+
+    result.total_legal_edges = len(rows)
+
+    for assertion_id, source_name, target_name, predicate in rows:
+        if is_valid_law(str(target_name)):
+            result.valid_edges += 1
+        else:
+            result.poisoned_edges.append(
+                PoisonedEdge(
+                    edge_id=str(assertion_id),
+                    source_entity=str(source_name),
+                    target_entity=str(target_name),
+                    relation_type=str(predicate),
+                    agent_id=agent_id,
+                )
+            )
 
     return result
 

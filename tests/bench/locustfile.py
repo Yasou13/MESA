@@ -49,7 +49,7 @@ class MesaLoadTestUser(HttpUser):
     def search_memory(self):
         """
         Simulate the Retrieval Path (SEARCH).
-        This tests the Vector (LanceDB) and Graph (KuzuDB) read concurrency.
+        This tests the SQLite FTS5 and Vector (LanceDB) read concurrency.
         """
         payload = {
             "agent_id": self.agent_id,

@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable, Protocol, cast
+from typing import Any, Callable, Protocol
 
-from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.projection_generations import (
     ProjectionGenerationRepositoryPort,
     ProjectionPaths,
@@ -15,7 +13,6 @@ from mesa_storage.projection_generations import (
 )
 from mesa_storage.rebuild_preparation import RebuildPreparation
 from mesa_storage.rebuild_replay import (
-    GraphReplayTarget,
     ProjectionSnapshot,
     RebuildReplayResult,
     VectorReplayTarget,
@@ -46,18 +43,6 @@ class VectorVerificationTarget(VectorReplayTarget, Protocol):
     ) -> list[dict[str, Any]]: ...
 
 
-class GraphVerificationTarget(GraphReplayTarget, Protocol):
-    async def health_check(self) -> dict[str, Any]: ...
-
-    async def get_existing_node_ids(
-        self, label: str, agent_id: str, node_ids: list[str]
-    ) -> set[str]: ...
-
-    async def execute_query(
-        self, query: str, parameters: dict[str, Any] | None = None
-    ) -> list[Any]: ...
-
-
 class RebuildVerificationError(RuntimeError):
     """A staging or activated generation failed content-free verification."""
 
@@ -77,13 +62,7 @@ class PostCutoverRollbackError(RebuildVerificationError):
 @dataclass(frozen=True)
 class ProjectionParityReport:
     expected_vector: int
-    expected_graph_entities: int
-    expected_graph_assertions: int
-    expected_graph_links: int
     actual_vector: int
-    actual_graph_entities: int
-    actual_graph_assertions: int
-    actual_graph_links: int
     missing: int
     orphans: int
     smoke_checked: int
@@ -105,12 +84,6 @@ class RebuildCutoverResult:
     retained_generation_id: str
 
 
-def _count_row(rows: list[Any]) -> int:
-    if not rows or not rows[0]:
-        raise RebuildVerificationError("graph count probe returned no result")
-    return int(rows[0][0])
-
-
 class ProjectionParityVerifier:
     """Verify bounded identities, exact counts, health and dataset isolation."""
 
@@ -120,34 +93,20 @@ class ProjectionParityVerifier:
         snapshot: ProjectionSnapshot,
         paths: ProjectionPaths,
         vector_factory: Callable[[Path], VectorVerificationTarget],
-        graph_factory: Callable[[Path], GraphVerificationTarget],
         parity_limit: int = 500,
         smoke_limit: int = 10,
     ) -> ProjectionParityReport:
         if not 1 <= parity_limit <= 10_000 or not 1 <= smoke_limit <= 100:
             raise ValueError("invalid projection verification bounds")
         vector = vector_factory(paths.vector_path)
-        graph = graph_factory(paths.graph_path) if snapshot.graph_enabled else None
         try:
             if Path(vector.uri).resolve(strict=False) != paths.vector_path:
                 raise RebuildVerificationError(
                     "vector verification target is not active"
                 )
-            if (
-                graph is not None
-                and Path(graph.db_path).resolve(strict=False) != paths.graph_path
-            ):
-                raise RebuildVerificationError(
-                    "graph verification target is not active"
-                )
             await vector.initialize()
-            if graph is not None:
-                await graph.initialize()
             vector_health = await vector.health_check()
-            graph_health = await graph.health_check() if graph is not None else {}
-            if vector_health.get("status") != "healthy" or (
-                graph is not None and graph_health.get("status") != "healthy"
-            ):
+            if vector_health.get("status") != "healthy":
                 raise RebuildVerificationError("projection provider health failed")
 
             expected = snapshot.counts()
@@ -155,59 +114,20 @@ class ProjectionParityVerifier:
             if any(count < 0 for count in vector_counts.values()):
                 raise RebuildVerificationError("vector count probe failed")
             actual_vector = sum(vector_counts.values())
-            actual_graph_entities = (
-                _count_row(
-                    await graph.execute_query("MATCH (n:Entity) RETURN COUNT(n)")
-                )
-                if graph is not None
-                else 0
-            )
-            actual_graph_assertions = (
-                _count_row(
-                    await graph.execute_query("MATCH (n:Assertion) RETURN COUNT(n)")
-                )
-                if graph is not None
-                else 0
-            )
-            actual_graph_links = (
-                _count_row(
-                    await graph.execute_query(
-                        "MATCH (:Assertion)-[r:AssertionLink]->(:Assertion) RETURN COUNT(r)"
-                    )
-                )
-                if graph is not None
-                else 0
-            )
 
             missing_ids = 0
-            for lane in ("vector", "graph_entity", "graph_assertion"):
-                identifier_key = (
-                    "entity_id" if lane == "graph_entity" else "assertion_id"
-                )
-                # Exact parity can be bounded in memory without being silently
-                # truncated: iterate every snapshot identity in fixed chunks.
-                for offset in range(0, expected[lane], parity_limit):
-                    rows = snapshot.fetch(lane, offset=offset, limit=parity_limit)
-                    by_agent: dict[str, list[str]] = {}
-                    for row in rows:
-                        by_agent.setdefault(str(row["agent_id"]), []).append(
-                            str(row[identifier_key])
-                        )
-                    for agent_id, identifiers in by_agent.items():
-                        if lane == "vector":
-                            found = await vector.get_existing_node_ids(
-                                agent_id, identifiers
-                            )
-                        else:
-                            if graph is None:
-                                raise RebuildVerificationError(
-                                    "graph verification is disabled"
-                                )
-                            label = "Entity" if lane == "graph_entity" else "Assertion"
-                            found = await graph.get_existing_node_ids(
-                                label, agent_id, identifiers
-                            )
-                        missing_ids += len(set(identifiers) - found)
+            # Exact parity can be bounded in memory without being silently
+            # truncated: iterate every snapshot identity in fixed chunks.
+            for offset in range(0, expected["vector"], parity_limit):
+                rows = snapshot.fetch("vector", offset=offset, limit=parity_limit)
+                by_agent: dict[str, list[str]] = {}
+                for row in rows:
+                    by_agent.setdefault(str(row["agent_id"]), []).append(
+                        str(row["assertion_id"])
+                    )
+                for agent_id, identifiers in by_agent.items():
+                    found = await vector.get_existing_node_ids(agent_id, identifiers)
+                    missing_ids += len(set(identifiers) - found)
 
             smoke_checked = 0
             cross_dataset_checked = 0
@@ -269,35 +189,11 @@ class ProjectionParityVerifier:
                         cross_dataset_checked += 1
                         break
 
-            expected_counts = (
-                expected["vector"],
-                expected["graph_entity"],
-                expected["graph_assertion"],
-                expected["graph_link"],
-            )
-            actual_counts = (
-                actual_vector,
-                actual_graph_entities,
-                actual_graph_assertions,
-                actual_graph_links,
-            )
-            missing_counts = sum(
-                max(wanted - actual, 0)
-                for wanted, actual in zip(expected_counts, actual_counts)
-            )
-            orphan_counts = sum(
-                max(actual - wanted, 0)
-                for wanted, actual in zip(expected_counts, actual_counts)
-            )
+            missing_counts = max(expected["vector"] - actual_vector, 0)
+            orphan_counts = max(actual_vector - expected["vector"], 0)
             report = ProjectionParityReport(
                 expected_vector=expected["vector"],
-                expected_graph_entities=expected["graph_entity"],
-                expected_graph_assertions=expected["graph_assertion"],
-                expected_graph_links=expected["graph_link"],
                 actual_vector=actual_vector,
-                actual_graph_entities=actual_graph_entities,
-                actual_graph_assertions=actual_graph_assertions,
-                actual_graph_links=actual_graph_links,
                 missing=missing_counts + missing_ids,
                 orphans=orphan_counts,
                 smoke_checked=smoke_checked,
@@ -307,8 +203,6 @@ class ProjectionParityVerifier:
                 raise ProjectionParityError(report)
             return report
         finally:
-            if graph is not None:
-                await graph.close()
             await vector.close()
 
 
@@ -334,7 +228,6 @@ class ParityGatedActivator:
         storage_root: Path,
         runner_id: str,
         vector_factory: Callable[[Path], VectorVerificationTarget],
-        graph_factory: Callable[[Path], GraphVerificationTarget],
         parity_limit: int = 500,
         smoke_limit: int = 10,
         lease_seconds: int = 300,
@@ -350,13 +243,7 @@ class ParityGatedActivator:
             trusted_root=trusted_root,
             runtime_fencing_token=preparation.runtime_fencing_token,
         )
-        manifest = json.loads(
-            preparation.generation.get("provider_manifest_json") or "{}"
-        )
-        snapshot = ProjectionSnapshot(
-            preparation.backup_root / "mesa.db",
-            graph_enabled=manifest.get("graph_enabled", True),
-        )
+        snapshot = ProjectionSnapshot(preparation.backup_root / "mesa.db")
         if should_stop is not None and should_stop():
             await self._record_failure(
                 operation,
@@ -376,7 +263,6 @@ class ParityGatedActivator:
                 snapshot=snapshot,
                 paths=paths,
                 vector_factory=vector_factory,
-                graph_factory=graph_factory,
                 parity_limit=parity_limit,
                 smoke_limit=smoke_limit,
             )
@@ -451,7 +337,6 @@ class ParityGatedActivator:
                     previous_generation_id=preparation.source_generation_id,
                 ),
                 vector_factory=vector_factory,
-                graph_factory=graph_factory,
                 parity_limit=parity_limit,
                 smoke_limit=smoke_limit,
             )
@@ -472,7 +357,6 @@ class ParityGatedActivator:
                     snapshot=snapshot,
                     paths=retained_paths,
                     vector_factory=vector_factory,
-                    graph_factory=graph_factory,
                     parity_limit=parity_limit,
                     smoke_limit=smoke_limit,
                 )
@@ -567,7 +451,3 @@ def default_vector_verification_factory(
         allow_model_loading=allow_model_loading,
         local_embedding_model=local_embedding_model,
     )
-
-
-def default_graph_verification_factory(path: Path) -> GraphVerificationTarget:
-    return cast(GraphVerificationTarget, KuzuGraphProvider(str(path)))

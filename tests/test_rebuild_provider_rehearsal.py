@@ -15,14 +15,11 @@ import pytest
 from alembic import command
 from alembic.config import Config
 
-from mesa_storage import kuzu_setup
-from mesa_storage.kuzu_provider import KuzuGraphProvider
 from mesa_storage.projection_generations import ProjectionGenerationRepository
 from mesa_storage.rebuild_cutover import (
     ParityGatedActivator,
     ProjectionParityVerifier,
     RebuildVerificationError,
-    default_graph_verification_factory,
     default_vector_verification_factory,
 )
 from mesa_storage.rebuild_preparation import (
@@ -160,24 +157,17 @@ async def _embedding(text: str) -> list[float]:
 async def _seed_real_projection(database: Path, storage: Path) -> None:
     snapshot = ProjectionSnapshot(database)
     vector = VectorEngine(str(storage / "vector.lance"), embedding_provider=_embedding)
-    graph_path = storage / "kuzu_db"
-    kuzu_setup.initialize_schema_artifact(str(graph_path))
-    graph = KuzuGraphProvider(str(graph_path))
     await vector.initialize()
-    await graph.initialize()
     try:
-        for lane in ("vector", "graph_entity", "graph_assertion", "graph_link"):
-            rows = snapshot.fetch(lane, offset=0, limit=100)
-            if rows:
-                await ProjectionReplayer._apply_batch(
-                    lane,
-                    rows,
-                    vector=vector,
-                    graph=graph,
-                    expected_provider=("deterministic-test", "embed-model", "v1", 3),
-                )
+        rows = snapshot.fetch("vector", offset=0, limit=100)
+        if rows:
+            await ProjectionReplayer._apply_batch(
+                "vector",
+                rows,
+                vector=vector,
+                expected_provider=("deterministic-test", "embed-model", "v1", 3),
+            )
     finally:
-        await graph.close()
         await vector.close()
 
 
@@ -325,7 +315,6 @@ async def test_real_provider_backup_rebuild_reopen_parity_and_rollback(
                 storage_root=storage,
                 runner_id="runner-a",
                 vector_factory=vector_factory,
-                graph_factory=default_graph_verification_factory,
                 lease_seconds=3600,
             )
 
@@ -348,7 +337,6 @@ async def test_real_provider_backup_rebuild_reopen_parity_and_rollback(
         snapshot=ProjectionSnapshot(preparation.backup_root / "mesa.db"),
         paths=active,
         vector_factory=vector_factory,
-        graph_factory=default_graph_verification_factory,
     )
     assert retained_report.passed is True
     assert canonical_sqlite_manifest(database)[1] == source_hash

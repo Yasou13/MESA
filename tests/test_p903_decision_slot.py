@@ -19,7 +19,6 @@ async def _search(env, query, **scope):
         dataset_ids=["main"],
         query=query,
         limit=50,
-        graph_enabled=False,
     )
     params.update(scope)
     return await env.dao.search_v4_memory(**params)
@@ -27,7 +26,7 @@ async def _search(env, query, **scope):
 
 @pytest.mark.asyncio
 async def test_own_header_first_chunk_wins_and_quoted_reference_does_not(model_runtime):
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         own = await _add(
             env, REF + "\n" + "Gerekçe açıklanmıştır. " * 600, document_id="own"
         )
@@ -84,7 +83,7 @@ async def test_own_header_first_chunk_wins_and_quoted_reference_does_not(model_r
 async def test_own_reference_starts_within_first_300_characters(
     model_runtime, offset, expected
 ):
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         await _add(env, " " * offset + REF + "\nGerekçe.")
         await _consume(env, 3)
         results = await _search(env, REF + " kararı")
@@ -95,7 +94,7 @@ async def test_own_reference_starts_within_first_300_characters(
 
 @pytest.mark.asyncio
 async def test_unmatched_reference_preserves_results_without_items(model_runtime):
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         await _add(env, OTHER + "\n" + "Yargılama kararı gerekçesi. " * 80)
         await _consume(env, 3)
         query = REF + " kararı gerekçesi"
@@ -115,7 +114,7 @@ async def test_unmatched_reference_preserves_results_without_items(model_runtime
 
 @pytest.mark.asyncio
 async def test_articles_and_decisions_share_three_unique_chunk_slots(model_runtime):
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         law = await _add(
             env,
             "Kanun Numarası: 6098\nMADDE 49- "

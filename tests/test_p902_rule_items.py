@@ -47,7 +47,7 @@ async def _admit(env, metadata):
 @pytest.mark.parametrize("enabled", [True, False])
 async def test_items_are_stored_and_returned_with_chunk_offsets(model_runtime, enabled):
     async with model_runtime(
-        MESA_LEGAL_RULES_ENABLED=enabled, MESA_GRAPH_ENABLED=False
+        MESA_LEGAL_RULES_ENABLED=enabled
     ) as env:
         text = (
             "Kanun Numarası: 6098\nMADDE 1- "
@@ -88,7 +88,6 @@ async def test_items_are_stored_and_returned_with_chunk_offsets(model_runtime, e
             dataset_ids=["main"],
             query="TBK m. 49 15.03.2024",
             limit=50,
-            graph_enabled=False,
         )
         assert results
         for result in results:
@@ -111,14 +110,13 @@ async def test_items_are_stored_and_returned_with_chunk_offsets(model_runtime, e
             dataset_ids=["main"],
             query="TBK m. 49 15.03.2024",
             limit=50,
-            graph_enabled=False,
         )
         assert after == before
 
 
 @pytest.mark.asyncio
 async def test_admission_replaces_forged_items_and_extraction_keeps_them(model_runtime):
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         admitted = await _admit(
             env, {"_mesa_legal_items": {"version": "forged", "items": []}}
         )
@@ -169,7 +167,7 @@ async def test_admission_replaces_forged_items_and_extraction_keeps_them(model_r
 
 @pytest.mark.asyncio
 async def test_document_purge_erases_rule_quotes_in_both_ledgers(model_runtime):
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         await _add(env, TEXT)
         await _consume(env, 3)
         # Seed a runtime-owned item snapshot explicitly so this privacy test also

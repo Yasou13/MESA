@@ -22,7 +22,7 @@ def _synthetic_storage(root: Path) -> Path:
     connection = sqlite3.connect(database)
     connection.executescript("""
         CREATE TABLE alembic_version (version_num TEXT NOT NULL);
-        INSERT INTO alembic_version VALUES ('f8b9c0d1e2f3');
+        INSERT INTO alembic_version VALUES ('f9c0d1e2f3a4');
         CREATE TABLE documents (
             document_id TEXT PRIMARY KEY,
             tenant_id TEXT NOT NULL,
@@ -64,8 +64,6 @@ def _synthetic_storage(root: Path) -> Path:
     connection.close()
     (source / "vector.lance").mkdir()
     (source / "vector.lance" / "data.bin").write_bytes(b"vector")
-    (source / "kuzu_db").mkdir()
-    (source / "kuzu_db" / "data.kz").write_bytes(b"graph")
     (source / "dlq.jsonl").write_text('{"id":"record-1"}\n', encoding="utf-8")
     (source / "dlq.jsonl.receipts.jsonl").write_text(
         '{"id":"record-1","state":"COMPLETED"}\n', encoding="utf-8"
@@ -101,7 +99,6 @@ def test_manifest_backup_restore_preserves_durable_state(tmp_path: Path) -> None
     )
     connection.close()
     assert (restore / "vector.lance" / "data.bin").read_bytes() == b"vector"
-    assert (restore / "kuzu_db" / "data.kz").read_bytes() == b"graph"
 
 
 def test_backup_requires_offline_boundary_and_safe_roots(tmp_path: Path) -> None:
@@ -155,24 +152,16 @@ def test_restore_never_overwrites_existing_target(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_real_lancedb_and_kuzu_reopen_after_restore(tmp_path: Path) -> None:
-    from mesa_storage import kuzu_setup
-    from mesa_storage.kuzu_provider import KuzuGraphProvider
+async def test_real_lancedb_reopen_after_restore(tmp_path: Path) -> None:
     from mesa_storage.vector_engine import VectorEngine
 
     source = _synthetic_storage(tmp_path)
     shutil.rmtree(source / "vector.lance")
-    shutil.rmtree(source / "kuzu_db")
 
     vector = VectorEngine(str(source / "vector.lance"), max_workers=1)
     await vector.initialize()
     await vector.upsert("active", "agent-a", [1.0, 0.0, 0.0, 0.0])
     await vector.close()
-    kuzu_setup.initialize_schema(str(source / "kuzu_db"))
-    graph = KuzuGraphProvider(str(source / "kuzu_db"), max_workers=1)
-    await graph.initialize()
-    await graph.insert_node("active", "Active", "agent-a")
-    await graph.close()
 
     backup = tmp_path / "real-backup"
     restore = tmp_path / "real-restore"
@@ -183,15 +172,6 @@ async def test_real_lancedb_and_kuzu_reopen_after_restore(tmp_path: Path) -> Non
     await restored_vector.initialize()
     assert await restored_vector.get_active_node_ids("agent-a") == {"active"}
     await restored_vector.close()
-    restored_graph = KuzuGraphProvider(str(restore / "kuzu_db"), max_workers=1)
-    await restored_graph.initialize()
-    assert await restored_graph.verify_nodes_absent(
-        agent_id="agent-a", node_ids=["purged"]
-    )
-    assert not await restored_graph.verify_nodes_absent(
-        agent_id="agent-a", node_ids=["active"]
-    )
-    await restored_graph.close()
 
 
 def test_backup_fails_closed_when_active_writer_holds_lock(tmp_path: Path) -> None:

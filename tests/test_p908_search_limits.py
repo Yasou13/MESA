@@ -8,8 +8,6 @@ import time
 import pytest
 
 import mesa_storage.dao as dao_module
-import mesa_storage.kuzu_provider as graph_module
-from mesa_storage.kuzu_provider import KuzuGraphProvider
 from tests.test_model_optional_runtime import _consume
 from tests.test_model_optional_runtime import model_runtime as model_runtime
 
@@ -44,7 +42,6 @@ async def _search(env, query):
         dataset_ids=["main"],
         query=query,
         limit=50,
-        graph_enabled=False,
     )
 
 
@@ -54,9 +51,7 @@ async def _search(env, query):
 async def test_fts_query_matches_uppercase_turkish_i(
     model_runtime, query, cache_enabled
 ):
-    async with model_runtime(
-        MESA_GRAPH_ENABLED=False, MESA_SEARCH_SCOPE_CACHE=cache_enabled
-    ) as env:
+    async with model_runtime(MESA_SEARCH_SCOPE_CACHE=cache_enabled) as env:
         await _insert(env, 0, "YARGITAY KARARI")
         results = await _search(env, query)
         assert results
@@ -65,7 +60,7 @@ async def test_fts_query_matches_uppercase_turkish_i(
 
 @pytest.mark.asyncio
 async def test_ten_crafted_law_headers_do_not_block_after_each_write(model_runtime):
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         for index in range(10):
             await _insert(
                 env,
@@ -101,7 +96,7 @@ async def test_ten_crafted_law_headers_do_not_block_after_each_write(model_runti
 async def test_header_cleanup_keeps_previous_output(model_runtime, suffix):
     prefix = "Özel Zümrüt Kanunu " + suffix
     expected = dao_module.normalize_law_name(re.sub(r"\d+\s*$", "", prefix).strip())
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         await _insert(
             env, 0, prefix + "Kanun Numarası: 6098\nMADDE 1- Kural.", legal=True
         )
@@ -112,7 +107,7 @@ async def test_header_cleanup_keeps_previous_output(model_runtime, suffix):
 
 @pytest.mark.asyncio
 async def test_skip_overlong_stored_names_but_keep_200_character_names(model_runtime):
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         for index, size in enumerate((200, 201, 2970)):
             name = "a" * (size - len(" kanunu")) + " kanunu"
             await _insert(
@@ -133,7 +128,7 @@ async def test_skip_overlong_stored_names_but_keep_200_character_names(model_run
 async def test_40_large_memories_bound_both_dao_scoring_loops(
     model_runtime, monkeypatch
 ):
-    async with model_runtime(MESA_GRAPH_ENABLED=False) as env:
+    async with model_runtime() as env:
         for index in range(40):
             await _insert(env, index, ("zz " * 11000)[:32768])
         original = dao_module._normalize_identity_text
@@ -160,34 +155,3 @@ async def test_40_large_memories_bound_both_dao_scoring_loops(
         assert len(set(scans)) == 64
         assert "zz" in scans
         assert _query_tokens()[-1] not in scans
-
-
-def test_graph_scoring_deduplicates_and_caps_tokens_in_order(monkeypatch):
-    original = graph_module._normalize_text
-    scans = []
-
-    class TrackedText(str):
-        def __contains__(self, token):
-            scans.append(token)
-            return super().__contains__(token)
-
-    monkeypatch.setattr(
-        graph_module, "_normalize_text", lambda text: TrackedText(original(text))
-    )
-    tokens = ["zz", "zz", *_query_tokens()]
-    KuzuGraphProvider._compute_path_score(
-        hop=1,
-        seed_id="seed",
-        seed_scores=None,
-        query_tokens=tokens,
-        predicates=["!"],
-        evidence_spans=["!" * 32768],
-        jurisdictions=[""],
-        confidences=[1.0],
-        edge_directions=["forward"],
-        target_statutes=set(),
-        competing_statutes=[],
-        resolver=None,
-    )
-    assert list(dict.fromkeys(scans)) == list(dict.fromkeys(tokens))[:64]
-    assert len(scans) == 128  # Each token checks predicate, then evidence.

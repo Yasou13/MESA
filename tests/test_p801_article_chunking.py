@@ -151,38 +151,52 @@ async def test_unknown_admitted_plan_fails_without_appending(model_runtime, monk
 
 
 @pytest.mark.asyncio
-async def test_ambiguous_admitted_prefix_never_silently_changes_plan(model_runtime, monkeypatch):
+@pytest.mark.parametrize("legacy_revision", [False, True])
+async def test_retry_completes_with_a_three_chunk_prefix_shared_by_both_plans(
+    model_runtime, monkeypatch, legacy_revision
+):
     from mesa_memory.document_chunking import chunk_legal_document
 
-    # A blank-line preamble can be identical even when the later plans differ.
-    text = _legal_text().replace("Önsöz.\n", "Önsöz.\n\n", 1)
-    assert chunk_document(text)[0] == chunk_legal_document(text)[0]
-    assert chunk_document(text) != chunk_legal_document(text)
-    async with model_runtime(MESA_CHUNKING="plain") as env:
+    preamble = ("Contract clauses require prompt payment. " * 73 + "\n\n") * 4
+    text = preamble + _legal_text()
+    expected = chunk_legal_document(text)
+    plain = chunk_document(text)
+    assert expected[:3] == plain[:3]
+    assert expected != plain
+    async with model_runtime(MESA_CHUNKING="auto") as env:
         original = type(env.dao).admit_v4_memory
         calls = 0
 
         async def interrupt(self, **kwargs):
             nonlocal calls
             calls += 1
-            if calls == 2:
+            if calls == 4:
                 raise QueueUnavailableError("injected interruption")
             return await original(self, **kwargs)
 
         monkeypatch.setattr(type(env.dao), "admit_v4_memory", interrupt)
         response = await env.client.post("/v4/documents", json=_payload(env, text))
         assert response.status_code == 503
-        before = await _rows(env, "memory_mutations")
+        saved = sorted(await _rows(env, "source_chunks"), key=lambda row: row["ordinal"])
+        assert [row["content_payload"] for row in saved] == expected[:3]
+        assert (await _rows(env, "document_revisions"))[0]["chunking_plan"] == "auto"
+        if legacy_revision:
+            async with env.dao._sql.transaction() as db:
+                await db.execute("UPDATE document_revisions SET chunking_plan = NULL")
+                await db.commit()
         monkeypatch.setattr(type(env.dao), "admit_v4_memory", original)
         await env.restart(MESA_CHUNKING="auto")
-        response = await env.client.post("/v4/documents", json=_payload(env, text))
-        assert response.status_code == 409
-        assert response.json()["detail"] == (
-            "admitted chunking plan is ambiguous; no chunks appended. "
-            "Retry with the MESA_CHUNKING value used when this revision was "
-            "first added, or add the content under a new document_id."
-        )
-        assert await _rows(env, "memory_mutations") == before
+        result = await _add(env, text)
+        stored = sorted(await _rows(env, "source_chunks"), key=lambda row: row["ordinal"])
+        assert result["chunk_count"] == len(expected)
+        assert [row["ordinal"] for row in stored] == list(range(len(expected)))
+        assert [row["content_payload"] for row in stored] == expected
+        assert [row["chunk_id"] for row in stored[:3]] == [row["chunk_id"] for row in saved]
+        assert len(await _rows(env, "memory_mutations")) == len(expected)
+        await _consume(env, len(expected) + 2)
+        revision = (await _rows(env, "document_revisions"))[0]
+        assert revision["status"] == "ACTIVE"
+        assert revision["chunking_plan"] == "auto"
 
 
 @pytest.mark.skipif(not os.environ.get("MESA_BENCH_ROOT"), reason="frozen corpus is external")

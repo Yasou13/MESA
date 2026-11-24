@@ -22,8 +22,6 @@ LEGAL_MODULES = ("mesa_storage.legal_identity", "mesa_storage.legal_rules")
 LEGAL_IMPORTERS = {
     "mesa_api/v4_router.py",
     "mesa_storage/dao.py",
-    # Revisit this graph exception with the Round 23 Kùzu decision.
-    "mesa_storage/kuzu_provider.py",
     "mesa_storage/legal_identity.py",
     "mesa_storage/legal_rules.py",
 }

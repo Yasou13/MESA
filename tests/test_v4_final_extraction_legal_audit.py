@@ -1,4 +1,4 @@
-"""Independent proof through extraction, durable outbox, SQL and real Kuzu."""
+"""Independent proof through extraction, durable outbox, and SQLite/LanceDB."""
 
 import json
 from types import SimpleNamespace
@@ -13,8 +13,6 @@ from mesa_memory.extraction.service import (
     fact_candidates_to_projection_triplets,
 )
 from mesa_storage.dao import MemoryDAO
-from mesa_storage.kuzu_provider import KuzuGraphProvider
-from mesa_storage.kuzu_setup import initialize_schema_artifact
 from mesa_storage.schemas import initialize_schema
 from mesa_storage.sqlite_engine import AsyncEngine
 from mesa_storage.vector_engine import VectorEngine
@@ -69,14 +67,10 @@ async def test_extraction_type_scope_and_source_survive_real_outbox(
             identity=identity, provider_fn=lambda text: [1.0, 0.0]
         ),
     )
-    graph_path = tmp_path / "graph"
     await sql.initialize()
     await initialize_schema(sql)
     await vector.initialize()
-    initialize_schema_artifact(str(graph_path))
-    graph = KuzuGraphProvider(str(graph_path), max_workers=1)
-    await graph.initialize()
-    dao = MemoryDAO(sqlite_engine=sql, vector_engine=vector, graph_provider=graph)
+    dao = MemoryDAO(sqlite_engine=sql, vector_engine=vector)
     facts_json = [
         {
             "fact_text": f"Subject value {value}",
@@ -133,7 +127,7 @@ async def test_extraction_type_scope_and_source_survive_real_outbox(
             kind for _, _, kind in _MATRIX
         ]
         await dao.set_mutation_state("agent-a", candidate["mutation_id"], "VALIDATED")
-        for _ in range(3):
+        for _ in range(2):
             result = await process_projection_outbox_once(
                 dao, worker_id="audit-projector"
             )
@@ -158,27 +152,15 @@ async def test_extraction_type_scope_and_source_survive_real_outbox(
             assert (assertion["object_entity_id"] is not None) == (kind == "ENTITY")
             if kind != "ENTITY":
                 assert assertion["literal_value"] == value
-        graph_nodes = await graph.execute_query("MATCH (e:Entity) RETURN e.name", {})
         expected_entities = {
             "Subject",
             *(value for value, _, kind in _MATRIX if kind == "ENTITY"),
         }
-        assert {row[0] for row in graph_nodes} == expected_entities
         async with sql.connection() as db:
             rows = await (
                 await db.execute("SELECT canonical_name FROM v4_entities")
             ).fetchall()
         assert {row[0] for row in rows} == expected_entities
-        graph_assertions = await graph.execute_query(
-            "MATCH (a:Assertion) RETURN a.predicate, a.object_type, a.object_value, "
-            "a.source_ref, a.evidence_span", {}
-        )
-        assert len(graph_assertions) == len(_MATRIX)
-        for pred, kind, value, source_ref, evidence_span in graph_assertions:
-            _, _, expected_kind = _MATRIX[int(pred.split("_")[1])]
-            assert kind == expected_kind
-            assert value == source_ref == evidence_span == ""
     finally:
-        await graph.close()
         await vector.close()
         await sql.close()

@@ -607,12 +607,7 @@ async def test_sol_public_search_and_status_do_not_leak_catalog_physical_ids(
         compute_query_embedding=AsyncMock(return_value=[1.0, 0.0]),
         search=AsyncMock(return_value=[]),
     )
-    graph = SimpleNamespace(
-        insert_node=AsyncMock(),
-        insert_assertion=AsyncMock(),
-        link_assertions=AsyncMock(),
-    )
-    dao = MemoryDAO(engine, vector, graph)
+    dao = MemoryDAO(engine, vector)
     access = AccessControl(str(tmp_path / "public-leak-rbac.sqlite"))
     await access.initialize()
     await dao.ensure_v4_catalog_scope(
@@ -669,7 +664,7 @@ async def test_sol_public_search_and_status_do_not_leak_catalog_physical_ids(
     mutation = await dao.get_projection_mutation(str(candidate["mutation_id"]))
     assert mutation is not None
     await dao.project_v4_sql_entity(mutation=mutation, entity_name="Sol Public Court")
-    await dao.project_v4_graph_triplet(
+    await dao.project_v4_sql_assertion(
         mutation=mutation,
         triplet={
             "head": "Sol Public Court",

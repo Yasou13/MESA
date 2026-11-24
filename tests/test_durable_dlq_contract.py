@@ -44,8 +44,6 @@ async def _make_v4_dao(tmp_path: Path) -> tuple[AsyncEngine, MemoryDAO]:
     dao = MemoryDAO(
         sqlite_engine=engine,
         vector_engine=_FakeVec(),
-        graph_provider=_FakeGraph(),
-        graph_enabled=False,
     )
     await dao.initialize()
     return engine, dao

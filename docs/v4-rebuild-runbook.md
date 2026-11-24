@@ -2,7 +2,7 @@
 
 Bu prosedür mevcut V4 storage-root-wide projection rebuild içindir; tasarım
 [ADR 0014](adr/0014-v4-closure-and-staged-evolution.md) ile başlamıştır.
-LanceDB ve Kùzu generation'ları mevcut canonical V4 snapshot'tan üretilir;
+LanceDB vector generation'ları mevcut canonical V4 snapshot'tan üretilir;
 V3 verisini dönüştürmez ve canonical source/assertion içeriğini yeniden yazmaz.
 FTS integrity snapshot üzerinde doğrulanır. SQLite operation/checkpoint ve
 active-generation kayıtları güncellenir; başarılı cutover sonrası representation
@@ -308,7 +308,7 @@ Merge, unit/integration test veya CI evidence tek başına production `GO`
 değildir. Aşağıdakilerin tamamı aynı release adayıyla tamamlanana kadar karar
 `NO-GO` kalır:
 
-- gerçek LanceDB/Kùzu ve seçilen embedding provider ile backup → rebuild →
+- gerçek LanceDB ve seçilen embedding provider ile backup → rebuild →
   reopen → parity → rollback rehearsal;
 - production-benzeri disk kapasitesi, dataset büyüklüğü ve concurrency;
 - migration/DR ve content-free closure evidence artifact'ları;
