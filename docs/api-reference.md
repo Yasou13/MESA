@@ -1,6 +1,6 @@
 # API reference
 
-MESA v4 tenant/dataset yetkili versioned API sunar. Paket 0.9.4; yayın sahibinin adımıdır ve production sertifikasyonu içermez.
+MESA v4 tenant/dataset yetkili versioned API sunar. Paket 0.9.5; yayın sahibinin adımıdır ve production sertifikasyonu içermez.
 
 Versioned memory, health ve metrics çağrıları `X-API-Key` ister. `/health/init`, OpenAPI, Swagger ve Redoc public yüzeylerdir; ağ/reverse-proxy politikası gerekir. V4 anahtarı
 `mesa-v4-admin issue-key` ile üretilir; yalnız saltlı scrypt özeti saklanır.
@@ -271,7 +271,56 @@ zero-based five-digit ordinal. Per-chunk idempotency keys are these chunk IDs.
 Errors: 409 `document is purged`; 413 for content over 5,000,000 UTF-8 bytes;
 422 for empty or whitespace-only content. Secrets and metadata use the same
 validation and errors as `/v4/memory/insert`. Queue and maintenance failures
-use the existing admission errors below.
+use the existing admission errors below. See [Versioned documents](#versioned-documents)
+for validity dates and out-of-order history rules.
+
+### Versioned documents
+
+Documents that change over time (such as amended laws or policies) can carry
+optional validity bounds in `metadata`:
+
+- **Sending dates**: pass `metadata.valid_from` (and optional `metadata.valid_to`)
+  on `POST /v4/documents` (or via SDK/MCP ingest) as ISO-8601 timestamps with a
+  timezone offset (for example `"2024-01-01T00:00:00Z"` or
+  `"2024-01-01T03:00:00+03:00"`). Date-only strings, naive timestamps, and
+  `valid_from >= valid_to` are rejected with HTTP 422 before any chunk is
+  written. Accepted timestamps are stored normalized to UTC.
+- **Half-open intervals (`[valid_from, valid_to)`)**: a revision is valid at
+  `valid_at` when `valid_from <= valid_at < valid_to` (empty `valid_from` means
+  since always; empty `valid_to` means still in force). On an exact amendment
+  instant `valid_at == T`, only the new revision starting at `T` matches. Range
+  filters (`valid_from`, `valid_to`) use the same open-end overlap rule.
+  Searches without a date return `ACTIVE` revisions only.
+- **Revisions in any order**: when a document's revisions carry `valid_from`,
+  validity order rather than upload order determines history:
+  - A revision with a later `valid_from` supersedes the `ACTIVE` revision when
+    all chunks commit and sets the predecessor's `valid_to` to the new
+    `valid_from`.
+  - A revision with an earlier `valid_from` is stored as history: its
+    `supersedes_revision_id` stays `null` so the `ACTIVE` head does not move.
+    When all chunks commit, it becomes `SUPERSEDED` with `valid_to` equal to the
+    next revision's `valid_from`, and the preceding revision (if any) moves its
+    `valid_to` to the new `valid_from`. History chunks never enter the undated
+    persistent BM25 index; their vectors are eligible only for dated searches.
+  - Uploading a new revision with a `valid_from` equal to an existing revision
+    returns HTTP 409. Uploading an undated revision to a document that already
+    has a dated revision returns HTTP 422. Undated documents behave as before.
+- **Point-in-time search example**:
+
+```json
+{
+  "session_id": "sess_012345",
+  "dataset_ids": ["legislation"],
+  "query": "TCK m. 1 gecikme faizi",
+  "valid_at": "2023-06-01T00:00:00Z",
+  "limit": 5
+}
+```
+
+- **Result fields**: every search result (HTTP `/v4/memory/search`, SDK, and MCP
+  `mesa_recall`) and every context source entry (`canonical_memories` on
+  `GET /v4/sessions/{session_id}/context`) includes additive `revision_number`,
+  `valid_from`, and `valid_to` fields (`""` when unset).
 
 ### Actionable errors
 

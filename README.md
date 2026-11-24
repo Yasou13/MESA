@@ -7,7 +7,7 @@
 
 MESA is an LLM-independent, source-linked memory engine for AI applications. It stores documents with exact provenance (document, revision, passage) and returns verifiable, scoped evidence over HTTP, Python SDK, and MCP. MESA returns evidence; it never writes the final answer or hallucinates sources.
 
-Package version: **0.9.4**. V4 is the current API. Production qualification remains at the release candidate stage: **NO-GO** until the [release gates](https://github.com/Yasou13/MESA/blob/main/docs/release.md) pass.
+Package version: **0.9.5**. V4 is the current API. Production qualification remains at the release candidate stage: **NO-GO** until the [release gates](https://github.com/Yasou13/MESA/blob/main/docs/release.md) pass.
 
 ## Installation
 
@@ -47,6 +47,8 @@ print(mesa.context("your query"))
 ```
 
 `Mesa()` uses `MESA_API_KEY` and `MESA_BASE_URL` when they are set, otherwise the local credentials in `~/.mesa/credentials.json`.
+
+See [Law versions](docs/getting-started.md#law-versions) to store revisions of a law and search the wording in force on a date.
 
 ## Connect MCP clients
 

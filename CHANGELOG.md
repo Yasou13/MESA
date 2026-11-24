@@ -9,8 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-11-24
+
+[Release notes](docs/release-notes-0.9.5.md)
+
 ### Added
 
+- Additive revision validity fields (`revision_number`, `valid_from`,
+  `valid_to`, empty string when unset) on search results across HTTP
+  (`/v4/memory/search`), Python SDK (`V4SearchResult`, `V4ContextSource`), MCP
+  (`mesa_recall` and gateway recall), and HTTP context source lists
+  (`GET /v4/sessions/{session_id}/context`) (D88).
+- Out-of-order ingestion for dated document revisions (D87): when revisions
+  carry `metadata.valid_from`, validity order rather than upload order decides
+  the `ACTIVE` head and `[valid_from, valid_to)` history chain. Older versions
+  loaded after newer ones commit directly as `SUPERSEDED` history with
+  `supersedes_revision_id = null`, update the preceding revision's `valid_to`,
+  and stay out of the undated persistent BM25 index. Duplicate `valid_from`
+  returns HTTP 409; undated revisions on a dated document return HTTP 422.
 - Per-(tenant, dataset) persistent FTS5 BM25 index for exact dataset-wide
   queries (D80), updated inside the commit, supersession, rollback, and purge
   SQLite transactions and automatically rebuilt from canonical SQLite when
@@ -20,6 +36,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Document ingestion (`POST /v4/documents`, `/v4/memory/insert`, SDK, and MCP)
+  validates optional `metadata.valid_from` and `metadata.valid_to` as
+  timezone-aware ISO-8601 timestamps (`valid_from < valid_to`), rejects
+  invalid or date-only values with HTTP 422 before writing any chunks, and
+  stores normalized UTC timestamps (D85).
+- Dated search queries now evaluate validity intervals as half-open
+  `[valid_from, valid_to)` (`valid_from <= valid_at < valid_to`, with matching
+  open-end overlap for `valid_from`/`valid_to` range filters) so an exact
+  amendment instant returns only the replacing version (D86).
 - LanceDB is locked to 0.41.0 with an upper bound below 0.42. Vector search
   prefilters by dataset and agent before ranking and verifies eligibility in
   SQLite. Older LanceDB tables receive their scope keys on startup. The live
@@ -29,13 +54,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The legal extraction stress test uses a deterministic work bound at the
+  existing input limits. The user guide shows how to load law versions and
+  search the text in force on a date.
 - Whole-document uploads retain the chunking plan selected at admission.
   Retries continue the same revision from its saved chunks, including legacy
   uploads whose stored prefix matches the configured plan.
 - Commit-time maintenance of the persistent BM25 index looks up only the
   committing mutation's assertions, reducing SQLite writer contention during
   ingestion.
-
 - Internal storage identifiers (`document_id`, `revision_id`, `chunk_id`,
   `assertion_id`, and catalog-mapped `mesa-*` entity names) are excluded from
   lexical FTS5 indexing, lexical passage/assertion scoring, and legal citation
@@ -848,6 +875,7 @@ for missing run output or a signed-tag verification.
 - **Test Suite**: 159+ tests covering unit, integration, P0 hotfixes, and performance benchmarks.
 - **CI Pipeline**: GitHub Actions workflow with Black, Ruff, mypy, pytest + coverage, and Codecov upload.
 
+[0.9.5]: https://github.com/Yasou13/MESA/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/Yasou13/MESA/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/Yasou13/MESA/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/Yasou13/MESA/compare/v0.9.1...v0.9.2

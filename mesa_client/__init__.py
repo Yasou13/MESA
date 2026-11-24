@@ -11,6 +11,8 @@ from .client import (
     MesaNetworkError,
     MesaV4Client,
     MesaValidationError,
+    V4ContextSource,
+    V4SearchResult,
 )
 
 __all__ = [
@@ -23,5 +25,7 @@ __all__ = [
     "MesaAPIError",
     "MesaNetworkError",
     "MesaValidationError",
+    "V4SearchResult",
+    "V4ContextSource",
     "RECOMMENDED_SYSTEM_PROMPT",
 ]

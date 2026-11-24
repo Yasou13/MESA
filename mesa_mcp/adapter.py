@@ -110,7 +110,7 @@ class MesaMCPAdapter:
         if not isinstance(metadata, dict):
             raise MCPError("INVALID_ARGUMENT", "metadata must be an object")
         try:
-            validate_write_payload(content, metadata)
+            metadata = validate_write_payload(content, metadata)
         except ValueError as exc:
             raise MCPError("INVALID_ARGUMENT", str(exc)) from exc
         return await self._v4_service.v4_remember(
@@ -163,6 +163,9 @@ class MesaMCPAdapter:
                     "memory_id": item.get("memory_id") or item.get("chunk_id"),
                     "document_id": item.get("document_id"),
                     "chunk_id": item.get("chunk_id"),
+                    "revision_number": item.get("revision_number"),
+                    "valid_from": str(item.get("valid_from") or ""),
+                    "valid_to": str(item.get("valid_to") or ""),
                     "score": item.get("score", 0.0),
                     "content": wrapped,
                 }
@@ -183,7 +186,7 @@ class MesaMCPAdapter:
         if not isinstance(metadata, dict):
             raise MCPError("INVALID_ARGUMENT", "metadata must be an object")
         try:
-            validate_write_payload(content, metadata)
+            metadata = validate_write_payload(content, metadata)
         except ValueError as exc:
             raise MCPError("INVALID_ARGUMENT", str(exc)) from exc
         return await self._v4_service.v4_improve(

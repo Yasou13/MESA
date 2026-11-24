@@ -1,5 +1,5 @@
 """
-MESA v0.9.4 Client SDK
+MESA v0.9.5 Client SDK
 
 A robust, type-safe Python client for the MESA memory system.
 Provides both synchronous and asynchronous implementations utilizing httpx.
@@ -13,13 +13,14 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Callable, Literal, Optional
+from typing import Any, Callable, Literal, Optional, TypedDict
 from urllib.parse import quote
 
 import httpx
 from typing_extensions import Self
 
 from mesa_api.schemas import ErrorResponse
+from mesa_storage.temporal import normalize_temporal_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,45 @@ RECOMMENDED_SYSTEM_PROMPT = (
     "If the provided evidence does not answer the question, say so clearly.\n"
     "Never invent, extrapolate, or hallucinate sources or facts."
 )
+
+
+class V4SearchResult(TypedDict, total=False):
+    """Typed shape of a V4 search result item including revision validity (D88)."""
+
+    entity: dict[str, Any]
+    candidate_id: str
+    evidence_id: str
+    assertion_id: str
+    source_chunk_id: str | None
+    document_id: str | None
+    revision_number: int | None
+    valid_from: str
+    valid_to: str
+    evidence_span: str | None
+    raw_score: float | None
+    rrf_score: float
+    legal_factor: float
+    final_score: float
+    provenance: list[dict[str, Any]]
+    matched_assertions: list[dict[str, Any]]
+    supporting_assertions: list[dict[str, Any]]
+    retrieval_provenance: dict[str, Any]
+
+
+class V4ContextSource(TypedDict, total=False):
+    """Typed shape of a canonical source entry in a V4 context response (D88)."""
+
+    entity: dict[str, Any]
+    candidate_id: str
+    evidence_id: str
+    assertion_id: str
+    source_chunk_id: str | None
+    document_id: str | None
+    revision_number: int | None
+    valid_from: str
+    valid_to: str
+    provenance: list[dict[str, Any]]
+    retrieval_provenance: dict[str, Any]
 
 
 class MesaClientError(Exception):
@@ -69,6 +109,17 @@ class MesaValidationError(MesaClientError, ValueError):
     """Exception raised when Pydantic validation fails for request or response payloads."""
 
     pass
+
+
+def _prepare_write_metadata(
+    metadata: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if metadata is None:
+        return None
+    try:
+        return normalize_temporal_metadata(metadata)
+    except ValueError as exc:
+        raise MesaValidationError(str(exc)) from exc
 
 
 _RETRYABLE_503_DETAILS = frozenset(
@@ -260,7 +311,7 @@ class MesaClient:
     ):
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
-        headers = {"User-Agent": "mesa-client/v0.9.4"}
+        headers = {"User-Agent": "mesa-client/v0.9.5"}
         if api_key:
             headers["X-API-Key"] = api_key
 
@@ -325,7 +376,7 @@ class AsyncMesaClient:
     ):
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
-        headers = {"User-Agent": "mesa-client/v0.9.4"}
+        headers = {"User-Agent": "mesa-client/v0.9.5"}
         if api_key:
             headers["X-API-Key"] = api_key
 
@@ -616,6 +667,7 @@ class MesaV4Client(MesaClient):
         legal_identity: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
+        normalized_metadata = _prepare_write_metadata(metadata)
         return self._request(
             "POST",
             "/v4/memory/insert",
@@ -633,7 +685,7 @@ class MesaV4Client(MesaClient):
                 "chunk_ordinal": chunk_ordinal,
                 "finalize_revision": finalize_revision,
                 "supersedes_revision_id": supersedes_revision_id,
-                "metadata": metadata or {},
+                "metadata": normalized_metadata or {},
                 **({"legal_identity": legal_identity} if legal_identity is not None else {}),
                 **({"idempotency_key": idempotency_key} if idempotency_key else {}),
             },
@@ -766,7 +818,7 @@ class MesaV4Client(MesaClient):
             "content": content,
         }
         if metadata is not None:
-            payload["metadata"] = metadata
+            payload["metadata"] = _prepare_write_metadata(metadata)
         total_deadline = timeout if timeout is not None else deadline
         start = time.monotonic()
         backoff = 0.5
@@ -799,10 +851,11 @@ class MesaV4Client(MesaClient):
         document_id: str,
         revision_id: str,
         mutation_ids: list[str] | None = None,
+        allow_superseded: bool = False,
         timeout_seconds: float = 600.0,
         poll_interval_seconds: float = 1.0,
     ) -> dict[str, Any]:
-        """Poll revision status once per second until ACTIVE or terminal failure."""
+        """Poll revision status once per second until ACTIVE (or SUPERSEDED when allowed) or terminal failure."""
         deadline = time.monotonic() + timeout_seconds
         mut_list = [str(m) for m in mutation_ids] if mutation_ids else []
         mut_cursor = 0
@@ -820,7 +873,7 @@ class MesaV4Client(MesaClient):
             )
             if rev is not None:
                 status = rev.get("status")
-                if status == "ACTIVE":
+                if status == "ACTIVE" or (allow_superseded and status == "SUPERSEDED"):
                     return rev
                 if status in {
                     "REJECTED",
@@ -1070,6 +1123,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
         legal_identity: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
+        normalized_metadata = _prepare_write_metadata(metadata)
         return await self._request(
             "POST",
             "/v4/memory/insert",
@@ -1087,7 +1141,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
                 "chunk_ordinal": chunk_ordinal,
                 "finalize_revision": finalize_revision,
                 "supersedes_revision_id": supersedes_revision_id,
-                "metadata": metadata or {},
+                "metadata": normalized_metadata or {},
                 **({"legal_identity": legal_identity} if legal_identity is not None else {}),
                 **({"idempotency_key": idempotency_key} if idempotency_key else {}),
             },
@@ -1220,7 +1274,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
             "content": content,
         }
         if metadata is not None:
-            payload["metadata"] = metadata
+            payload["metadata"] = _prepare_write_metadata(metadata)
         total_deadline = timeout if timeout is not None else deadline
         start = time.monotonic()
         backoff = 0.5
@@ -1253,10 +1307,11 @@ class AsyncMesaV4Client(AsyncMesaClient):
         document_id: str,
         revision_id: str,
         mutation_ids: list[str] | None = None,
+        allow_superseded: bool = False,
         timeout_seconds: float = 600.0,
         poll_interval_seconds: float = 1.0,
     ) -> dict[str, Any]:
-        """Poll revision status once per second until ACTIVE or terminal failure."""
+        """Poll revision status once per second until ACTIVE (or SUPERSEDED when allowed) or terminal failure."""
         deadline = time.monotonic() + timeout_seconds
         mut_list = [str(m) for m in mutation_ids] if mutation_ids else []
         mut_cursor = 0
@@ -1274,7 +1329,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
             )
             if rev is not None:
                 status = rev.get("status")
-                if status == "ACTIVE":
+                if status == "ACTIVE" or (allow_superseded and status == "SUPERSEDED"):
                     return rev
                 if status in {
                     "REJECTED",
@@ -1419,6 +1474,7 @@ class Mesa:
         source: str,
         title: str | None = None,
         document_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
         wait: bool = False,
         timeout: float = 600.0,
         deadline: float | None = None,
@@ -1435,6 +1491,7 @@ class Mesa:
             title=doc_title,
             source_ref=source,
             content=text,
+            metadata=metadata,
             deadline=total_timeout,
         )
         if wait:
@@ -1452,26 +1509,53 @@ class Mesa:
                 document_id=doc_id,
                 revision_id=rev_id,
                 mutation_ids=mutation_ids,
+                allow_superseded=bool(metadata and metadata.get("valid_from")),
                 timeout_seconds=total_timeout,
                 poll_interval_seconds=1.0,
             )
         return res
 
-    def search(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        limit: int = 10,
+        *,
+        valid_at: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Search memory within the active dataset session."""
         session_id = self._ensure_session()
-        resp = self._client.search(session_id=session_id, query=query, limit=limit)
+        resp = self._client.search(
+            session_id=session_id,
+            query=query,
+            limit=limit,
+            valid_at=valid_at,
+            valid_from=valid_from,
+            valid_to=valid_to,
+        )
         if isinstance(resp, dict):
             return list(resp.get("results", []))
         return list(resp)
 
-    def context(self, query: str, max_tokens: int = 2000) -> str:
+    def context(
+        self,
+        query: str,
+        max_tokens: int = 2000,
+        *,
+        valid_at: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
+    ) -> str:
         """Return the wrapped context evidence for the given query."""
         session_id = self._ensure_session()
         resp = self._client.get_context(
             session_id=session_id,
             query=query,
             token_budget=max_tokens,
+            valid_at=valid_at,
+            valid_from=valid_from,
+            valid_to=valid_to,
         )
         return str(resp.get("context", ""))
 

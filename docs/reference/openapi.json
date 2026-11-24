@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "MESA API",
-    "version": "0.9.4"
+    "version": "0.9.5"
   },
   "paths": {
     "/v4/catalog/workspaces": {
@@ -1389,9 +1389,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Context V4 Sessions  Session Id  Context Get"
+                  "$ref": "#/components/schemas/V4ContextResponse"
                 }
               }
             }
@@ -2525,7 +2523,7 @@
           "graph_projection": {
             "type": "boolean",
             "title": "Graph Projection",
-            "default": true
+            "default": false
           },
           "graph_neighbor_retrieval": {
             "type": "boolean",
@@ -2607,6 +2605,82 @@
           "capabilities"
         ],
         "title": "V4CapabilityResponse"
+      },
+      "V4ContextResponse": {
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id"
+          },
+          "workspace_id": {
+            "type": "string",
+            "title": "Workspace Id"
+          },
+          "dataset_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Dataset Ids"
+          },
+          "agent_id": {
+            "type": "string",
+            "title": "Agent Id"
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "context": {
+            "type": "string",
+            "title": "Context"
+          },
+          "canonical_memories": {
+            "items": {
+              "$ref": "#/components/schemas/V4SearchResultItem"
+            },
+            "type": "array",
+            "title": "Canonical Memories"
+          },
+          "estimated_token_count": {
+            "type": "integer",
+            "title": "Estimated Token Count"
+          },
+          "context_status": {
+            "type": "string",
+            "title": "Context Status"
+          },
+          "context_diagnostics": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Context Diagnostics"
+          },
+          "mutations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Mutations"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "workspace_id",
+          "dataset_ids",
+          "agent_id",
+          "session_id",
+          "context",
+          "canonical_memories",
+          "estimated_token_count",
+          "context_status",
+          "context_diagnostics",
+          "mutations"
+        ],
+        "title": "V4ContextResponse",
+        "description": "Context bundle response carrying validity metadata on source items (D88)."
       },
       "V4DatasetRequest": {
         "properties": {
@@ -2823,49 +2897,6 @@
         ],
         "title": "V4DocumentRequest"
       },
-      "V4GraphAblation": {
-        "properties": {
-          "contract_version": {
-            "type": "string",
-            "title": "Contract Version"
-          },
-          "mode": {
-            "type": "string",
-            "enum": [
-              "enabled",
-              "disabled"
-            ],
-            "title": "Mode"
-          },
-          "pair_identity": {
-            "type": "string",
-            "title": "Pair Identity"
-          },
-          "query_identity": {
-            "type": "string",
-            "title": "Query Identity"
-          },
-          "retrieval_config_identity": {
-            "type": "string",
-            "title": "Retrieval Config Identity"
-          },
-          "scope_identity": {
-            "type": "string",
-            "title": "Scope Identity"
-          }
-        },
-        "type": "object",
-        "required": [
-          "contract_version",
-          "mode",
-          "pair_identity",
-          "query_identity",
-          "retrieval_config_identity",
-          "scope_identity"
-        ],
-        "title": "V4GraphAblation",
-        "description": "Versioned identity for a supported graph ON/OFF matched execution."
-      },
       "V4LegalIdentityRequest": {
         "properties": {
           "law_id": {
@@ -2890,7 +2921,7 @@
           "article_id": {
             "type": "string",
             "maxLength": 32,
-            "pattern": "^(?:madde[- ]*)?\\d+[A-Za-z\u00c7\u011e\u0130\u00d6\u015e\u00dc\u00e7\u011f\u0131\u00f6\u015f\u00fc]?$",
+            "pattern": "^(?:madde[- ]*)?\\d+[A-Za-zÇĞİÖŞÜçğıöşü]?$",
             "title": "Article Id"
           },
           "version_id": {
@@ -3501,8 +3532,7 @@
           },
           "results": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/V4SearchResultItem"
             },
             "type": "array",
             "title": "Results"
@@ -3519,16 +3549,6 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/V4ScopeAudit"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "graph_ablation": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/V4GraphAblation"
               },
               {
                 "type": "null"
@@ -3553,6 +3573,35 @@
           "results"
         ],
         "title": "V4SearchResponse"
+      },
+      "V4SearchResultItem": {
+        "properties": {
+          "revision_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision Number"
+          },
+          "valid_from": {
+            "type": "string",
+            "title": "Valid From",
+            "default": ""
+          },
+          "valid_to": {
+            "type": "string",
+            "title": "Valid To",
+            "default": ""
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "V4SearchResultItem",
+        "description": "One ranked search or context source item with revision validity (D88)."
       },
       "V4SessionStartRequest": {
         "properties": {

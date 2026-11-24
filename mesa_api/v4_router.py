@@ -12,7 +12,7 @@ import asyncio
 import hashlib
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated, Any, Callable, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -67,6 +67,7 @@ from mesa_storage.repositories.operations import (
     OperationNotFoundError,
     OperationStateError,
 )
+from mesa_storage.temporal import parse_iso8601_temporal as _parse_iso8601_temporal
 from mesa_storage.vector_engine import (
     EmbeddingMigrationRequiredError,
     VectorSearchError,
@@ -279,7 +280,8 @@ class V4MemoryInsertRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_write_boundary(self) -> "V4MemoryInsertRequest":
-        validate_write_payload(self.content, self.metadata)
+        normalized = validate_write_payload(self.content, self.metadata)
+        object.__setattr__(self, "metadata", normalized)
         return self
 
 
@@ -302,7 +304,8 @@ class V4DocumentIngestRequest(BaseModel):
             )
         if not self.content.strip():
             raise ValueError("content must not be empty")
-        validate_write_payload(self.content, self.metadata)
+        normalized = validate_write_payload(self.content, self.metadata)
+        object.__setattr__(self, "metadata", normalized)
         return self
 
 
@@ -338,30 +341,7 @@ class V4SearchRequest(BaseModel):
     def parse_iso8601_temporal(cls, value: Any) -> Any:
         if value is None:
             return None
-        if isinstance(value, datetime):
-            return value
-        if isinstance(value, str):
-            raw = value.strip()
-            if not raw or len(raw) > 128 or any(ord(char) < 32 for char in raw):
-                raise ValueError(
-                    "temporal value must be a valid ISO-8601 timestamp string"
-                )
-            if raw.endswith(("Z", "z")):
-                normalized = raw[:-1] + "+00:00"
-            else:
-                normalized = raw
-            try:
-                parsed = datetime.fromisoformat(normalized)
-            except ValueError as exc:
-                raise ValueError(
-                    "temporal value must be a valid ISO-8601 timestamp string"
-                ) from exc
-            if parsed.tzinfo is None or parsed.tzinfo.utcoffset(parsed) is None:
-                raise ValueError(
-                    "temporal value must include a timezone offset (e.g. 'Z' or '+00:00')"
-                )
-            return parsed
-        return value
+        return _parse_iso8601_temporal(value)
 
     @model_validator(mode="after")
     def validate_temporal_range(self) -> "V4SearchRequest":
@@ -407,15 +387,43 @@ class V4VectorLaneDiagnostics(BaseModel):
     missing_vector_id_count: int = Field(ge=0)
 
 
+class V4SearchResultItem(BaseModel):
+    """One ranked search or context source item with revision validity (D88)."""
+
+    model_config = ConfigDict(extra="allow", frozen=True)
+
+    revision_number: int | None = None
+    valid_from: str = ""
+    valid_to: str = ""
+
+
 class V4SearchResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     session_id: str
     dataset_ids: list[str]
-    results: list[dict[str, Any]]
+    results: list[V4SearchResultItem]
     degraded_sources: list[str] = []
     scope_audit: V4ScopeAudit | None = None
     vector_lane: V4VectorLaneDiagnostics | None = None
+
+
+class V4ContextResponse(BaseModel):
+    """Context bundle response carrying validity metadata on source items (D88)."""
+
+    model_config = ConfigDict(extra="allow", frozen=True)
+
+    tenant_id: str
+    workspace_id: str
+    dataset_ids: list[str]
+    agent_id: str
+    session_id: str
+    context: str
+    canonical_memories: list[V4SearchResultItem]
+    estimated_token_count: int
+    context_status: str
+    context_diagnostics: dict[str, Any]
+    mutations: list[dict[str, Any]]
 
 
 def _active_principal(request: Request):
@@ -1246,6 +1254,7 @@ def create_v4_router(
             "dataset_id": payload.dataset_id,
         }
         configured_plan = config.chunking
+        new_valid_from = str(payload.metadata.get("valid_from") or "")
         async with document_admission_lock:
             try:
                 document = await dao.create_v4_document(
@@ -1254,15 +1263,72 @@ def create_v4_router(
                 if document["status"] == "PURGED":
                     raise ValueError("document is purged")
                 revisions = await dao.list_v4_revisions(
-                    **scope, document_id=payload.document_id, include_chunking_plan=True
+                    **scope,
+                    document_id=payload.document_id,
+                    include_chunking_plan=True,
+                    include_temporal=True,
                 )
                 revision = next(
                     (r for r in revisions if r["revision_id"] == revision_id), None
                 )
                 if revision is None:
+                    live_revisions = [
+                        r
+                        for r in revisions
+                        if r["status"] in {"ACTIVE", "SUPERSEDED", "PENDING"}
+                    ]
+                    dated_revisions = [
+                        (r, str(r.get("valid_from") or ""))
+                        for r in live_revisions
+                        if r.get("valid_from")
+                    ]
+                    if dated_revisions and not new_valid_from:
+                        raise HTTPException(
+                            status_code=422,
+                            detail="valid_from is required for a document that already has dated revisions",
+                        )
+                    new_vf_dt = (
+                        _parse_iso8601_temporal(new_valid_from).astimezone(timezone.utc)
+                        if new_valid_from
+                        else None
+                    )
+                    if new_vf_dt is not None and dated_revisions:
+                        for existing_rev, existing_vf in dated_revisions:
+                            try:
+                                existing_dt = _parse_iso8601_temporal(
+                                    existing_vf
+                                ).astimezone(timezone.utc)
+                            except ValueError:
+                                continue
+                            if existing_dt == new_vf_dt:
+                                raise ValueError(
+                                    f"revision {existing_rev['revision_number']} "
+                                    f"already has valid_from {new_valid_from}"
+                                )
                     active = next(
                         (r for r in revisions if r["status"] == "ACTIVE"), None
                     )
+                    supersedes_id: str | None = None
+                    if active is not None:
+                        active_vf = str(active.get("valid_from") or "")
+                        active_vf_dt = None
+                        if active_vf:
+                            try:
+                                active_vf_dt = _parse_iso8601_temporal(
+                                    active_vf
+                                ).astimezone(timezone.utc)
+                            except ValueError:
+                                active_vf_dt = None
+                        if (
+                            new_vf_dt is not None
+                            and active_vf_dt is not None
+                            and new_vf_dt < active_vf_dt
+                        ):
+                            # D87 history revision: inserted behind the ACTIVE head;
+                            # supersedes_revision_id stays None so ACTIVE does not move.
+                            supersedes_id = None
+                        else:
+                            supersedes_id = active["revision_id"]
                     revision = await dao.create_v4_revision(
                         **scope,
                         document_id=payload.document_id,
@@ -1272,11 +1338,15 @@ def create_v4_router(
                         )
                         + 1,
                         content_hash=content_hash,
-                        supersedes_revision_id=active["revision_id"]
-                        if active
-                        else None,
+                        supersedes_revision_id=supersedes_id,
                         chunking_plan=configured_plan,
                     )
+                elif revision["status"] == "PENDING":
+                    existing_pending_vf = str(revision.get("valid_from") or "")
+                    if existing_pending_vf and existing_pending_vf != new_valid_from:
+                        raise ValueError(
+                            "admitted chunks for this pending revision already have a different valid_from"
+                        )
                 if revision["status"] not in {"ACTIVE", "PENDING"}:
                     raise ValueError(
                         f"content equals revision {revision['revision_number']} "
@@ -1434,11 +1504,21 @@ def create_v4_router(
                 query=payload.query,
                 limit=payload.limit,
                 jurisdiction=payload.jurisdiction,
-                valid_at=payload.valid_at.isoformat() if payload.valid_at else None,
-                valid_from=(
-                    payload.valid_from.isoformat() if payload.valid_from else None
+                valid_at=(
+                    payload.valid_at.astimezone(timezone.utc).isoformat()
+                    if payload.valid_at
+                    else None
                 ),
-                valid_to=payload.valid_to.isoformat() if payload.valid_to else None,
+                valid_from=(
+                    payload.valid_from.astimezone(timezone.utc).isoformat()
+                    if payload.valid_from
+                    else None
+                ),
+                valid_to=(
+                    payload.valid_to.astimezone(timezone.utc).isoformat()
+                    if payload.valid_to
+                    else None
+                ),
                 request_principal_id=str(principal.principal_id),
                 certification_metadata=certification_metadata,
             )
@@ -1575,7 +1655,7 @@ def create_v4_router(
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    @router.get("/sessions/{session_id}/context")
+    @router.get("/sessions/{session_id}/context", response_model=V4ContextResponse)
     async def get_context(
         session_id: PublicIdentifier,
         request: Request,
@@ -1631,9 +1711,17 @@ def create_v4_router(
                 session_id=session_id,
                 token_budget=token_budget,
                 jurisdiction=jurisdiction,
-                valid_at=valid_at.isoformat() if valid_at else None,
-                valid_from=valid_from.isoformat() if valid_from else None,
-                valid_to=valid_to.isoformat() if valid_to else None,
+                valid_at=(
+                    valid_at.astimezone(timezone.utc).isoformat() if valid_at else None
+                ),
+                valid_from=(
+                    valid_from.astimezone(timezone.utc).isoformat()
+                    if valid_from
+                    else None
+                ),
+                valid_to=(
+                    valid_to.astimezone(timezone.utc).isoformat() if valid_to else None
+                ),
                 retrieval_mode=retrieval_mode,
             )
         except EmbeddingMigrationRequiredError:

@@ -6,6 +6,8 @@ import json
 import re
 from typing import Any
 
+from mesa_storage.temporal import normalize_temporal_metadata
+
 MAX_METADATA_BYTES = 16 * 1024
 MAX_METADATA_DEPTH = 2
 
@@ -22,15 +24,16 @@ _SECRET_PATTERNS = (
 
 
 def validate_write_payload(content: str, metadata: dict[str, Any]) -> dict[str, Any]:
-    """Reject secrets and unbounded metadata before any durable write."""
+    """Reject secrets, invalid validity dates, and unbounded metadata before any durable write."""
     encoded = json.dumps(metadata, sort_keys=True, default=str).encode()
     if len(encoded) > MAX_METADATA_BYTES:
         raise ValueError("metadata exceeds 16 KB")
     _validate_metadata(metadata, depth=1)
+    normalized = normalize_temporal_metadata(metadata)
     serialised = content + "\n" + encoded.decode(errors="replace")
     if any(pattern.search(serialised) for pattern in _SECRET_PATTERNS):
         raise ValueError("content or metadata appears to contain a secret")
-    return metadata
+    return normalized
 
 
 def _validate_metadata(value: dict[str, Any], *, depth: int) -> None:
