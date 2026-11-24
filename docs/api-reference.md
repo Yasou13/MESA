@@ -1,6 +1,6 @@
 # API reference
 
-MESA v4 tenant/dataset yetkili versioned API sunar. Paket 0.9.5; yayın sahibinin adımıdır ve production sertifikasyonu içermez.
+MESA v4 tenant/dataset yetkili versioned API sunar. Paket 0.9.6; yayın sahibinin adımıdır ve production sertifikasyonu içermez.
 
 Versioned memory, health ve metrics çağrıları `X-API-Key` ister. `/health/init`, OpenAPI, Swagger ve Redoc public yüzeylerdir; ağ/reverse-proxy politikası gerekir. V4 anahtarı
 `mesa-v4-admin issue-key` ile üretilir; yalnız saltlı scrypt özeti saklanır.
@@ -141,9 +141,17 @@ with MesaV4Client("http://127.0.0.1:8000", api_key=credential) as client:
         tenant_id="tenant-a",
         workspace_id="workspace-a",
         dataset_ids=["dataset-a"],
+        document_ids=[ingested["document_id"]],
         query="Exact source",
     )
 ```
+
+For a local file, use `add_file(path, …)` with the same metadata and scope
+arguments in place of `add_document(content=…)`. Both `MesaV4Client` and
+`AsyncMesaV4Client` expose `add_file`, `get_document`, and
+`get_document_text`. When a search result cites a span, pass its
+`revision_id`, `span["start"]`, and `span["end"]` to
+`get_document_text` to fetch the cited passage.
 
 For agent memory sessions (`/v4/memory/insert`, context, and session end), start
 a server-owned session first. Bu örnek, model-enabled V4 sunucu, provision edilmiş `credential`, mevcut

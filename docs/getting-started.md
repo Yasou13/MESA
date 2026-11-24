@@ -40,28 +40,47 @@ mesa start
 In another terminal, add and search documents immediately without manual credential configuration:
 
 ```bash
-mesa add document.txt --source file://document.txt
+mesa add document.pdf
 mesa search "your query"
 mesa status
 ```
 
-By default, `mesa add` waits for all chunks to commit and the revision to become active, printing `searchable` when complete (pass `--no-wait` to return immediately). To delete an ingested document, run `mesa delete <document_id>` or `mesa delete --source <ref>`.
+You can add PDFs with a text layer, DOCX, UYAP UDF, XLSX, TXT, or Markdown.
+`mesa add` uses the local file URI as the source by default. Use `--source`
+to provide your own reference. The command waits for the revision to become
+active and prints `searchable`. Pass `--no-wait` to return the admission
+receipt immediately. To delete a document, run `mesa delete <document_id>`
+or `mesa delete --source <ref>`.
 
 ### 3. Python SDK
 
-Use the high-level `Mesa` client to ingest documents and query evidence contexts:
+Use `Mesa.add_file` to upload into the local dataset. To search directly
+with dataset credentials, pass the scope to `MesaV4Client.search` and omit
+`session_id`.
 
 ```python
-from pathlib import Path
+from mesa_client import Mesa, MesaV4Client
 
-from mesa_client import Mesa
-
-mesa = Mesa()
-mesa.add(Path("document.txt").read_text(), source="file://document.txt", wait=True)
-print(mesa.context("your query"))
+with Mesa() as mesa:
+    document = mesa.add_file("document.pdf", wait=True)
+    with MesaV4Client(base_url=mesa.base_url, api_key=mesa.api_key) as client:
+        response = client.search(
+            tenant_id=mesa.tenant_id,
+            workspace_id=mesa.workspace_id,
+            agent_id=mesa.agent_id,
+            dataset_ids=[mesa.dataset_id],
+            document_ids=[document["document_id"]],
+            query="your query",
+        )
+    for hit in response["results"]:
+        print(hit["span"], hit.get("page"))
 ```
 
 `Mesa()` uses `MESA_API_KEY` and `MESA_BASE_URL` when they are set, otherwise the local credentials in `~/.mesa/credentials.json`.
+
+An application can poll document status and read the cited revision's text
+or a character slice. See the [upload API](api-reference.md#upload-a-file-with-post-v4documentsupload)
+and [document text API](api-reference.md#document-text-get-v4documentsdocument_idtext).
 
 #### Law versions
 
@@ -97,8 +116,11 @@ version. Omit `valid_at` to search active versions. See
 Connect Claude Desktop or any MCP client by generating a ready-to-paste configuration block:
 
 ```bash
-mesa mcp-config
+mesa mcp config claude-desktop
 ```
+
+Use your client's name in place of `claude-desktop`. See the
+[supported MCP clients](../README_MCP.md).
 
 ### 5. Internal models (optional)
 

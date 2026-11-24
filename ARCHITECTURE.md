@@ -16,16 +16,20 @@ passages with similar meaning. MESA can rebuild that index from SQLite.
 
 ## How a document becomes searchable
 
-An application submits text and a source reference through an authorized
-session. MESA splits the text into chunks and records the revision and its
-chosen chunking plan. A retry can resume from the saved chunks. Background
-workers process each chunk, and the new revision becomes visible after all
-its chunks commit. [Whole-document API](docs/api-reference.md#whole-documents-post-v4documents)
+An application with dataset write access submits text or a supported file
+with a source reference. Applications can use a session or supply the
+tenant, workspace and dataset directly. MESA splits the text into chunks
+and records the revision and its chosen chunking plan. PDF page and XLSX
+sheet and row locations are stored with the revision. A retry can resume
+from the saved chunks. Background workers process each chunk, and the new
+revision becomes visible after all its chunks commit.
+[Whole-document API](docs/api-reference.md#whole-documents-post-v4documents) ·
+[File upload API](docs/api-reference.md#upload-a-file-with-post-v4documentsupload)
 
 ## How search works
 
-MESA starts with the committed evidence the session may read. It applies
-tenant, dataset and agent boundaries and any date or jurisdiction filters.
+MESA starts with committed evidence the caller may read. It applies tenant,
+dataset and agent boundaries and any document, date or jurisdiction filters.
 BM25 ranks text matches and supports prefix matching. When the authorized
 corpus is exactly one dataset's active committed chunks, search uses that
 dataset's persistent text index. Other scopes get a temporary index built
@@ -42,8 +46,10 @@ recognized statute and article matches. Operators can enable a reranker.
 ## How applications use it
 
 Applications integrate through the HTTP API, the Python SDK or the MCP
-tools. Data producers acquire and parse source files. Applications handle
-answer generation and the user interface. [HTTP API](docs/api-reference.md) ·
+tools. Data producers acquire source files. MESA extracts text from supported
+uploads and exposes revision status, text and citation spans so a viewer
+can display the evidence. Applications handle answer generation and the user
+interface. [HTTP API](docs/api-reference.md) ·
 [Python SDK](docs/api-reference.md#v4-python-sdk) · [MCP tools](README_MCP.md#tools) ·
 [Ecosystem responsibilities](docs/architecture-v4.md#ecosystem-and-ownership)
 

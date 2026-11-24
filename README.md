@@ -7,7 +7,7 @@
 
 MESA is an LLM-independent, source-linked memory engine for AI applications. It stores documents with exact provenance (document, revision, passage) and returns verifiable, scoped evidence over HTTP, Python SDK, and MCP. MESA returns evidence; it never writes the final answer or hallucinates sources.
 
-Package version: **0.9.5**. V4 is the current API. Production qualification remains at the release candidate stage: **NO-GO** until the [release gates](https://github.com/Yasou13/MESA/blob/main/docs/release.md) pass.
+Package version: **0.9.6**. V4 is the current API. Production qualification remains at the release candidate stage: **NO-GO** until the [release gates](https://github.com/Yasou13/MESA/blob/main/docs/release.md) pass.
 
 ## Installation
 
@@ -30,20 +30,18 @@ Starts the local server on `http://127.0.0.1:8000`, initializes storage at `~/.m
 In another terminal, add and search documents immediately:
 
 ```bash
-mesa add document.txt --source file://document.txt
+mesa add document.pdf
 mesa search "your query"
 ```
 
 ## Python SDK
 
 ```python
-from pathlib import Path
-
 from mesa_client import Mesa
 
-mesa = Mesa()
-mesa.add(Path("document.txt").read_text(), source="file://document.txt", wait=True)
-print(mesa.context("your query"))
+with Mesa() as mesa:
+    document = mesa.add_file("document.pdf", wait=True)
+    print(mesa.search("your query", document_ids=[document["document_id"]]))
 ```
 
 `Mesa()` uses `MESA_API_KEY` and `MESA_BASE_URL` when they are set, otherwise the local credentials in `~/.mesa/credentials.json`.
@@ -55,7 +53,7 @@ See [Law versions](docs/getting-started.md#law-versions) to store revisions of a
 Generate a ready-to-paste configuration block for Claude Desktop or any MCP client:
 
 ```bash
-mesa mcp-config
+mesa mcp config claude-desktop
 ```
 
 ## Internal models (optional)

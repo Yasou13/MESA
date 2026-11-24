@@ -80,12 +80,17 @@ database and works from any working directory):
   without starting a write session), and accepts optional `document_ids` (1..64
   caller document IDs). Each recalled item includes `document_id`,
   `revision_id`, `revision_number`, `chunk_id`, `span` (`{"start", "end"}`),
-  `valid_from`, and `valid_to`.
+  `valid_from`, and `valid_to`. PDF results carry `page`. XLSX results
+  carry `sheet`, `row_start`, and `row_end`.
 - `mesa_get_context`: builds a token-bounded context bundle through the V4
   `ContextBuilder` endpoint.
 - `mesa_remember`: stores new V4 document memory.
 - `mesa_improve`: creates a new revision of an existing V4 document.
 - `mesa_forget`: purges a document from the catalog.
+
+Add a source file using `mesa add <file>`, then recall it using its document
+ID. The upload and citation text endpoints are documented in the
+[HTTP API reference](docs/api-reference.md#upload-a-file-with-post-v4documentsupload).
 
 ## Smoke check
 
