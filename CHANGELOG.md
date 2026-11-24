@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Whole-document uploads retain the chunking plan selected at admission.
   Retries continue the same revision from its saved chunks, including legacy
   uploads whose stored prefix matches the configured plan.
+- Commit-time maintenance of the persistent BM25 index looks up only the
+  committing mutation's assertions, reducing SQLite writer contention during
+  ingestion.
 
 - Internal storage identifiers (`document_id`, `revision_id`, `chunk_id`,
   `assertion_id`, and catalog-mapped `mesa-*` entity names) are excluded from

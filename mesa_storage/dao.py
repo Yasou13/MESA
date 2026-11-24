@@ -296,8 +296,11 @@ def _dataset_fts_table_name(tenant_id: str, dataset_id: str) -> str:
     return f"v4_dataset_fts_{digest}"
 
 
-def _fts5_select_from_scoped_sql(scoped_subquery: str) -> str:
+def _fts5_select_from_scoped_sql(
+    scoped_subquery: str, *, join_by_rowid: bool = False
+) -> str:
     """Build the P16-01-sanitized FTS5 projection shared by persistent and temp indexes."""
+    rowid_match = "f.rowid = scoped.assertion_rowid AND " if join_by_rowid else ""
     return (
         "SELECT f.rowid, f.assertion_id, f.predicate, f.evidence_span, "
         "f.literal_value, f.source_ref, "
@@ -333,7 +336,7 @@ def _fts5_select_from_scoped_sql(scoped_subquery: str) -> str:
         "COALESCE(scoped.predicate, '') "
         "FROM v4_assertions_fts f "
         f"JOIN ({scoped_subquery}) scoped "
-        "ON scoped.assertion_id = f.assertion_id "
+        f"ON {rowid_match}scoped.assertion_id = f.assertion_id "
         "LEFT JOIN source_chunks c ON c.chunk_id = scoped.chunk_id "
         "LEFT JOIN document_revisions r ON r.revision_id = scoped.revision_id "
         "LEFT JOIN v4_catalog_identities ci_doc "
@@ -3193,12 +3196,15 @@ class MemoryDAO:
                 continue
             await db.execute(
                 f"DELETE FROM main.{table_name} WHERE rowid IN ("
-                "SELECT rowid FROM v4_assertions "
+                "SELECT rowid FROM v4_assertions INDEXED BY idx_v4_assertions_mutation "
                 "WHERE tenant_id = ? AND dataset_id = ? AND mutation_id = ?)",
                 (tenant_id, dataset_id, mutation_id),
             )
+            # The canonical FTS triggers copy the assertion rowid. Point lookups
+            # avoid scanning the entire corpus for every committed mutation.
             scoped_subquery = (
-                "SELECT a.* FROM v4_assertions a "
+                "SELECT a.rowid AS assertion_rowid, a.* "
+                "FROM v4_assertions a INDEXED BY idx_v4_assertions_mutation "
                 "WHERE a.tenant_id = ? AND a.dataset_id = ? "
                 "AND a.mutation_id = ? AND a.status = 'ACTIVE' "
                 "AND EXISTS (SELECT 1 FROM memory_mutations m "
@@ -3206,7 +3212,7 @@ class MemoryDAO:
             )
             await db.execute(
                 f"INSERT INTO main.{table_name} {_FTS5_INSERT_COLUMNS_SQL} "
-                + _fts5_select_from_scoped_sql(scoped_subquery),
+                + _fts5_select_from_scoped_sql(scoped_subquery, join_by_rowid=True),
                 (tenant_id, dataset_id, mutation_id),
             )
 
