@@ -413,14 +413,42 @@ class V4VectorLaneDiagnostics(BaseModel):
     missing_vector_id_count: int = Field(ge=0)
 
 
+class V4CitationSpan(BaseModel):
+    """Character offsets of a chunk inside its revision's full text (D95)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
+
+
 class V4SearchResultItem(BaseModel):
-    """One ranked search or context source item with revision validity (D88)."""
+    """One ranked search or context source item with revision validity and span (D88, D95)."""
 
     model_config = ConfigDict(extra="allow", frozen=True)
 
+    document_id: str | None = None
+    revision_id: str | None = None
     revision_number: int | None = None
+    chunk_id: str | None = None
+    span: V4CitationSpan | None = None
     valid_from: str = ""
     valid_to: str = ""
+
+
+class V4DocumentTextResponse(BaseModel):
+    """Rebuilt text (or character slice) for one document revision (D96)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    document_id: str
+    revision_id: str
+    revision_number: int
+    status: str
+    total_length: int = Field(ge=0)
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
+    text: str
 
 
 class V4SearchResponse(BaseModel):
@@ -1292,6 +1320,8 @@ def create_v4_router(
         payload_hash: str | None,
         finalize_revision: bool,
         document_chunk: bool = False,
+        char_start: int | None = None,
+        char_end: int | None = None,
     ) -> dict:
         await _require_mutation_admission(dao, require_projection_consumer=True)
         embedding_identity = configured_embedding_identity()
@@ -1327,6 +1357,8 @@ def create_v4_router(
                 idempotency_key=idempotency_key,
                 payload_hash=payload_hash if idempotency_key else None,
                 finalize_revision=finalize_revision,
+                char_start=char_start,
+                char_end=char_end,
             )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
@@ -1622,10 +1654,17 @@ def create_v4_router(
                                 }
                         offset += len(chunk)
             duplicate = len(admitted) == len(chunks)
+            chunk_spans: list[tuple[int, int]] = []
+            span_cursor = 0
+            for chunk in chunks:
+                span_end = span_cursor + len(chunk)
+                chunk_spans.append((span_cursor, span_end))
+                span_cursor = span_end
             for ordinal, chunk in enumerate(chunks):
                 if ordinal in admitted:
                     continue
                 chunk_id = f"{revision_id}-c{ordinal:05d}"
+                char_start, char_end = chunk_spans[ordinal]
                 chunk_legal = (
                     V4LegalIdentityRequest.model_validate(identities[ordinal]).model_dump(
                         exclude_none=True
@@ -1681,6 +1720,8 @@ def create_v4_router(
                             payload_hash=chunk_hash,
                             finalize_revision=ordinal == len(chunks) - 1,
                             document_chunk=True,
+                            char_start=char_start,
+                            char_end=char_end,
                         )
                         break
                     except HTTPException as exc:
@@ -1703,6 +1744,60 @@ def create_v4_router(
                 "mutation_ids": [admitted[i] for i in range(len(chunks))],
                 "duplicate": duplicate,
             }
+
+    @router.get(
+        "/documents/{document_id}/text",
+        response_model=V4DocumentTextResponse,
+    )
+    async def get_document_text(
+        document_id: SourceIdentifier,
+        tenant_id: PublicIdentifier,
+        workspace_id: PublicIdentifier,
+        dataset_id: PublicIdentifier,
+        request: Request,
+        revision_id: SourceIdentifier | None = None,
+        start: int | None = None,
+        end: int | None = None,
+        dao: MemoryDAO = Depends(get_dao),
+        access_control: AccessControl = Depends(get_access_control),
+    ) -> dict:
+        if start is not None and start < 0:
+            raise HTTPException(status_code=422, detail="start must be non-negative")
+        if end is not None and end < 0:
+            raise HTTPException(status_code=422, detail="end must be non-negative")
+        if start is not None and end is not None and start > end:
+            raise HTTPException(status_code=422, detail="start must not exceed end")
+        await _require_dataset_roles(
+            request,
+            access_control,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            dataset_ids=[dataset_id],
+            required_role="READER",
+        )
+        try:
+            await dao.verify_v4_workspace_datasets(
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                dataset_ids=[dataset_id],
+            )
+        except CatalogIdentityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        try:
+            return await dao.get_v4_document_text(
+                tenant_id=tenant_id,
+                dataset_id=dataset_id,
+                document_id=document_id,
+                revision_id=revision_id,
+                start=start,
+                end=end,
+            )
+        except CatalogIdentityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @router.post("/memory/search", response_model=V4SearchResponse)
     async def search_memory(

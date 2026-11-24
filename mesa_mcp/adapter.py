@@ -203,8 +203,10 @@ class MesaMCPAdapter:
                 {
                     "memory_id": item.get("memory_id") or item.get("chunk_id"),
                     "document_id": item.get("document_id"),
+                    "revision_id": item.get("revision_id"),
                     "chunk_id": item.get("chunk_id"),
                     "revision_number": item.get("revision_number"),
+                    "span": item.get("span"),
                     "valid_from": str(item.get("valid_from") or ""),
                     "valid_to": str(item.get("valid_to") or ""),
                     "score": item.get("score", 0.0),

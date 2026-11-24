@@ -572,9 +572,15 @@ def _typed_result(item: dict[str, Any]) -> dict[str, Any]:
         provenance = raw_provenance
     else:
         provenance = {}
+    revision_id = item.get("revision_id")
+    if revision_id is None:
+        revision_id = primary_assertion.get("revision_id")
     revision_number = item.get("revision_number")
     if revision_number is None:
         revision_number = primary_assertion.get("revision_number")
+    span = item.get("span")
+    if span is None:
+        span = primary_assertion.get("span")
     valid_from = item.get("valid_from")
     if valid_from is None:
         valid_from = primary_assertion.get("valid_from")
@@ -587,10 +593,12 @@ def _typed_result(item: dict[str, Any]) -> dict[str, Any]:
         or entity.get("entity_id")
         or item.get("chunk_id"),
         "document_id": item.get("document_id") or primary_assertion.get("document_id"),
+        "revision_id": revision_id,
         "chunk_id": item.get("source_chunk_id")
         or item.get("chunk_id")
         or primary_assertion.get("chunk_id"),
         "revision_number": revision_number,
+        "span": span,
         "valid_from": str(valid_from or ""),
         "valid_to": str(valid_to or ""),
         "content": item.get("chunk_text")

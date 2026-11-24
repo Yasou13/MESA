@@ -504,8 +504,10 @@ class GatewayOperationService:
         formatted: dict[str, Any] = {
             "memory_id": memory.get("memory_id") or memory.get("chunk_id"),
             "document_id": memory.get("document_id"),
+            "revision_id": memory.get("revision_id"),
             "chunk_id": memory.get("chunk_id"),
             "revision_number": memory.get("revision_number"),
+            "span": memory.get("span"),
             "valid_from": str(memory.get("valid_from") or ""),
             "valid_to": str(memory.get("valid_to") or ""),
             "score": memory.get("score", 0.0),

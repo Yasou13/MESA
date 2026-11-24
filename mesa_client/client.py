@@ -37,8 +37,15 @@ RECOMMENDED_SYSTEM_PROMPT = (
 )
 
 
+class V4CitationSpan(TypedDict):
+    """Character offset span of a chunk inside its revision's full text (D95)."""
+
+    start: int
+    end: int
+
+
 class V4SearchResult(TypedDict, total=False):
-    """Typed shape of a V4 search result item including revision validity (D88)."""
+    """Typed shape of a V4 search result item including revision validity and span (D88, D95)."""
 
     entity: dict[str, Any]
     candidate_id: str
@@ -46,7 +53,10 @@ class V4SearchResult(TypedDict, total=False):
     assertion_id: str
     source_chunk_id: str | None
     document_id: str | None
+    revision_id: str | None
     revision_number: int | None
+    chunk_id: str | None
+    span: V4CitationSpan | None
     valid_from: str
     valid_to: str
     evidence_span: str | None
@@ -61,7 +71,7 @@ class V4SearchResult(TypedDict, total=False):
 
 
 class V4ContextSource(TypedDict, total=False):
-    """Typed shape of a canonical source entry in a V4 context response (D88)."""
+    """Typed shape of a canonical source entry in a V4 context response (D88, D95)."""
 
     entity: dict[str, Any]
     candidate_id: str
@@ -69,7 +79,10 @@ class V4ContextSource(TypedDict, total=False):
     assertion_id: str
     source_chunk_id: str | None
     document_id: str | None
+    revision_id: str | None
     revision_number: int | None
+    chunk_id: str | None
+    span: V4CitationSpan | None
     valid_from: str
     valid_to: str
     provenance: list[dict[str, Any]]
@@ -867,6 +880,31 @@ class MesaV4Client(MesaClient):
                     continue
                 raise
 
+    def get_document_text(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+        revision_id: str | None = None,
+        start: int | None = None,
+        end: int | None = None,
+    ) -> dict[str, Any]:
+        """Return a revision's full text (default: ACTIVE) or character slice (D96)."""
+        return self._request(
+            "GET",
+            f"/v4/documents/{quote(document_id, safe='')}/text",
+            params={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_id": dataset_id,
+                "revision_id": revision_id,
+                "start": start,
+                "end": end,
+            },
+        )
+
     def wait_until_revision_active(
         self,
         *,
@@ -1348,6 +1386,31 @@ class AsyncMesaV4Client(AsyncMesaClient):
                     continue
                 raise
 
+    async def get_document_text(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+        revision_id: str | None = None,
+        start: int | None = None,
+        end: int | None = None,
+    ) -> dict[str, Any]:
+        """Return a revision's full text (default: ACTIVE) or character slice (D96)."""
+        return await self._request(
+            "GET",
+            f"/v4/documents/{quote(document_id, safe='')}/text",
+            params={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_id": dataset_id,
+                "revision_id": revision_id,
+                "start": start,
+                "end": end,
+            },
+        )
+
     async def wait_until_revision_active(
         self,
         *,
@@ -1610,6 +1673,25 @@ class Mesa:
             valid_to=valid_to,
         )
         return str(resp.get("context", ""))
+
+    def get_document_text(
+        self,
+        document_id: str,
+        *,
+        revision_id: str | None = None,
+        start: int | None = None,
+        end: int | None = None,
+    ) -> dict[str, Any]:
+        """Return the rebuilt text (or slice) for a document revision (D96)."""
+        return self._client.get_document_text(
+            tenant_id=self.tenant_id,
+            workspace_id=self.workspace_id,
+            dataset_id=self.dataset_id,
+            document_id=document_id,
+            revision_id=revision_id,
+            start=start,
+            end=end,
+        )
 
     def delete(
         self,
