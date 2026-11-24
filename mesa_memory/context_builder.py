@@ -389,6 +389,9 @@ class ContextBuilder:
                                 "start": int(span["start"]),
                                 "end": int(span["end"]),
                             }
+                        for key in ("page", "sheet", "row_start", "row_end"):
+                            if key in p:
+                                fact_dict[key] = p[key]
                         evidence_span = p.get("evidence_span")
                         if evidence_span:
                             # Evidence is retained intact here.  The token
@@ -679,6 +682,10 @@ class ContextBuilder:
                     if visible_provenance
                     else None,
                 )
+                if visible_provenance:
+                    for key in ("page", "sheet", "row_start", "row_end"):
+                        if key in visible_provenance[0]:
+                            visible_item[key] = visible_provenance[0][key]
                 visible_item.setdefault(
                     "revision_number",
                     visible_provenance[0].get("revision_number")

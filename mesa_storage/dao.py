@@ -35,6 +35,7 @@ from urllib.parse import urlsplit, urlunsplit
 import aiosqlite
 
 from mesa_storage import legal_rules
+from mesa_storage.document_locations import DocumentLocations, document_citation
 from mesa_storage.error_messages import format_failure_error
 from mesa_storage.legal_identity import (
     LegalEntityResolver,
@@ -928,6 +929,7 @@ class MemoryDAO:
         content_hash: str,
         supersedes_revision_id: str | None = None,
         chunking_plan: str | None = None,
+        source_locations: DocumentLocations | None = None,
     ) -> dict[str, Any]:
         """Create one immutable document revision and retain its predecessor."""
         normalized_hash = content_hash.strip().casefold()
@@ -987,8 +989,8 @@ class MemoryDAO:
             await db.execute(
                 "INSERT OR IGNORE INTO document_revisions "
                 "(revision_id, tenant_id, document_id, revision_number, content_hash, "
-                "status, supersedes_revision_id, declared_content_hash, chunking_plan) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "status, supersedes_revision_id, declared_content_hash, chunking_plan, "
+                "source_locations_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     revision_id,
                     tenant_id,
@@ -1001,6 +1003,7 @@ class MemoryDAO:
                     supersedes_revision_id,
                     normalized_hash,
                     chunking_plan,
+                    json.dumps(source_locations) if source_locations else None,
                 ),
             )
             async with db.execute(
@@ -1037,6 +1040,9 @@ class MemoryDAO:
         result["dataset_id"] = external_dataset_id
         if chunking_plan is None:
             result.pop("chunking_plan")
+        locations_json = result.pop("source_locations_json")
+        if locations_json:
+            result["source_locations"] = json.loads(locations_json)
         return result
 
     async def list_v4_revisions(
@@ -1060,7 +1066,8 @@ class MemoryDAO:
                 "ri.external_id AS revision_id, r.tenant_id, "
                 "di.external_id AS document_id, r.revision_number, "
                 "r.content_hash, r.declared_content_hash, r.manifest_hash, r.status, "
-                "r.supersedes_revision_id, r.created_at, r.chunking_plan "
+                "r.supersedes_revision_id, r.created_at, r.chunking_plan, "
+                "r.source_locations_json "
                 "FROM document_revisions r JOIN documents d "
                 "ON d.document_id = r.document_id "
                 "JOIN v4_catalog_identities ri ON ri.tenant_id = r.tenant_id "
@@ -1074,8 +1081,11 @@ class MemoryDAO:
                 rows = [dict(row) for row in await cursor.fetchall()]
             for row in rows:
                 physical_rev_id = str(row.pop("_physical_revision_id"))
+                locations_json = row.pop("source_locations_json")
                 if not include_chunking_plan:
                     row.pop("chunking_plan")
+                elif locations_json:
+                    row["source_locations"] = json.loads(locations_json)
                 if include_temporal:
                     row["valid_from"] = await self._revision_valid_from_in_tx(
                         db, tenant_id, physical_rev_id
@@ -2016,7 +2026,8 @@ class MemoryDAO:
                 (document_id,),
             )
             await db.execute(
-                "UPDATE document_revisions SET status = 'PURGED' WHERE document_id = ?",
+                "UPDATE document_revisions SET status = 'PURGED', "
+                "source_locations_json = NULL WHERE document_id = ?",
                 (document_id,),
             )
             await db.execute(
@@ -8826,16 +8837,20 @@ class MemoryDAO:
                 }
             )
             revision_numbers: dict[str, int] = {}
+            locations_by_revision: dict[str, DocumentLocations] = {}
             for offset in range(0, len(physical_revision_ids), 500):
                 rev_batch = physical_revision_ids[offset : offset + 500]
                 rev_placeholders = ",".join("?" for _ in rev_batch)
                 async with db.execute(
-                    "SELECT revision_id, revision_number FROM document_revisions "
+                    "SELECT revision_id, revision_number, source_locations_json "
+                    "FROM document_revisions "
                     f"WHERE tenant_id = ? AND revision_id IN ({rev_placeholders})",
                     (tenant_id, *rev_batch),
                 ) as cursor:
                     for row in await cursor.fetchall():
                         revision_numbers[str(row[0])] = int(row[1])
+                        if row[2]:
+                            locations_by_revision[str(row[0])] = json.loads(row[2])
             physical_chunk_ids = sorted(
                 {
                     str(assertion["chunk_id"])
@@ -8878,6 +8893,11 @@ class MemoryDAO:
                     )
                     span = {"start": 0, "end": len(fallback_text)}
                 assertion["span"] = dict(span)
+                locations = locations_by_revision.get(physical_rev_id)
+                if locations:
+                    assertion.update(
+                        document_citation(locations, span["start"], span["end"])
+                    )
                 assertion["valid_from"] = str(assertion.get("valid_from") or "")
                 assertion["valid_to"] = str(assertion.get("valid_to") or "")
                 for field, kind in catalog_fields:
@@ -8959,6 +8979,11 @@ class MemoryDAO:
                 "revision_number": first_prov.get("revision_number"),
                 "chunk_id": cand["source_chunk_id"],
                 "span": dict(first_prov.get("span") or {"start": 0, "end": 0}),
+                **{
+                    key: first_prov[key]
+                    for key in ("page", "sheet", "row_start", "row_end")
+                    if key in first_prov
+                },
                 "valid_from": str(first_prov.get("valid_from") or ""),
                 "valid_to": str(first_prov.get("valid_to") or ""),
                 "evidence_span": cand["evidence_span"],

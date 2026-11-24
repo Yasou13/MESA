@@ -1060,6 +1060,173 @@
         ]
       }
     },
+    "/v4/documents/upload": {
+      "post": {
+        "tags": [
+          "v4-full-cognitive"
+        ],
+        "summary": "Upload Document",
+        "description": "Upload a file and admit its extracted text as a document revision.",
+        "operationId": "upload_document_v4_documents_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "session_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Session Id"
+                  },
+                  "tenant_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Tenant Id"
+                  },
+                  "workspace_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Workspace Id"
+                  },
+                  "agent_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Agent Id"
+                  },
+                  "dataset_id": {
+                    "type": "string",
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "title": "Dataset Id"
+                  },
+                  "document_id": {
+                    "type": "string",
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "title": "Document Id"
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 512,
+                    "minLength": 1,
+                    "title": "Title"
+                  },
+                  "source_ref": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "minLength": 1,
+                    "title": "Source Ref"
+                  },
+                  "metadata": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Metadata",
+                    "description": "JSON object encoded as a string"
+                  },
+                  "valid_from": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Valid From"
+                  },
+                  "valid_to": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Valid To"
+                  },
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                },
+                "type": "object",
+                "required": [
+                  "dataset_id",
+                  "document_id",
+                  "title",
+                  "source_ref",
+                  "file"
+                ],
+                "title": "V4DocumentUploadFields"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V4DocumentIngestResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "File or extracted text exceeds its size limit"
+          },
+          "422": {
+            "description": "Invalid fields or unsupported document"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
     "/v4/documents/{document_id}": {
       "get": {
         "tags": [
@@ -3417,7 +3584,7 @@
           "article_id": {
             "type": "string",
             "maxLength": 32,
-            "pattern": "^(?:madde[- ]*)?\\d+[A-Za-zÇĞİÖŞÜçğıöşü]?$",
+            "pattern": "^(?:madde[- ]*)?\\d+[A-Za-z\u00c7\u011e\u0130\u00d6\u015e\u00dc\u00e7\u011f\u0131\u00f6\u015f\u00fc]?$",
             "title": "Article Id"
           },
           "version_id": {
@@ -4194,6 +4361,53 @@
                 "type": "null"
               }
             ]
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "sheet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheet"
+          },
+          "row_start": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row Start"
+          },
+          "row_end": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row End"
           },
           "valid_from": {
             "type": "string",

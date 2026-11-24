@@ -508,6 +508,11 @@ class GatewayOperationService:
             "chunk_id": memory.get("chunk_id"),
             "revision_number": memory.get("revision_number"),
             "span": memory.get("span"),
+            **{
+                key: memory[key]
+                for key in ("page", "sheet", "row_start", "row_end")
+                if key in memory
+            },
             "valid_from": str(memory.get("valid_from") or ""),
             "valid_to": str(memory.get("valid_to") or ""),
             "score": memory.get("score", 0.0),

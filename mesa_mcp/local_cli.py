@@ -145,20 +145,24 @@ def start_command(args: argparse.Namespace) -> None:
 
 def add_command(args: argparse.Namespace) -> None:
     if args.file == "-":
-        content = sys.stdin.read()
+        if args.source is None:
+            sys.stderr.write("Error: --source is required when reading from stdin\n")
+            sys.exit(1)
     else:
         file_path = Path(args.file)
         if not file_path.is_file():
             sys.stderr.write(f"File not found: {args.file}\n")
             sys.exit(1)
-        content = file_path.read_text(encoding="utf-8")
 
     from mesa_client import Mesa
 
     wait = not getattr(args, "no_wait", False)
     mesa = Mesa()
     try:
-        res = mesa.add(content, source=args.source, title=args.title, wait=wait)
+        if args.file == "-":
+            res = mesa.add(sys.stdin.read(), source=args.source, title=args.title, wait=wait)
+        else:
+            res = mesa.add_file(file_path, source=args.source, title=args.title, wait=wait)
     finally:
         mesa.close()
 
@@ -375,8 +379,8 @@ def register_local_commands(subparsers: argparse._SubParsersAction) -> None:
     add_parser = subparsers.add_parser(
         "add", help="add a document to MESA"
     )
-    add_parser.add_argument("file", help="path to text file or '-' for stdin")
-    add_parser.add_argument("--source", required=True, help="source reference URI (e.g. file://path)")
+    add_parser.add_argument("file", help="PDF, DOCX, UDF, XLSX, TXT, MD, or '-' for stdin")
+    add_parser.add_argument("--source", help="source URI (defaults to the file URI, required with stdin)")
     add_parser.add_argument("--title", default=None, help="document title")
     add_parser.add_argument("--json", action="store_true", help="output JSON")
     add_parser.add_argument(

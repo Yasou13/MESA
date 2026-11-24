@@ -13,7 +13,9 @@ import hashlib
 import json
 import logging
 import re
+from collections.abc import AsyncIterator
 from datetime import datetime, timezone
+from itertools import pairwise
 from typing import Annotated, Any, Callable, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -27,8 +29,18 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from python_multipart.exceptions import MultipartParseError
+from starlette.datastructures import UploadFile
+from starlette.formparsers import MultiPartException, MultiPartParser
 
 from mesa_api.admission import require_mutation_admission as _require_mutation_admission
+from mesa_api.document_files import (
+    MAX_DOCUMENT_BYTES,
+    MAX_FILE_BYTES,
+    DocumentFileError,
+    DocumentTextTooLargeError,
+    extract_document_file,
+)
 from mesa_api.identifier_validation import PublicIdentifier, SourceIdentifier
 from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import config, configured_embedding_identity
@@ -60,6 +72,7 @@ from mesa_storage.dao import (
     QueueRecordTooLargeError,
     QueueUnavailableError,
 )
+from mesa_storage.document_locations import DocumentLocations, document_chunk_boundaries
 from mesa_storage.legal_identity import canonicalize_trusted_legal_identity
 from mesa_storage.repositories.catalog import CatalogIdentityNotFoundError
 from mesa_storage.repositories.operations import (
@@ -289,7 +302,7 @@ class V4MemoryInsertRequest(BaseModel):
 DEFAULT_LOCAL_AGENT_ID = "local-agent"
 
 
-class V4DocumentIngestRequest(BaseModel):
+class V4DocumentFields(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True)
 
     session_id: PublicIdentifier | None = None
@@ -300,18 +313,33 @@ class V4DocumentIngestRequest(BaseModel):
     document_id: SourceIdentifier
     title: str = Field(min_length=1, max_length=512)
     source_ref: str = Field(min_length=1, max_length=2048)
-    content: str = Field(min_length=1)
-    metadata: dict = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def validate_write_boundary(self) -> "V4DocumentIngestRequest":
+    def require_scope(self) -> "V4DocumentFields":
         if self.session_id is None and (
             self.tenant_id is None or self.workspace_id is None
         ):
             raise ValueError(
                 "tenant_id and workspace_id are required when session_id is omitted"
             )
-        if len(self.content.encode("utf-8")) > 5_000_000:
+        return self
+
+
+class V4DocumentUploadFields(V4DocumentFields):
+    metadata: str | None = Field(
+        default=None, description="JSON object encoded as a string"
+    )
+    valid_from: str | None = None
+    valid_to: str | None = None
+
+
+class V4DocumentIngestRequest(V4DocumentFields):
+    content: str = Field(min_length=1)
+    metadata: dict = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_write_boundary(self) -> "V4DocumentIngestRequest":
+        if len(self.content.encode("utf-8")) > MAX_DOCUMENT_BYTES:
             raise HTTPException(
                 status_code=413, detail="document exceeds 5,000,000 UTF-8 bytes"
             )
@@ -320,6 +348,30 @@ class V4DocumentIngestRequest(BaseModel):
         normalized = validate_write_payload(self.content, self.metadata)
         object.__setattr__(self, "metadata", normalized)
         return self
+
+
+async def _bounded_upload_stream(request: Request) -> AsyncIterator[bytes]:
+    # Leave room for the multipart fields and framing while bounding the
+    # streamed request even when there is no Content-Length header.
+    limit = MAX_FILE_BYTES + 1024 * 1024
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > limit:
+            raise HTTPException(413, "file exceeds 50 MB")
+        yield chunk
+
+
+def _upload_openapi() -> dict[str, Any]:
+    schema = V4DocumentUploadFields.model_json_schema()
+    schema["properties"]["file"] = {"type": "string", "format": "binary"}
+    schema["required"].append("file")
+    return {
+        "requestBody": {
+            "required": True,
+            "content": {"multipart/form-data": {"schema": schema}},
+        }
+    }
 
 
 class V4DocumentIngestResponse(BaseModel):
@@ -432,6 +484,10 @@ class V4SearchResultItem(BaseModel):
     revision_number: int | None = None
     chunk_id: str | None = None
     span: V4CitationSpan | None = None
+    page: int | None = Field(default=None, ge=1, exclude_if=lambda value: value is None)
+    sheet: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    row_start: int | None = Field(default=None, ge=1, exclude_if=lambda value: value is None)
+    row_end: int | None = Field(default=None, ge=1, exclude_if=lambda value: value is None)
     valid_from: str = ""
     valid_to: str = ""
 
@@ -1470,6 +1526,36 @@ def create_v4_router(
             document_chunk=document_chunk,
         )
 
+    async def _validate_document_payload(payload: Any) -> V4DocumentIngestRequest:
+        # Defer, rather than omit, the same model validation. The annotation
+        # retains its public schema; no payload is used before validation.
+        try:
+            return await asyncio.to_thread(
+                V4DocumentIngestRequest.model_validate, payload
+            )
+        except ValidationError as exc:
+            errors = exc.errors()
+            for error in errors:
+                error["loc"] = ("body", *error["loc"])
+            raise RequestValidationError(errors) from exc
+    async def _resolve_document_scope(
+        request: Request,
+        payload: V4DocumentFields,
+        dao: MemoryDAO,
+        access_control: AccessControl,
+    ) -> tuple[str, str, str, list[str], str]:
+        return await _resolve_v4_scope(
+            request,
+            dao,
+            access_control,
+            session_id=payload.session_id,
+            tenant_id=payload.tenant_id,
+            workspace_id=payload.workspace_id,
+            agent_id=payload.agent_id,
+            dataset_ids=[payload.dataset_id],
+            level="WRITE",
+        )
+
     @router.post("/documents", response_model=V4DocumentIngestResponse, status_code=202)
     async def ingest_document(
         request: Request,
@@ -1479,30 +1565,109 @@ def create_v4_router(
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
     ) -> dict:
-        # Defer, rather than omit, the same model validation. The annotation
-        # retains its public schema; no payload is used before validation.
-        try:
-            payload = await asyncio.to_thread(
-                V4DocumentIngestRequest.model_validate, payload
-            )
-        except ValidationError as exc:
-            errors = exc.errors()
-            for error in errors:
-                error["loc"] = ("body", *error["loc"])
-            raise RequestValidationError(errors) from exc
-        tenant_id, workspace_id, agent_id, _datasets, effective_session_id = (
-            await _resolve_v4_scope(
-                request,
-                dao,
-                access_control,
-                session_id=payload.session_id,
-                tenant_id=payload.tenant_id,
-                workspace_id=payload.workspace_id,
-                agent_id=payload.agent_id,
-                dataset_ids=[payload.dataset_id],
-                level="WRITE",
-            )
+        payload = await _validate_document_payload(payload)
+        resolved_scope = await _resolve_document_scope(
+            request, payload, dao, access_control
         )
+        return await _ingest_document(request, payload, dao, resolved_scope)
+
+    @router.post(
+        "/documents/upload",
+        response_model=V4DocumentIngestResponse,
+        status_code=202,
+        responses={
+            413: {"description": "File or extracted text exceeds its size limit"},
+            422: {"description": "Invalid fields or unsupported document"},
+        },
+        openapi_extra=_upload_openapi(),
+    )
+    async def upload_document(
+        request: Request,
+        dao: MemoryDAO = Depends(get_dao),
+        access_control: AccessControl = Depends(get_access_control),
+    ) -> dict:
+        """Upload a file and admit its extracted text as a document revision."""
+        _active_principal(request)
+        content_type = request.headers.get("content-type", "").partition(";")[0]
+        if content_type.strip().lower() != "multipart/form-data":
+            raise HTTPException(422, "A multipart/form-data upload is required.")
+        try:
+            form = await MultiPartParser(
+                request.headers,
+                _bounded_upload_stream(request),
+                max_files=1,
+                max_fields=len(V4DocumentUploadFields.model_fields),
+                max_part_size=16 * 1024,
+            ).parse()
+        except (MultiPartException, MultipartParseError) as exc:
+            raise HTTPException(422, "The multipart upload could not be read.") from exc
+        try:
+            if len(form.multi_items()) != len(form):
+                raise HTTPException(422, "Upload fields must not be repeated.")
+            fields = dict(form)
+            file = fields.pop("file", None)
+            if not isinstance(file, UploadFile) or not file.filename:
+                raise HTTPException(422, "A file is required.")
+            if file.size is not None and file.size > MAX_FILE_BYTES:
+                raise HTTPException(413, "file exceeds 50 MB")
+            if fields.keys() - V4DocumentUploadFields.model_fields.keys():
+                raise HTTPException(422, "Unknown upload field.")
+            try:
+                upload = V4DocumentUploadFields.model_validate(fields)
+            except ValidationError as exc:
+                errors = exc.errors()
+                for error in errors:
+                    error["loc"] = ("body", *error["loc"])
+                raise RequestValidationError(errors) from exc
+            metadata = {}
+            if upload.metadata is not None:
+                try:
+                    metadata = json.loads(upload.metadata)
+                except (ValueError, RecursionError) as exc:
+                    raise HTTPException(422, "metadata must be a JSON object.") from exc
+                if not isinstance(metadata, dict):
+                    raise HTTPException(422, "metadata must be a JSON object.")
+            for field in ("valid_from", "valid_to"):
+                value = getattr(upload, field)
+                if value is not None:
+                    if field in metadata:
+                        raise HTTPException(
+                            422, f"Provide {field} once, as a form field or in metadata."
+                        )
+                    metadata[field] = value
+            resolved_scope = await _resolve_document_scope(
+                request, upload, dao, access_control
+            )
+            await _require_mutation_admission(dao, require_projection_consumer=True)
+            try:
+                content, locations = await asyncio.to_thread(
+                    extract_document_file, file.file, file.filename
+                )
+            except DocumentTextTooLargeError as exc:
+                raise HTTPException(
+                    413, "document exceeds 5,000,000 UTF-8 bytes"
+                ) from exc
+            except DocumentFileError as exc:
+                raise HTTPException(422, str(exc)) from exc
+        finally:
+            await form.close()
+        payload = await _validate_document_payload(
+            {
+                **upload.model_dump(exclude={"metadata", "valid_from", "valid_to"}),
+                "metadata": metadata,
+                "content": content,
+            }
+        )
+        return await _ingest_document(request, payload, dao, resolved_scope, locations)
+
+    async def _ingest_document(
+        request: Request,
+        payload: V4DocumentIngestRequest,
+        dao: MemoryDAO,
+        resolved_scope: tuple[str, str, str, list[str], str],
+        source_locations: DocumentLocations | None = None,
+    ) -> dict:
+        tenant_id, workspace_id, agent_id, _datasets, effective_session_id = resolved_scope
         await _require_mutation_admission(dao, require_projection_consumer=True)
         content_hash = hashlib.sha256(payload.content.encode("utf-8")).hexdigest()
         revision_id = (
@@ -1602,6 +1767,7 @@ def create_v4_router(
                         content_hash=content_hash,
                         supersedes_revision_id=supersedes_id,
                         chunking_plan=configured_plan,
+                        source_locations=source_locations,
                     )
                 elif revision["status"] == "PENDING":
                     existing_pending_vf = str(revision.get("valid_from") or "")
@@ -1633,11 +1799,21 @@ def create_v4_router(
             stored_plan = revision.get("chunking_plan")
             chunking_plan = stored_plan or configured_plan
             legal_plan = chunking_plan == "auto"
-            chunks = (
-                await asyncio.to_thread(chunk_legal_document, payload.content)
-                if legal_plan
-                else await asyncio.to_thread(chunk_document, payload.content)
+            chunk_text = chunk_legal_document if legal_plan else chunk_document
+            boundaries = list(
+                document_chunk_boundaries(revision.get("source_locations") or [])
             )
+
+            def chunk_revision() -> list[str]:
+                if not boundaries:
+                    return chunk_text(payload.content)
+                return [
+                    part
+                    for start, end in pairwise([0, *boundaries])
+                    for part in chunk_text(payload.content[start:end])
+                ]
+
+            chunks = await asyncio.to_thread(chunk_revision)
             for ordinal, mutation_id in admitted.items():
                 mutation = await dao.get_projection_mutation(mutation_id)
                 if mutation is None:

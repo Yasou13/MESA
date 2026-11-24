@@ -191,7 +191,7 @@ def test_status_command(tmp_path, monkeypatch, capsys):
 def test_cli_add_search_delete(tmp_path, monkeypatch, capsys):
     # Mock Mesa client
     mock_mesa = MagicMock()
-    mock_mesa.add.return_value = {
+    mock_mesa.add_file.return_value = {
         "document_id": "doc-test-1",
         "revision_id": "rev-1",
         "chunk_count": 3,
@@ -224,7 +224,7 @@ def test_cli_add_search_delete(tmp_path, monkeypatch, capsys):
 
 def test_cli_add_waits_by_default_and_prints_searchable(tmp_path, capsys):
     mock_mesa = MagicMock()
-    mock_mesa.add.return_value = {
+    mock_mesa.add_file.return_value = {
         "document_id": "doc-test-1",
         "revision_id": "rev-1",
         "chunk_count": 3,
@@ -237,8 +237,8 @@ def test_cli_add_waits_by_default_and_prints_searchable(tmp_path, capsys):
         args = parser.parse_args(["add", str(test_file), "--source", "file://doc.txt"])
         add_command(args)
         out, _ = capsys.readouterr()
-        mock_mesa.add.assert_called_once_with(
-            "sample content", source="file://doc.txt", title=None, wait=True
+        mock_mesa.add_file.assert_called_once_with(
+            test_file, source="file://doc.txt", title=None, wait=True
         )
         assert "Added document doc-test-1 with 3 chunk(s)" in out
         assert "searchable" in out
@@ -246,7 +246,7 @@ def test_cli_add_waits_by_default_and_prints_searchable(tmp_path, capsys):
 
 def test_cli_add_no_wait_skips_searchable(tmp_path, capsys):
     mock_mesa = MagicMock()
-    mock_mesa.add.return_value = {
+    mock_mesa.add_file.return_value = {
         "document_id": "doc-test-1",
         "revision_id": "rev-1",
         "chunk_count": 3,
@@ -259,8 +259,8 @@ def test_cli_add_no_wait_skips_searchable(tmp_path, capsys):
         args = parser.parse_args(["add", str(test_file), "--source", "file://doc.txt", "--no-wait"])
         add_command(args)
         out, _ = capsys.readouterr()
-        mock_mesa.add.assert_called_once_with(
-            "sample content", source="file://doc.txt", title=None, wait=False
+        mock_mesa.add_file.assert_called_once_with(
+            test_file, source="file://doc.txt", title=None, wait=False
         )
         assert "Added document doc-test-1 with 3 chunk(s)" in out
         assert "searchable" not in out
@@ -379,7 +379,7 @@ def test_cli_add_prints_server_conflict_detail_without_traceback(tmp_path, capsy
     document = tmp_path / "a.txt"
     document.write_text("A")
     mock_mesa = MagicMock()
-    mock_mesa.add.side_effect = MesaAPIError(409, "CONFLICT", detail)
+    mock_mesa.add_file.side_effect = MesaAPIError(409, "CONFLICT", detail)
     with patch("mesa_client.Mesa", return_value=mock_mesa):
         with pytest.raises(SystemExit) as exit_info:
             handle_local_command(
@@ -401,7 +401,7 @@ def test_cli_add_prints_mutation_failure_without_traceback(tmp_path, capsys):
     document = tmp_path / "a.txt"
     document.write_text("A")
     mock_mesa = MagicMock()
-    mock_mesa.add.side_effect = MesaClientError(msg)
+    mock_mesa.add_file.side_effect = MesaClientError(msg)
     with patch("mesa_client.Mesa", return_value=mock_mesa):
         with pytest.raises(SystemExit) as exit_info:
             handle_local_command(

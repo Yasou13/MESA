@@ -599,6 +599,11 @@ def _typed_result(item: dict[str, Any]) -> dict[str, Any]:
         or primary_assertion.get("chunk_id"),
         "revision_number": revision_number,
         "span": span,
+        **{
+            key: item.get(key, primary_assertion.get(key))
+            for key in ("page", "sheet", "row_start", "row_end")
+            if item.get(key, primary_assertion.get(key)) is not None
+        },
         "valid_from": str(valid_from or ""),
         "valid_to": str(valid_to or ""),
         "content": item.get("chunk_text")

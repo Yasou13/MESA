@@ -57,6 +57,10 @@ class V4SearchResult(TypedDict, total=False):
     revision_number: int | None
     chunk_id: str | None
     span: V4CitationSpan | None
+    page: int
+    sheet: str
+    row_start: int
+    row_end: int
     valid_from: str
     valid_to: str
     evidence_span: str | None
@@ -83,6 +87,10 @@ class V4ContextSource(TypedDict, total=False):
     revision_number: int | None
     chunk_id: str | None
     span: V4CitationSpan | None
+    page: int
+    sheet: str
+    row_start: int
+    row_end: int
     valid_from: str
     valid_to: str
     provenance: list[dict[str, Any]]
@@ -133,6 +141,35 @@ def _prepare_write_metadata(
         return normalize_temporal_metadata(metadata)
     except ValueError as exc:
         raise MesaValidationError(str(exc)) from exc
+
+
+def _document_upload_fields(
+    *,
+    session_id: str | None,
+    tenant_id: str | None,
+    workspace_id: str | None,
+    agent_id: str | None,
+    dataset_id: str,
+    document_id: str,
+    title: str,
+    source_ref: str,
+    metadata: dict[str, Any] | None,
+) -> dict[str, str]:
+    fields = {
+        "session_id": session_id,
+        "tenant_id": tenant_id,
+        "workspace_id": workspace_id,
+        "agent_id": agent_id,
+        "dataset_id": dataset_id,
+        "document_id": document_id,
+        "title": title,
+        "source_ref": source_ref,
+    }
+    if metadata is not None:
+        fields["metadata"] = json.dumps(
+            _prepare_write_metadata(metadata), ensure_ascii=False, separators=(",", ":")
+        )
+    return {key: value for key, value in fields.items() if value is not None}
 
 
 _RETRYABLE_503_DETAILS = frozenset(
@@ -857,14 +894,52 @@ class MesaV4Client(MesaClient):
             payload["agent_id"] = agent_id
         if metadata is not None:
             payload["metadata"] = _prepare_write_metadata(metadata)
-        total_deadline = timeout if timeout is not None else deadline
+        return self._admit_document(
+            "/v4/documents", timeout if timeout is not None else deadline, json=payload
+        )
+
+    def add_file(
+        self,
+        path: str | Path,
+        *,
+        session_id: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        agent_id: str | None = None,
+        dataset_id: str,
+        document_id: str,
+        title: str,
+        source_ref: str,
+        metadata: dict[str, Any] | None = None,
+        deadline: float = 600.0,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Upload a PDF, DOCX, UDF, XLSX, TXT, or Markdown file."""
+        fields = _document_upload_fields(
+            session_id=session_id, tenant_id=tenant_id, workspace_id=workspace_id,
+            agent_id=agent_id, dataset_id=dataset_id, document_id=document_id,
+            title=title, source_ref=source_ref, metadata=metadata,
+        )
+        file_path = Path(path)
+        with file_path.open("rb") as file:
+            return self._admit_document(
+                "/v4/documents/upload",
+                timeout if timeout is not None else deadline,
+                data=fields,
+                files={"file": (file_path.name, file)},
+            )
+
+    def _admit_document(
+        self, path: str, total_deadline: float, **kwargs: Any
+    ) -> dict[str, Any]:
         start = time.monotonic()
         backoff = 0.5
         while True:
             try:
                 return self._request(
-                    "POST", "/v4/documents", json=payload,
+                    "POST", path,
                     timeout=max(0.001, total_deadline - (time.monotonic() - start)),
+                    **kwargs,
                 )
             except MesaAPIError as exc:
                 if (
@@ -1382,14 +1457,52 @@ class AsyncMesaV4Client(AsyncMesaClient):
             payload["agent_id"] = agent_id
         if metadata is not None:
             payload["metadata"] = _prepare_write_metadata(metadata)
-        total_deadline = timeout if timeout is not None else deadline
+        return await self._admit_document(
+            "/v4/documents", timeout if timeout is not None else deadline, json=payload
+        )
+
+    async def add_file(
+        self,
+        path: str | Path,
+        *,
+        session_id: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        agent_id: str | None = None,
+        dataset_id: str,
+        document_id: str,
+        title: str,
+        source_ref: str,
+        metadata: dict[str, Any] | None = None,
+        deadline: float = 600.0,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Upload a PDF, DOCX, UDF, XLSX, TXT, or Markdown file."""
+        fields = _document_upload_fields(
+            session_id=session_id, tenant_id=tenant_id, workspace_id=workspace_id,
+            agent_id=agent_id, dataset_id=dataset_id, document_id=document_id,
+            title=title, source_ref=source_ref, metadata=metadata,
+        )
+        file_path = Path(path)
+        with file_path.open("rb") as file:
+            return await self._admit_document(
+                "/v4/documents/upload",
+                timeout if timeout is not None else deadline,
+                data=fields,
+                files={"file": (file_path.name, file)},
+            )
+
+    async def _admit_document(
+        self, path: str, total_deadline: float, **kwargs: Any
+    ) -> dict[str, Any]:
         start = time.monotonic()
         backoff = 0.5
         while True:
             try:
                 return await self._request(
-                    "POST", "/v4/documents", json=payload,
+                    "POST", path,
                     timeout=max(0.001, total_deadline - (time.monotonic() - start)),
+                    **kwargs,
                 )
             except MesaAPIError as exc:
                 if (
@@ -1588,10 +1701,11 @@ class Mesa:
 
         self._client = MesaV4Client(base_url=self.base_url, api_key=self.api_key)
         self._session_id: str | None = None
+        self._scope_ready = False
 
-    def _ensure_session(self) -> str:
-        if self._session_id is not None:
-            return self._session_id
+    def _ensure_scope(self) -> None:
+        if self._scope_ready:
+            return
         try:
             self._client.create_workspace(
                 tenant_id=self.tenant_id,
@@ -1609,6 +1723,12 @@ class Mesa:
         except MesaAPIError as exc:
             if exc.status_code != 409:
                 raise
+        self._scope_ready = True
+
+    def _ensure_session(self) -> str:
+        if self._session_id is not None:
+            return self._session_id
+        self._ensure_scope()
         resp = self._client.start_session(
             tenant_id=self.tenant_id,
             workspace_id=self.workspace_id,
@@ -1646,25 +1766,66 @@ class Mesa:
             deadline=total_timeout,
         )
         if wait:
-            rev_id = str(res["revision_id"])
-            raw_mutation_ids = res.get("mutation_ids")
-            mutation_ids = (
+            self._wait_for_document(res, doc_id, metadata, total_timeout)
+        return res
+
+    def add_file(
+        self,
+        path: str | Path,
+        *,
+        source: str | None = None,
+        title: str | None = None,
+        document_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        wait: bool = False,
+        timeout: float = 600.0,
+        deadline: float | None = None,
+    ) -> dict[str, Any]:
+        """Upload a local file directly to this dataset."""
+        file_path = Path(path)
+        source_ref = source if source is not None else file_path.resolve().as_uri()
+        doc_id = document_id or _document_id_from_source(source_ref)
+        self._ensure_scope()
+        total_timeout = deadline if deadline is not None else timeout
+        result = self._client.add_file(
+            file_path,
+            tenant_id=self.tenant_id,
+            workspace_id=self.workspace_id,
+            dataset_id=self.dataset_id,
+            agent_id=self.agent_id,
+            document_id=doc_id,
+            title=title if title is not None else file_path.name,
+            source_ref=source_ref,
+            metadata=metadata,
+            deadline=total_timeout,
+        )
+        if wait:
+            self._wait_for_document(result, doc_id, metadata, total_timeout)
+        return result
+
+    def _wait_for_document(
+        self,
+        result: dict[str, Any],
+        document_id: str,
+        metadata: dict[str, Any] | None,
+        timeout: float,
+    ) -> None:
+        raw_mutation_ids = result.get("mutation_ids")
+        self._client.wait_until_revision_active(
+            tenant_id=self.tenant_id,
+            workspace_id=self.workspace_id,
+            dataset_id=self.dataset_id,
+            document_id=document_id,
+            revision_id=str(result["revision_id"]),
+            mutation_ids=(
                 [str(m) for m in raw_mutation_ids]
                 if isinstance(raw_mutation_ids, list)
                 else None
-            )
-            self._client.wait_until_revision_active(
-                tenant_id=self.tenant_id,
-                workspace_id=self.workspace_id,
-                dataset_id=self.dataset_id,
-                document_id=doc_id,
-                revision_id=rev_id,
-                mutation_ids=mutation_ids,
-                allow_superseded=bool(metadata and metadata.get("valid_from")),
-                timeout_seconds=total_timeout,
-                poll_interval_seconds=1.0,
-            )
-        return res
+            ),
+            allow_superseded=bool(metadata and metadata.get("valid_from")),
+            timeout_seconds=timeout,
+            poll_interval_seconds=1.0,
+        )
 
     def search(
         self,

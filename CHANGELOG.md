@@ -37,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `failed`, `superseded`), and plain-English failure `error` messages mapped
   from failure classes via `mesa_storage/error_messages.py` (D96).
 - Package `version` field in the `GET /health` response body (D96).
+- Multipart document upload (`POST /v4/documents/upload`, SDK `add_file`,
+  and `mesa add <file>`) for text-layer PDF, DOCX, UYAP UDF, XLSX, and UTF-8
+  text and Markdown. PDF citations include the page number. XLSX citations
+  include the sheet and original row range (D95, D99).
 - `mesa mcp config <client>` command printing ready-to-paste MCP configuration
   snippets (JSON/TOML, no files written) for `claude-code`, `claude-desktop`,
   `codex`, `cursor`, `gemini`, and `antigravity` pointing to `mesa-mcp` (D97).

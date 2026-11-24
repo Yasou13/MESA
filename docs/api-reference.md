@@ -319,6 +319,22 @@ validation and errors as `/v4/memory/insert`. Queue and maintenance failures
 use the existing admission errors below. See [Versioned documents](#versioned-documents)
 for validity dates and out-of-order history rules.
 
+### Upload a file with `POST /v4/documents/upload`
+
+Send `multipart/form-data` with one `file` and the same scope, document ID,
+title, and source fields as `POST /v4/documents`. Pass `metadata` as a
+JSON-encoded object. You can also pass `valid_from` and `valid_to` as
+individual form fields. Sessionless uploads require dataset `WRITER` access.
+The response is the same HTTP 202 admission receipt as for text documents.
+
+Supported extensions are `.pdf`, `.docx`, `.udf`, `.xlsx`, `.txt`, and
+`.md`. PDF uses the existing text layer. DOCX preserves paragraph and table
+order. XLSX uses the first populated row of each sheet as headers and
+renders subsequent cells as `Header: value` lines using stored cell values.
+TXT and Markdown use UTF-8. The file limit is 50 MB and the extracted text
+limit is 5,000,000 UTF-8 bytes. Exceeding either limit returns HTTP 413.
+Unsupported, encrypted, malformed, and textless files return HTTP 422.
+
 ### Document status: `GET /v4/documents/{document_id}`
 
 Returns document metadata (`document_id`, `tenant_id`, `dataset_id`, `title`,
@@ -347,9 +363,9 @@ Each search result and context source item carries stable citation fields:
 `document_id`, `revision_id`, `revision_number`, `chunk_id`, and
 `span` (`{"start": int, "end": int}` character offsets inside the revision's
 full text so `text[span.start:span.end]` reproduces the passage). Chunks
-written through `/v4/memory/insert` carry `span` `0..len(chunk)`. File-format
-locator fields (`page` for PDF, `sheet` and `row_start`/`row_end` for XLSX)
-are reserved on result items for file ingestion (D99).
+written through `/v4/memory/insert` carry `span` `0..len(chunk)`. PDF citations
+include a 1-based `page` number. XLSX citations include `sheet` and the
+inclusive 1-based `row_start` and `row_end` from the original workbook.
 
 ### Versioned documents
 
