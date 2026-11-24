@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Session-optional document ingestion (`POST /v4/documents`) and search
+  (`POST /v4/memory/search`) across HTTP, sync/async Python SDK, and MCP
+  (`mesa_recall` with `dataset_ids` or `use_session=false`) (D94). Requests
+  without `session_id` authorize against dataset `READER`/`WRITER` roles with
+  `tenant_id`, `workspace_id`, and dataset scope (`agent_id` defaults to
+  `local-agent`); mixing `session_id` with disagreeing scope fields returns
+  HTTP 422. Session-based calls and agent memory routes remain unchanged.
+
 ## [0.9.5] - 2026-11-24
 
 [Release notes](docs/release-notes-0.9.5.md)

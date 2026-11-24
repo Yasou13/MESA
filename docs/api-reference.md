@@ -113,7 +113,40 @@ Raw `/v4/memory/search` remains the single-query primitive.
 
 ## V4 Python SDK
 
-Bu örnek, model-enabled V4 sunucu, provision edilmiş `credential`, mevcut
+For document ingestion and search without a session (recommended for apps and
+document loaders; requires dataset `WRITER` to ingest and `READER` to search):
+
+```python
+from mesa_client import MesaV4Client
+
+with MesaV4Client("http://127.0.0.1:8000", api_key=credential) as client:
+    ingested = client.add_document(
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+        dataset_id="dataset-a",
+        document_id="doc-a",
+        title="Neutral source example",
+        source_ref="demo://source-a",
+        content="Exact source text",
+    )
+    client.wait_until_revision_active(
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+        dataset_id="dataset-a",
+        document_id="doc-a",
+        revision_id=ingested["revision_id"],
+        mutation_ids=ingested["mutation_ids"],
+    )
+    result = client.search(
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+        dataset_ids=["dataset-a"],
+        query="Exact source",
+    )
+```
+
+For agent memory sessions (`/v4/memory/insert`, context, and session end), start
+a server-owned session first. Bu örnek, model-enabled V4 sunucu, provision edilmiş `credential`, mevcut
 `tenant-a/workspace-a/dataset-a` kataloğu ve `agent-a` session izni varsayar.
 Bunları da kuran örnek için [Getting started](getting-started.md) kullanılır.
 
@@ -229,12 +262,17 @@ V4 HTTP insert ve sync/async SDK insert için `title` zorunludur. `title` 1..512
 HTTP ve sync/async SDK `insert`, opsiyonel `legal_identity` parametresini destekler.
 Public/source ID validator farkları için çalışan OpenAPI kullanılır.
 
-Search request `session_id`, `query` gerektirir; query 1..4096 karakter,
-`limit` default 10 ve 1..50, `dataset_ids` verilirse 1..64 ve session altkümesi,
-`graph_mode` is accepted as a compatibility no-op. ISO timestamp string'leri timezone offset
-içermelidir. `valid_from > valid_to` reddedilir. Response `session_id`,
-`dataset_ids`, `results`, optional `scope_audit`, `vector_lane`
-taşır. Sonuç provenance'ın varlığı source truth garantisi değildir.
+Search requests can run **without a session** by passing `tenant_id`,
+`workspace_id`, `dataset_ids` (1..64 dataset IDs), and `query` (optional
+`agent_id` defaults to `local-agent`, matching CLI-ingested data); access is
+authorized via dataset `READER` role. Session-based search continues to work by
+passing `session_id` (with optional `dataset_ids` subset). Mixing `session_id`
+with disagreeing explicit scope fields returns HTTP 422. `query` is 1..4096
+characters, `limit` defaults to 10 (1..50), and `graph_mode` is accepted as a
+compatibility no-op. ISO timestamp strings must include a timezone offset, and
+`valid_from > valid_to` is rejected. Response carries `session_id` (`null` when
+sessionless), `dataset_ids`, `results`, optional `scope_audit`, and
+`vector_lane`. Sonuç provenance'ın varlığı source truth garantisi değildir.
 
 SDK sync/async client timeout default 10s ve max_retries 3; yalnız güvenli
 network retry boundary geçerlidir. API HTTP hata yanıtları `MesaAPIError`,
@@ -246,9 +284,14 @@ bu sürümde uygulanmamaktadır (per-minute and daily limits are not enforced in
 
 ### Whole documents: `POST /v4/documents`
 
-Send `session_id`, `dataset_id`, `document_id`, `title`, `source_ref`, `content`
-and optional `metadata`. The session requires WRITE access to the dataset and
-the runtime must own the combined consumer, just as for `/v4/memory/insert`.
+Sessionless form (recommended for document loaders and apps): send `tenant_id`,
+`workspace_id`, `dataset_id`, `document_id`, `title`, `source_ref`, `content`,
+optional `agent_id` (defaults to `local-agent`), and optional `metadata`. Access
+requires the dataset `WRITER` role. Session-based form continues to work by
+sending `session_id` instead of `tenant_id`/`workspace_id` (the session requires
+WRITE access to the dataset). Mixing `session_id` with disagreeing explicit
+scope fields returns HTTP 422. The runtime must own the combined consumer, just
+as for `/v4/memory/insert`.
 The server splits content into consecutive slices of at most 512 cl100k tokens,
 preferring blank lines, then sentence ends, then hard cuts. Joining the slices
 reproduces the input exactly, including whitespace.

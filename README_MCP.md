@@ -53,6 +53,8 @@ This prints a configuration block using the provisioned credentials and the abso
 
 Add this configuration to your Claude Desktop configuration file (`claude_desktop_config.json`) to connect Claude directly to MESA.
 
+`mesa_recall` supports sessionless search when `dataset_ids` is passed or `use_session: false` is set, allowing `READER`-only API keys to search without starting a write session.
+
 
 ## Codex direct HTTP integration
 

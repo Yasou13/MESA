@@ -2750,10 +2750,56 @@
       "V4DocumentIngestRequest": {
         "properties": {
           "session_id": {
-            "type": "string",
-            "maxLength": 128,
-            "minLength": 1,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Session Id"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          },
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
           },
           "dataset_id": {
             "type": "string",
@@ -2792,7 +2838,6 @@
         },
         "type": "object",
         "required": [
-          "session_id",
           "dataset_id",
           "document_id",
           "title",
@@ -3415,10 +3460,56 @@
       "V4SearchRequest": {
         "properties": {
           "session_id": {
-            "type": "string",
-            "maxLength": 128,
-            "minLength": 1,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Session Id"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          },
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
           },
           "dataset_ids": {
             "anyOf": [
@@ -3512,7 +3603,6 @@
         },
         "type": "object",
         "required": [
-          "session_id",
           "query"
         ],
         "title": "V4SearchRequest"
@@ -3520,7 +3610,14 @@
       "V4SearchResponse": {
         "properties": {
           "session_id": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Session Id"
           },
           "dataset_ids": {
@@ -3568,7 +3665,6 @@
         },
         "type": "object",
         "required": [
-          "session_id",
           "dataset_ids",
           "results"
         ],
