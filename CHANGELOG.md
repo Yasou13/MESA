@@ -37,6 +37,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `failed`, `superseded`), and plain-English failure `error` messages mapped
   from failure classes via `mesa_storage/error_messages.py` (D96).
 - Package `version` field in the `GET /health` response body (D96).
+- `mesa mcp config <client>` command printing ready-to-paste MCP configuration
+  snippets (JSON/TOML, no files written) for `claude-code`, `claude-desktop`,
+  `codex`, `cursor`, `gemini`, and `antigravity` pointing to `mesa-mcp` (D97).
+
+### Changed
+
+- Moved the `mesa` CLI entry point from `mesa_mcp.codex_cli:main` to the
+  neutral `mesa_mcp.cli:main` module, keeping `start`, `add`, `search`,
+  `delete`, `status`, `operations`, `mcp-config`, and `mcp config <client>`
+  (D97). `mesa-mcp-gateway` remains available as an optional advanced mode.
+
+### Removed
+
+- Deleted the Antigravity stdio bridge/CLI (`mesa_mcp/antigravity_bridge.py`,
+  `mesa_mcp/antigravity_cli.py`, and the `mesa-antigravity-bridge` console
+  script) and the Codex installer/hooks/CLI (`mesa_mcp/codex_cli.py`,
+  `mesa_mcp/codex_hooks.py`, and the `mesa codex` / `mesa antigravity` command
+  groups) (D97).
 
 ## [0.9.5] - 2026-11-24
 

@@ -460,9 +460,8 @@ The entry points are declared in `pyproject.toml`. Run `.venv/bin/<command>
 | `mesa-recovery` | Trusted-root checksummed backup, validate and new-root restore |
 | `mesa-v4-rebuild` | Offline full-root projection rebuild/adoption; never an online worker |
 | `mesa-mcp` | Direct V4 stdio server; client tool approval and API key grants, no local control-plane database |
-| `mesa-mcp-gateway` | Independently supervised HTTP/Streamable HTTP control gateway |
-| `mesa-antigravity-bridge` | Binding-scoped stdio bridge with encrypted write spool |
-| `mesa` | Codex/Antigravity install, doctor, profiles, credential lifecycle and operations approvals |
+| `mesa-mcp-gateway` | Optional advanced HTTP/Streamable HTTP control gateway (policies, approvals, audit) |
+| `mesa` | Local CLI (`start`, `add`, `search`, `delete`, `status`, `mcp-config`, `mcp config <client>`, `operations`) |
 
 ### Admin bootstrap
 
