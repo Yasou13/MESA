@@ -273,6 +273,26 @@ Errors: 409 `document is purged`; 413 for content over 5,000,000 UTF-8 bytes;
 validation and errors as `/v4/memory/insert`. Queue and maintenance failures
 use the existing admission errors below.
 
+Dated revisions (`metadata.valid_from`, optional `metadata.valid_to`) are
+ordered by validity rather than upload order:
+
+- Timestamps must be ISO-8601 strings with a timezone offset (date-only values
+  and `valid_from >= valid_to` return 422 before any chunk is written) and are
+  stored normalized to UTC.
+- A revision whose `valid_from` is later than every existing revision supersedes
+  the `ACTIVE` revision when all its chunks commit (setting the predecessor's
+  `valid_to` to the new `valid_from`).
+- A revision whose `valid_from` is earlier than the `ACTIVE` revision is stored
+  as history: its `supersedes_revision_id` remains unset (`null`) so the
+  `ACTIVE` head does not move. When all of its chunks commit, it becomes
+  `SUPERSEDED` with `valid_to` equal to the next revision's `valid_from`, and
+  the preceding revision (if any) moves its `valid_to` to the new `valid_from`.
+  History chunks never enter the undated persistent BM25 index; their vectors
+  are eligible only for dated searches.
+- Uploading a new revision with a `valid_from` equal to an existing revision
+  returns 409. Uploading an undated revision to a document that already has a
+  dated revision returns 422. Undated documents behave as before.
+
 ### Actionable errors
 
 Catch `MesaAPIError` to inspect `status_code`, `error` and `detail`. HTTP bodies

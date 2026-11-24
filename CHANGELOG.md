@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Out-of-order ingestion for dated document revisions (D87): when revisions
+  carry `metadata.valid_from`, validity order rather than upload order decides
+  the `ACTIVE` head and `[valid_from, valid_to)` history chain. Older versions
+  loaded after newer ones commit directly as `SUPERSEDED` history with
+  `supersedes_revision_id = null`, update the preceding revision's `valid_to`,
+  and stay out of the undated persistent BM25 index. Duplicate `valid_from`
+  returns HTTP 409; undated revisions on a dated document return HTTP 422.
 - Per-(tenant, dataset) persistent FTS5 BM25 index for exact dataset-wide
   queries (D80), updated inside the commit, supersession, rollback, and purge
   SQLite transactions and automatically rebuilt from canonical SQLite when
