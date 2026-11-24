@@ -20,6 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Document ingestion (`POST /v4/documents`, `/v4/memory/insert`, SDK, and MCP)
+  validates optional `metadata.valid_from` and `metadata.valid_to` as
+  timezone-aware ISO-8601 timestamps (`valid_from < valid_to`), rejects
+  invalid or date-only values with HTTP 422 before writing any chunks, and
+  stores normalized UTC timestamps (D85).
+- Dated search queries now evaluate validity intervals as half-open
+  `[valid_from, valid_to)` (`valid_from <= valid_at < valid_to`, with matching
+  open-end overlap for `valid_from`/`valid_to` range filters) so an exact
+  amendment instant returns only the replacing version (D86).
 - LanceDB is locked to 0.41.0 with an upper bound below 0.42. Vector search
   prefilters by dataset and agent before ranking and verifies eligibility in
   SQLite. Older LanceDB tables receive their scope keys on startup. The live

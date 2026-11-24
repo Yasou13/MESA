@@ -6548,18 +6548,18 @@ class MemoryDAO:
             provenance_filters.extend(
                 (
                     "(a.valid_from = '' OR julianday(a.valid_from) <= julianday(?))",
-                    "(a.valid_to = '' OR julianday(a.valid_to) >= julianday(?))",
+                    "(a.valid_to = '' OR julianday(a.valid_to) > julianday(?))",
                 )
             )
             provenance_params.extend((valid_at, valid_at))
         if valid_from:
             provenance_filters.append(
-                "(a.valid_to = '' OR julianday(a.valid_to) >= julianday(?))"
+                "(a.valid_to = '' OR julianday(a.valid_to) > julianday(?))"
             )
             provenance_params.append(valid_from)
         if valid_to:
             provenance_filters.append(
-                "(a.valid_from = '' OR julianday(a.valid_from) <= julianday(?))"
+                "(a.valid_from = '' OR julianday(a.valid_from) < julianday(?))"
             )
             provenance_params.append(valid_to)
 
