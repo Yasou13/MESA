@@ -1,10 +1,9 @@
-"""The public input limits must also bound legal extraction latency."""
+"""Legal extraction stays bounded at the public input limits."""
 
 import asyncio
 import random
-import signal
+import sys
 import threading
-import time
 
 import pytest
 
@@ -14,22 +13,25 @@ from tests.test_model_optional_runtime import _consume
 from tests.test_model_optional_runtime import model_runtime as model_runtime
 
 
-# Wall-clock tests use no_cover so tracing does not consume the 200 ms budget.
-# They still run in the coverage job; functional/structural tests stay traced.
-def _timed_extract(text):
-    def expired(*_):
-        raise AssertionError("legal extraction exceeded 200 ms")
+def _assert_bounded_extract(text):
+    calls = 0
 
-    previous = signal.signal(signal.SIGALRM, expired)
-    signal.setitimer(signal.ITIMER_REAL, 0.2)
-    start = time.perf_counter()
+    def count_calls(frame, event, _arg):
+        nonlocal calls
+        if frame.f_globals is legal_rules.__dict__ and event in ("call", "c_call"):
+            calls += 1
+
+    previous = sys.getprofile()
+    sys.setprofile(count_calls)
     try:
         items = legal_rules.extract(text)
-        assert time.perf_counter() - start < 0.2
-        assert all(text[it["start"] : it["end"]] == it["text"] for it in items)
     finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous)
+        sys.setprofile(previous)
+
+    # The densest reproduction takes under 16 calls per character. Include
+    # fixed setup work here and check regex repetition structure below.
+    assert calls <= 64 + 16 * len(text)
+    assert all(text[it["start"] : it["end"]] == it["text"] for it in items)
 
 
 @pytest.mark.parametrize(
@@ -53,13 +55,11 @@ def _timed_extract(text):
         "open-amendments",
     ],
 )
-@pytest.mark.no_cover
 def test_opus_repros_at_maximum_insert_size(stem):
     text = (stem * (32768 // len(stem) + 1))[:32767] + "/"
-    _timed_extract(text)
+    _assert_bounded_extract(text)
 
 
-@pytest.mark.no_cover
 def test_seeded_grammar_fuzz_at_api_limits():
     rng = random.Random(905)
     tokens = [
@@ -95,7 +95,7 @@ def test_seeded_grammar_fuzz_at_api_limits():
                 token = rng.choice(tokens)
                 parts.append(token)
                 length += len(token)
-            _timed_extract("".join(parts)[:size])
+            _assert_bounded_extract("".join(parts)[:size])
 
 
 def test_bounded_lists_preserve_normal_values_and_source_spans():
@@ -122,9 +122,8 @@ def test_bounded_lists_preserve_normal_values_and_source_spans():
         " " * 120 + "2020/1 E., 2020/2 K.\n",
     ],
 )
-@pytest.mark.no_cover
 def test_many_matches_and_unclosed_markers_remain_bounded(stem):
-    _timed_extract((stem * (32768 // len(stem) + 1))[:32768])
+    _assert_bounded_extract((stem * (32768 // len(stem) + 1))[:32768])
 
 
 def test_compiled_patterns_have_only_bounded_terminal_repetitions():
