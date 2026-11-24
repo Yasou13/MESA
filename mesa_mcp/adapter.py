@@ -152,6 +152,19 @@ class MesaMCPAdapter:
                 raise MCPError(
                     "INVALID_ARGUMENT", "dataset_id and dataset_ids disagree"
                 )
+        document_ids = arguments.get("document_ids")
+        if document_ids is not None and (
+            not isinstance(document_ids, list)
+            or not 1 <= len(document_ids) <= 64
+            or any(
+                not isinstance(item, str) or not item.strip() or len(item) > 256
+                for item in document_ids
+            )
+        ):
+            raise MCPError(
+                "INVALID_ARGUMENT",
+                "document_ids must be a list of 1 to 64 document identifiers",
+            )
         use_session = arguments.get("use_session")
         if use_session is not None and not isinstance(use_session, bool):
             raise MCPError("INVALID_ARGUMENT", "use_session must be a boolean")
@@ -167,6 +180,8 @@ class MesaMCPAdapter:
         }
         if dataset_ids is not None:
             recall_kwargs["dataset_ids"] = dataset_ids
+        if document_ids is not None:
+            recall_kwargs["document_ids"] = document_ids
         if use_session is not None:
             recall_kwargs["use_session"] = use_session
         raw = await self._v4_service.v4_recall(**recall_kwargs)

@@ -700,6 +700,7 @@ class MesaV4Client(MesaClient):
         agent_id: str | None = None,
         query: str,
         dataset_ids: list[str] | None = None,
+        document_ids: list[str] | None = None,
         limit: int = 10,
         jurisdiction: str | None = None,
         valid_at: str | None = None,
@@ -716,6 +717,8 @@ class MesaV4Client(MesaClient):
             "valid_from": valid_from,
             "valid_to": valid_to,
         }
+        if document_ids is not None:
+            payload["document_ids"] = document_ids
         if session_id is not None:
             payload["session_id"] = session_id
         if tenant_id is not None:
@@ -1178,6 +1181,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
         agent_id: str | None = None,
         query: str,
         dataset_ids: list[str] | None = None,
+        document_ids: list[str] | None = None,
         limit: int = 10,
         jurisdiction: str | None = None,
         valid_at: str | None = None,
@@ -1194,6 +1198,8 @@ class AsyncMesaV4Client(AsyncMesaClient):
             "valid_from": valid_from,
             "valid_to": valid_to,
         }
+        if document_ids is not None:
+            payload["document_ids"] = document_ids
         if session_id is not None:
             payload["session_id"] = session_id
         if tenant_id is not None:
@@ -1564,6 +1570,7 @@ class Mesa:
         query: str,
         limit: int = 10,
         *,
+        document_ids: list[str] | None = None,
         valid_at: str | None = None,
         valid_from: str | None = None,
         valid_to: str | None = None,
@@ -1573,6 +1580,7 @@ class Mesa:
         resp = self._client.search(
             session_id=session_id,
             query=query,
+            document_ids=document_ids,
             limit=limit,
             valid_at=valid_at,
             valid_from=valid_from,

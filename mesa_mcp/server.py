@@ -241,6 +241,16 @@ def _tools() -> list[types.Tool]:
                             "pattern": "^[a-zA-Z0-9._-]+$",
                         },
                     },
+                    "document_ids": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 64,
+                        "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                        },
+                    },
                     "use_session": {"type": "boolean"},
                     "query": {"type": "string", "maxLength": 2000},
                     "limit": {"type": "integer"},

@@ -316,7 +316,13 @@ class MesaHttpV4Service:
         search_arguments.update(
             {
                 key: kwargs[key]
-                for key in ("jurisdiction", "valid_at", "valid_from", "valid_to")
+                for key in (
+                    "document_ids",
+                    "jurisdiction",
+                    "valid_at",
+                    "valid_from",
+                    "valid_to",
+                )
                 if kwargs.get(key) is not None
             }
         )
