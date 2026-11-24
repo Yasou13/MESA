@@ -293,22 +293,24 @@ class MesaHttpV4Service:
             raise _map_exception(exc) from exc
 
     async def v4_recall(self, **kwargs: Any) -> list[dict[str, Any]]:
+        dataset_ids_arg = kwargs.get("dataset_ids")
         dataset_id = kwargs.get("dataset_id") or self._settings.default_dataset_id
+        effective_datasets = (
+            list(dataset_ids_arg) if dataset_ids_arg is not None else [dataset_id]
+        )
         tenant_id = kwargs.get("tenant_id") or self._settings.default_tenant_id
         workspace_id = kwargs.get("workspace_id") or self._settings.default_workspace_id
-        actor_id = kwargs.get("actor_id") or self._settings.actor_id
+        actor_id = (
+            kwargs.get("agent_id") or kwargs.get("actor_id") or self._settings.actor_id
+        )
+        use_session = kwargs.get("use_session")
+        if use_session is None:
+            use_session = dataset_ids_arg is None
 
         client = self._http_client
-        session_id = await self._get_session_id(
-            client,
-            dataset_id,
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-            actor_id=actor_id,
-        )
-        search_arguments = {
+        search_arguments: dict[str, Any] = {
             "query": kwargs["query"],
-            "dataset_ids": [dataset_id],
+            "dataset_ids": effective_datasets,
             "limit": kwargs.get("limit") or self._settings.search_default_limit,
         }
         search_arguments.update(
@@ -317,6 +319,28 @@ class MesaHttpV4Service:
                 for key in ("jurisdiction", "valid_at", "valid_from", "valid_to")
                 if kwargs.get(key) is not None
             }
+        )
+        if not use_session:
+            try:
+                resp = await client.search(
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                    agent_id=actor_id,
+                    **search_arguments,
+                )
+            except Exception as exc:
+                raise _map_exception(exc) from exc
+            return RecallResults(
+                [_typed_result(item) for item in resp.get("results", [])],
+                degraded_sources=resp.get("degraded_sources", []),
+            )
+
+        session_id = await self._get_session_id(
+            client,
+            dataset_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            actor_id=actor_id,
         )
         try:
             resp = await client.search(session_id=session_id, **search_arguments)

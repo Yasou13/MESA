@@ -230,6 +230,18 @@ def _tools() -> list[types.Tool]:
                         "maxLength": 128,
                         "pattern": "^[a-zA-Z0-9._-]+$",
                     },
+                    "dataset_ids": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 64,
+                        "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "pattern": "^[a-zA-Z0-9._-]+$",
+                        },
+                    },
+                    "use_session": {"type": "boolean"},
                     "query": {"type": "string", "maxLength": 2000},
                     "limit": {"type": "integer"},
                     "jurisdiction": {"type": "string", "maxLength": 256},

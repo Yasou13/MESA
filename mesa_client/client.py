@@ -694,7 +694,10 @@ class MesaV4Client(MesaClient):
     def search(  # type: ignore[override]
         self,
         *,
-        session_id: str,
+        session_id: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        agent_id: str | None = None,
         query: str,
         dataset_ids: list[str] | None = None,
         limit: int = 10,
@@ -704,20 +707,29 @@ class MesaV4Client(MesaClient):
         valid_to: str | None = None,
         graph_mode: Literal["enabled", "disabled"] = "enabled",
     ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "dataset_ids": dataset_ids,
+            "query": query,
+            "limit": limit,
+            "jurisdiction": jurisdiction,
+            "valid_at": valid_at,
+            "valid_from": valid_from,
+            "valid_to": valid_to,
+        }
+        if session_id is not None:
+            payload["session_id"] = session_id
+        if tenant_id is not None:
+            payload["tenant_id"] = tenant_id
+        if workspace_id is not None:
+            payload["workspace_id"] = workspace_id
+        if agent_id is not None:
+            payload["agent_id"] = agent_id
+        if graph_mode != "enabled":
+            payload["graph_mode"] = graph_mode
         return self._request(
             "POST",
             "/v4/memory/search",
-            json={
-                "session_id": session_id,
-                "dataset_ids": dataset_ids,
-                "query": query,
-                "limit": limit,
-                "jurisdiction": jurisdiction,
-                "valid_at": valid_at,
-                "valid_from": valid_from,
-                "valid_to": valid_to,
-                **({"graph_mode": graph_mode} if graph_mode != "enabled" else {}),
-            },
+            json=payload,
         )
 
     def status(self, mutation_id: str) -> dict[str, Any]:
@@ -798,7 +810,10 @@ class MesaV4Client(MesaClient):
     def add_document(
         self,
         *,
-        session_id: str,
+        session_id: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        agent_id: str | None = None,
         dataset_id: str,
         document_id: str,
         title: str,
@@ -808,15 +823,22 @@ class MesaV4Client(MesaClient):
         deadline: float = 600.0,
         timeout: float | None = None,
     ) -> dict[str, Any]:
-        """Ingest a whole document through server-side chunking (D29)."""
+        """Ingest a whole document through server-side chunking (D29, D94)."""
         payload: dict[str, Any] = {
-            "session_id": session_id,
             "dataset_id": dataset_id,
             "document_id": document_id,
             "title": title,
             "source_ref": source_ref,
             "content": content,
         }
+        if session_id is not None:
+            payload["session_id"] = session_id
+        if tenant_id is not None:
+            payload["tenant_id"] = tenant_id
+        if workspace_id is not None:
+            payload["workspace_id"] = workspace_id
+        if agent_id is not None:
+            payload["agent_id"] = agent_id
         if metadata is not None:
             payload["metadata"] = _prepare_write_metadata(metadata)
         total_deadline = timeout if timeout is not None else deadline
@@ -1150,7 +1172,10 @@ class AsyncMesaV4Client(AsyncMesaClient):
     async def search(  # type: ignore[override]
         self,
         *,
-        session_id: str,
+        session_id: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        agent_id: str | None = None,
         query: str,
         dataset_ids: list[str] | None = None,
         limit: int = 10,
@@ -1160,20 +1185,29 @@ class AsyncMesaV4Client(AsyncMesaClient):
         valid_to: str | None = None,
         graph_mode: Literal["enabled", "disabled"] = "enabled",
     ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "dataset_ids": dataset_ids,
+            "query": query,
+            "limit": limit,
+            "jurisdiction": jurisdiction,
+            "valid_at": valid_at,
+            "valid_from": valid_from,
+            "valid_to": valid_to,
+        }
+        if session_id is not None:
+            payload["session_id"] = session_id
+        if tenant_id is not None:
+            payload["tenant_id"] = tenant_id
+        if workspace_id is not None:
+            payload["workspace_id"] = workspace_id
+        if agent_id is not None:
+            payload["agent_id"] = agent_id
+        if graph_mode != "enabled":
+            payload["graph_mode"] = graph_mode
         return await self._request(
             "POST",
             "/v4/memory/search",
-            json={
-                "session_id": session_id,
-                "dataset_ids": dataset_ids,
-                "query": query,
-                "limit": limit,
-                "jurisdiction": jurisdiction,
-                "valid_at": valid_at,
-                "valid_from": valid_from,
-                "valid_to": valid_to,
-                **({"graph_mode": graph_mode} if graph_mode != "enabled" else {}),
-            },
+            json=payload,
         )
 
     async def status(self, mutation_id: str) -> dict[str, Any]:
@@ -1254,7 +1288,10 @@ class AsyncMesaV4Client(AsyncMesaClient):
     async def add_document(
         self,
         *,
-        session_id: str,
+        session_id: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        agent_id: str | None = None,
         dataset_id: str,
         document_id: str,
         title: str,
@@ -1264,15 +1301,22 @@ class AsyncMesaV4Client(AsyncMesaClient):
         deadline: float = 600.0,
         timeout: float | None = None,
     ) -> dict[str, Any]:
-        """Ingest a whole document through server-side chunking (D29)."""
+        """Ingest a whole document through server-side chunking (D29, D94)."""
         payload: dict[str, Any] = {
-            "session_id": session_id,
             "dataset_id": dataset_id,
             "document_id": document_id,
             "title": title,
             "source_ref": source_ref,
             "content": content,
         }
+        if session_id is not None:
+            payload["session_id"] = session_id
+        if tenant_id is not None:
+            payload["tenant_id"] = tenant_id
+        if workspace_id is not None:
+            payload["workspace_id"] = workspace_id
+        if agent_id is not None:
+            payload["agent_id"] = agent_id
         if metadata is not None:
             payload["metadata"] = _prepare_write_metadata(metadata)
         total_deadline = timeout if timeout is not None else deadline
