@@ -31,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `get_document_text`) returning the full rebuilt text or a `start`/`end` slice
   for the active or a specified historical revision with dataset `READER`
   access (D96).
+- Document status endpoint `GET /v4/documents/{document_id}` (and SDK
+  `get_document`) returning per-revision status, validity dates, chunk counts
+  by state, ingest `stage` (`admitted`, `processing`, `indexed`, `active`,
+  `failed`, `superseded`), and plain-English failure `error` messages mapped
+  from failure classes via `mesa_storage/error_messages.py` (D96).
+- Package `version` field in the `GET /health` response body (D96).
 
 ## [0.9.5] - 2026-11-24
 

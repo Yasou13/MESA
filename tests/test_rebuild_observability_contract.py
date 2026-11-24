@@ -236,6 +236,7 @@ async def test_public_health_reports_rebuild_maintenance_without_ids(
 
     assert response == {
         "status": "degraded",
+        "version": server.__version__,
         "maintenance": True,
         "rebuild_state": "RUNNING",
     }

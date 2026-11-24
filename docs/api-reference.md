@@ -241,7 +241,7 @@ Internal DAO ownership, projection and Graph V2 structure belong in the
 
 ## Health ve metrics
 
-- `/health`: API anahtarıyla `status`, `maintenance`, `rebuild_state` özeti
+- `/health`: API anahtarıyla `status`, `version` (package version), `maintenance`, `rebuild_state` özeti
 - `/health/init`: public readiness; hazırsa `200 {"status":"ready"}`, değilse `503`
 - `/metrics`: API anahtarıyla Prometheus sayaçları ve gauge'ları
 
@@ -318,6 +318,19 @@ Errors: 409 `document is purged`; 413 for content over 5,000,000 UTF-8 bytes;
 validation and errors as `/v4/memory/insert`. Queue and maintenance failures
 use the existing admission errors below. See [Versioned documents](#versioned-documents)
 for validity dates and out-of-order history rules.
+
+### Document status: `GET /v4/documents/{document_id}`
+
+Returns document metadata (`document_id`, `tenant_id`, `dataset_id`, `title`,
+`status`, `created_at`) and every revision with its `status`, validity dates
+(`valid_from`, `valid_to`), chunk counts by state (`total_chunks`,
+`chunks_by_state`), high-level `stage` (one of `admitted`, `processing`,
+`indexed`, `active`, `failed`, `superseded`), and, when failed,
+`error: {"code": ..., "message": ...}` carrying a plain-English message mapped
+from the failure class (never stack traces or internal IDs). Pass query
+parameters `tenant_id`, `workspace_id`, and `dataset_id`. Requires dataset
+`READER` role. To delete/purge a document, use
+`DELETE /v4/catalog/documents/{document_id}` (see [V4 catalog](#v4-catalog)).
 
 ### Document text: `GET /v4/documents/{document_id}/text`
 

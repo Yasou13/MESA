@@ -1060,6 +1060,88 @@
         ]
       }
     },
+    "/v4/documents/{document_id}": {
+      "get": {
+        "tags": [
+          "v4-full-cognitive"
+        ],
+        "summary": "Get Document Status",
+        "operationId": "get_document_status_v4_documents__document_id__get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "title": "Document Id"
+            }
+          },
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Workspace Id"
+            }
+          },
+          {
+            "name": "dataset_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V4DocumentStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v4/documents/{document_id}/text": {
       "get": {
         "tags": [
@@ -2900,6 +2982,25 @@
         ],
         "title": "V4DatasetRequest"
       },
+      "V4DocumentError": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "V4DocumentError",
+        "description": "Plain-English failure summary for a failed document revision (D96)."
+      },
       "V4DocumentIngestRequest": {
         "properties": {
           "session_id": {
@@ -3094,6 +3195,151 @@
           "title"
         ],
         "title": "V4DocumentRequest"
+      },
+      "V4DocumentRevisionStatus": {
+        "properties": {
+          "revision_id": {
+            "type": "string",
+            "title": "Revision Id"
+          },
+          "revision_number": {
+            "type": "integer",
+            "title": "Revision Number"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "valid_from": {
+            "type": "string",
+            "title": "Valid From",
+            "default": ""
+          },
+          "valid_to": {
+            "type": "string",
+            "title": "Valid To",
+            "default": ""
+          },
+          "supersedes_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes Revision Id"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "admitted",
+              "processing",
+              "indexed",
+              "active",
+              "failed",
+              "superseded"
+            ],
+            "title": "Stage"
+          },
+          "total_chunks": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Chunks"
+          },
+          "chunks_by_state": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Chunks By State"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/V4DocumentError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "revision_id",
+          "revision_number",
+          "status",
+          "created_at",
+          "stage",
+          "total_chunks",
+          "chunks_by_state"
+        ],
+        "title": "V4DocumentRevisionStatus",
+        "description": "Revision status, validity dates, and ingest progress summary (D96)."
+      },
+      "V4DocumentStatusResponse": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id"
+          },
+          "dataset_id": {
+            "type": "string",
+            "title": "Dataset Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "external_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Ref"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "revisions": {
+            "items": {
+              "$ref": "#/components/schemas/V4DocumentRevisionStatus"
+            },
+            "type": "array",
+            "title": "Revisions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id",
+          "tenant_id",
+          "dataset_id",
+          "title",
+          "status",
+          "created_at",
+          "revisions"
+        ],
+        "title": "V4DocumentStatusResponse",
+        "description": "Document metadata and per-revision ingest status for viewers (D96)."
       },
       "V4DocumentTextResponse": {
         "properties": {
