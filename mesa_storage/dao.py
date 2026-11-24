@@ -42,7 +42,11 @@ from mesa_storage.legal_identity import (
     normalize_turkish,
 )
 from mesa_storage.rebuild_health import RebuildHealthReader
-from mesa_storage.repositories.catalog import CatalogRepository, CatalogRepositoryPort
+from mesa_storage.repositories.catalog import (
+    CatalogIdentityNotFoundError,
+    CatalogRepository,
+    CatalogRepositoryPort,
+)
 from mesa_storage.repositories.operations import (
     OperationRepository,
     OperationRepositoryPort,
@@ -6523,6 +6527,7 @@ class MemoryDAO:
         dataset_ids: list[str],
         query: str,
         limit: int = 10,
+        document_ids: list[str] | None = None,
         jurisdiction: str | None = None,
         valid_at: str | None = None,
         valid_from: str | None = None,
@@ -6534,7 +6539,13 @@ class MemoryDAO:
     ) -> list[dict[str, Any]]:
         """Reuse only version-valid authorized scope data, never query results."""
         _assert_valid_agent_id(agent_id)
-        if not tenant_id or not dataset_ids or not query.strip() or not 1 <= limit <= 50:
+        if (
+            not tenant_id
+            or not dataset_ids
+            or not query.strip()
+            or not 1 <= limit <= 50
+            or (document_ids is not None and not 1 <= len(document_ids) <= 64)
+        ):
             raise ValueError("invalid v4 search scope")
         query_vector: list[float] | None = None
         query_error: Exception | None = None
@@ -6551,6 +6562,7 @@ class MemoryDAO:
             dataset_ids=dataset_ids,
             query=query,
             limit=max(limit, self._rerank_depth) if self._reranker is not None else limit,
+            document_ids=document_ids,
             jurisdiction=jurisdiction,
             valid_at=valid_at,
             valid_from=valid_from,
@@ -6607,6 +6619,11 @@ class MemoryDAO:
                             valid_at,
                             valid_from,
                             valid_to,
+                            (
+                                tuple(sorted(set(document_ids)))
+                                if document_ids is not None
+                                else None
+                            ),
                         )
                         scope = self._search_scope_cache.get(key)
                         if scope is None:
@@ -6722,6 +6739,7 @@ class MemoryDAO:
         dataset_ids: list[str],
         query: str,
         limit: int = 10,
+        document_ids: list[str] | None = None,
         jurisdiction: str | None = None,
         valid_at: str | None = None,
         valid_from: str | None = None,
@@ -6743,6 +6761,7 @@ class MemoryDAO:
             or not dataset_ids
             or not query.strip()
             or not 1 <= limit <= 50
+            or (document_ids is not None and not 1 <= len(document_ids) <= 64)
         ):
             raise ValueError("invalid v4 search scope")
 
@@ -6801,6 +6820,36 @@ class MemoryDAO:
                 )
                 scope["datasets"] = datasets
             placeholders = ",".join("?" for _ in datasets)
+            artifact_doc_clause = ""
+            artifact_doc_params: list[Any] = []
+            if document_ids is not None:
+                if "documents" in scope:
+                    resolved_documents: list[str] = scope["documents"]
+                else:
+                    resolved_doc_set: set[str] = set()
+                    for ext_doc_id in sorted(set(document_ids)):
+                        try:
+                            resolved_doc_set.add(
+                                await self._catalog.resolve_id_in_tx(
+                                    db,
+                                    tenant_id=tenant_id,
+                                    kind="document",
+                                    external_id=ext_doc_id,
+                                )
+                            )
+                        except CatalogIdentityNotFoundError:
+                            continue
+                    resolved_documents = sorted(resolved_doc_set)
+                    scope["documents"] = resolved_documents
+                if resolved_documents:
+                    doc_placeholders = ",".join("?" for _ in resolved_documents)
+                    provenance_filters.append(f"a.document_id IN ({doc_placeholders})")
+                    provenance_params.extend(resolved_documents)
+                    artifact_doc_clause = f"AND m.document_id IN ({doc_placeholders}) "
+                    artifact_doc_params.extend(resolved_documents)
+                else:
+                    provenance_filters.append("1 = 0")
+                    artifact_doc_clause = "AND 1 = 0 "
             # Check persistent per-dataset FTS readiness before scope loading
             # or vector search so a missing/stale index rebuild never repeats
             # scope queries or LanceDB scans.
@@ -6811,6 +6860,7 @@ class MemoryDAO:
                 and len(datasets) == 1
                 and not provenance_filters
                 and not historical_query
+                and document_ids is None
             ):
                 async with db.execute(
                     "SELECT 1 FROM v4_assertions a "
@@ -6869,13 +6919,14 @@ class MemoryDAO:
                     "LEFT JOIN v4_entities e ON r.artifact_kind = 'ENTITY' "
                     "AND e.entity_id = r.physical_artifact_id "
                     f"WHERE r.tenant_id = ? AND s.dataset_id IN ({placeholders}) "
+                    f"{artifact_doc_clause}"
                     "AND m.agent_id = ? AND m.state = 'COMMITTED' "
                     "AND (r.artifact_kind != 'ASSERTION_VECTOR' OR r.agent_id = ?) "
                     "AND r.state = 'ACTIVE' AND s.state = 'ACTIVE' "
                     "AND r.artifact_kind IN ('ENTITY', 'ASSERTION_VECTOR') "
                     "AND (r.artifact_kind = 'ASSERTION_VECTOR' OR "
                     "(e.tenant_id = r.tenant_id AND e.status = 'ACTIVE'))",
-                    (tenant_id, *datasets, agent_id, agent_id),
+                    (tenant_id, *datasets, *artifact_doc_params, agent_id, agent_id),
                 ) as cursor:
                     artifact_rows = await cursor.fetchall()
 
@@ -6969,6 +7020,11 @@ class MemoryDAO:
             requested_scope = {
                 "tenant_id": tenant_id,
                 "dataset_ids": sorted(set(dataset_ids)),
+                **(
+                    {"document_ids": sorted(set(document_ids))}
+                    if document_ids is not None
+                    else {}
+                ),
                 "agent_id": agent_id,
                 **(
                     {"principal_id": request_principal_id}

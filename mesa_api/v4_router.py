@@ -341,6 +341,9 @@ class V4SearchRequest(BaseModel):
     dataset_ids: list[PublicIdentifier] | None = Field(
         default=None, min_length=1, max_length=64
     )
+    document_ids: list[SourceIdentifier] | None = Field(
+        default=None, min_length=1, max_length=64
+    )
     query: str = Field(min_length=1, max_length=4096)
     limit: int = Field(default=10, ge=1, le=50)
     jurisdiction: str | None = Field(default=None, max_length=256)
@@ -1728,6 +1731,7 @@ def create_v4_router(
                 tenant_id=tenant_id,
                 agent_id=agent_id,
                 dataset_ids=datasets,
+                document_ids=payload.document_ids,
                 query=payload.query,
                 limit=payload.limit,
                 jurisdiction=payload.jurisdiction,
