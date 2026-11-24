@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-11-24
+
+[Release notes](docs/release-notes-0.9.5.md)
+
 ### Added
 
 - Additive revision validity fields (`revision_number`, `valid_from`,
@@ -50,13 +54,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The legal extraction stress test uses a deterministic work bound at the
+  existing input limits. The user guide shows how to load law versions and
+  search the text in force on a date.
 - Whole-document uploads retain the chunking plan selected at admission.
   Retries continue the same revision from its saved chunks, including legacy
   uploads whose stored prefix matches the configured plan.
 - Commit-time maintenance of the persistent BM25 index looks up only the
   committing mutation's assertions, reducing SQLite writer contention during
   ingestion.
-
 - Internal storage identifiers (`document_id`, `revision_id`, `chunk_id`,
   `assertion_id`, and catalog-mapped `mesa-*` entity names) are excluded from
   lexical FTS5 indexing, lexical passage/assertion scoring, and legal citation
@@ -869,6 +875,7 @@ for missing run output or a signed-tag verification.
 - **Test Suite**: 159+ tests covering unit, integration, P0 hotfixes, and performance benchmarks.
 - **CI Pipeline**: GitHub Actions workflow with Black, Ruff, mypy, pytest + coverage, and Codecov upload.
 
+[0.9.5]: https://github.com/Yasou13/MESA/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/Yasou13/MESA/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/Yasou13/MESA/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/Yasou13/MESA/compare/v0.9.1...v0.9.2
