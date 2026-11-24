@@ -16,7 +16,7 @@ passages with similar meaning. MESA can rebuild that index from SQLite.
 
 ## How a document becomes searchable
 
-An application submits text and a source reference through an authorized V4
+An application submits text and a source reference through an authorized
 session. MESA splits the text into chunks and records the revision and its
 chosen chunking plan. A retry can resume from the saved chunks. Background
 workers process each chunk, and the new revision becomes visible after all
@@ -41,8 +41,18 @@ recognized statute and article matches. Operators can enable a reranker.
 
 ## How applications use it
 
-Applications integrate through the V4 HTTP API, the Python SDK or the MCP
+Applications integrate through the HTTP API, the Python SDK or the MCP
 tools. Data producers acquire and parse source files. Applications handle
 answer generation and the user interface. [HTTP API](docs/api-reference.md) ·
 [Python SDK](docs/api-reference.md#v4-python-sdk) · [MCP tools](README_MCP.md#tools) ·
 [Ecosystem responsibilities](docs/architecture-v4.md#ecosystem-and-ownership)
+
+## What MESA does not do yet
+
+- MESA does not generate answers with an LLM. Built-in answering is planned
+  for Round 26; until then, applications write answers from the passages MESA
+  returns.
+- MESA has no graph database. Legal citations and article identities are
+  stored and looked up in SQLite.
+- LLM fact extraction is off by default and is not covered by the MVP
+  documentation.
