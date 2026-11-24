@@ -1441,6 +1441,44 @@ class MemoryDAO:
             "status": "ACTIVE",
         }
 
+    async def verify_v4_workspace_datasets(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_ids: list[str],
+    ) -> None:
+        """Verify every dataset exists and is ACTIVE inside (tenant_id, workspace_id)."""
+        if not tenant_id or not workspace_id or not dataset_ids:
+            raise ValueError("complete workspace dataset scope is required")
+        external_datasets = sorted(set(dataset_ids))
+        async with self._sql.connection() as db:
+            physical_workspace = await self._catalog.resolve_id_in_tx(
+                db,
+                tenant_id=tenant_id,
+                kind="workspace",
+                external_id=workspace_id,
+            )
+            unique_datasets = [
+                await self._catalog.resolve_id_in_tx(
+                    db,
+                    tenant_id=tenant_id,
+                    kind="dataset",
+                    external_id=item,
+                )
+                for item in external_datasets
+            ]
+            placeholders = ",".join("?" for _ in unique_datasets)
+            async with db.execute(
+                f"SELECT dataset_id FROM datasets WHERE tenant_id = ? "
+                f"AND workspace_id = ? AND status = 'ACTIVE' "
+                f"AND dataset_id IN ({placeholders})",
+                (tenant_id, physical_workspace, *unique_datasets),
+            ) as cursor:
+                found = {row[0] for row in await cursor.fetchall()}
+            if found != set(unique_datasets):
+                raise ValueError("dataset is outside workspace scope")
+
     async def get_v4_session(
         self,
         session_id: str,
@@ -2136,7 +2174,6 @@ class MemoryDAO:
                 tenant_id,
                 workspace_id,
                 dataset_id,
-                session_id,
                 document_id,
                 revision_id,
                 chunk_id,
@@ -2144,7 +2181,7 @@ class MemoryDAO:
                 content_payload,
                 source_ref,
             )
-        ):
+        ) or (session_id is None or (not document_chunk and not session_id)):
             raise ValueError("complete V4 admission provenance is required")
         if (idempotency_key is None) != (payload_hash is None):
             raise ValueError(
@@ -2610,7 +2647,15 @@ class MemoryDAO:
             "source_ref",
             "pipeline_run_id",
         }
-        missing = sorted(name for name in required if not candidate.get(name))
+        missing = sorted(
+            name
+            for name in required
+            if (
+                candidate.get(name) is None
+                if name == "session_id"
+                else not candidate.get(name)
+            )
+        )
         if missing:
             raise ValueError(f"canonical candidate is missing: {', '.join(missing)}")
         agent_id = str(candidate["agent_id"])

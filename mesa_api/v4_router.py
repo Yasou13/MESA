@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import re
 from datetime import datetime, timezone
@@ -285,10 +286,16 @@ class V4MemoryInsertRequest(BaseModel):
         return self
 
 
+DEFAULT_LOCAL_AGENT_ID = "local-agent"
+
+
 class V4DocumentIngestRequest(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True)
 
-    session_id: PublicIdentifier
+    session_id: PublicIdentifier | None = None
+    tenant_id: PublicIdentifier | None = None
+    workspace_id: PublicIdentifier | None = None
+    agent_id: PublicIdentifier | None = None
     dataset_id: PublicIdentifier
     document_id: SourceIdentifier
     title: str = Field(min_length=1, max_length=512)
@@ -298,6 +305,12 @@ class V4DocumentIngestRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_write_boundary(self) -> "V4DocumentIngestRequest":
+        if self.session_id is None and (
+            self.tenant_id is None or self.workspace_id is None
+        ):
+            raise ValueError(
+                "tenant_id and workspace_id are required when session_id is omitted"
+            )
         if len(self.content.encode("utf-8")) > 5_000_000:
             raise HTTPException(
                 status_code=413, detail="document exceeds 5,000,000 UTF-8 bytes"
@@ -321,7 +334,10 @@ class V4DocumentIngestResponse(BaseModel):
 class V4SearchRequest(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True)
 
-    session_id: PublicIdentifier
+    session_id: PublicIdentifier | None = None
+    tenant_id: PublicIdentifier | None = None
+    workspace_id: PublicIdentifier | None = None
+    agent_id: PublicIdentifier | None = None
     dataset_ids: list[PublicIdentifier] | None = Field(
         default=None, min_length=1, max_length=64
     )
@@ -345,6 +361,13 @@ class V4SearchRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_temporal_range(self) -> "V4SearchRequest":
+        if self.session_id is None:
+            if self.tenant_id is None or self.workspace_id is None:
+                raise ValueError(
+                    "tenant_id and workspace_id are required when session_id is omitted"
+                )
+            if self.dataset_ids is None:
+                raise ValueError("dataset_ids is required when session_id is omitted")
         if self.valid_from and self.valid_to and self.valid_from > self.valid_to:
             raise ValueError("valid_from must not be after valid_to")
         return self
@@ -400,7 +423,7 @@ class V4SearchResultItem(BaseModel):
 class V4SearchResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    session_id: str
+    session_id: str | None = None
     dataset_ids: list[str]
     results: list[V4SearchResultItem]
     degraded_sources: list[str] = []
@@ -562,6 +585,112 @@ async def _authorized_v4_session(
     if not allow_closed and session["status"] != "ACTIVE" and level == "WRITE":
         raise HTTPException(status_code=409, detail="Session is not active")
     return session
+
+
+async def _resolve_v4_scope(
+    request: Request,
+    dao: MemoryDAO,
+    access_control: AccessControl,
+    *,
+    session_id: str | None,
+    tenant_id: str | None,
+    workspace_id: str | None,
+    agent_id: str | None,
+    dataset_ids: list[str] | None,
+    level: str,
+) -> tuple[str, str, str, list[str], str]:
+    """Authorize either a session or explicit dataset-role scope (D94).
+
+    Returns ``(tenant_id, workspace_id, agent_id, dataset_ids, effective_session_id)``.
+    """
+    if session_id is not None:
+        session = await _authorized_v4_session(
+            request, dao, access_control, session_id, level=level
+        )
+        session_tenant = str(session["tenant_id"])
+        session_workspace = str(session["workspace_id"])
+        session_agent = str(session["agent_id"])
+        if tenant_id is not None and tenant_id != session_tenant:
+            raise HTTPException(
+                status_code=422, detail="tenant_id does not match session scope"
+            )
+        if workspace_id is not None and workspace_id != session_workspace:
+            raise HTTPException(
+                status_code=422, detail="workspace_id does not match session scope"
+            )
+        if agent_id is not None and agent_id != session_agent:
+            raise HTTPException(
+                status_code=422, detail="agent_id does not match session scope"
+            )
+        datasets = list(dataset_ids) if dataset_ids is not None else list(session["dataset_ids"])
+        if not set(datasets).issubset(set(session["dataset_ids"])):
+            raise HTTPException(
+                status_code=403, detail="Dataset is outside session scope"
+            )
+        return (session_tenant, session_workspace, session_agent, datasets, session_id)
+
+    if tenant_id is None or workspace_id is None or not dataset_ids:
+        raise HTTPException(
+            status_code=422,
+            detail="tenant_id, workspace_id and dataset scope are required when session_id is omitted",
+        )
+    datasets = list(dataset_ids)
+    await _require_dataset_roles(
+        request,
+        access_control,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        dataset_ids=datasets,
+        required_role="WRITER" if level == "WRITE" else "READER",
+    )
+    try:
+        await dao.verify_v4_workspace_datasets(
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            dataset_ids=datasets,
+        )
+    except CatalogIdentityNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return (tenant_id, workspace_id, agent_id or DEFAULT_LOCAL_AGENT_ID, datasets, "")
+
+
+async def _authorize_mutation_access(
+    request: Request,
+    dao: MemoryDAO,
+    access_control: AccessControl,
+    mutation: dict,
+    *,
+    level: str,
+    allow_closed: bool = False,
+) -> tuple[str, dict | None]:
+    """Authorize mutation reads/actions for both session and sessionless writes."""
+    mutation_session = str(mutation.get("session_id") or "")
+    if mutation_session:
+        session = await _authorized_v4_session(
+            request,
+            dao,
+            access_control,
+            mutation_session,
+            level=level,
+            allow_closed=allow_closed,
+        )
+        return str(session["tenant_id"]), session
+    tenant_id = str(mutation.get("tenant_id") or "")
+    workspace_id = str(mutation.get("workspace_id") or "")
+    dataset_id = str(mutation.get("dataset_id") or "")
+    if not tenant_id or not workspace_id or not dataset_id:
+        raise HTTPException(status_code=403, detail="Mutation scope is incomplete")
+    await _require_dataset_roles(
+        request,
+        access_control,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        dataset_ids=[dataset_id],
+        required_role="WRITER" if level == "WRITE" else "READER",
+    )
+    return tenant_id, None
 
 
 def _require_historical_mutation_scope(mutation: dict, session: dict) -> None:
@@ -1136,6 +1265,83 @@ def create_v4_router(
     ) -> dict:
         return await insert_memory(request, payload, dao, access_control)
 
+    async def _admit_chunk(
+        dao: MemoryDAO,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        agent_id: str,
+        session_id: str,
+        document_id: str,
+        revision_id: str,
+        chunk_id: str,
+        title: str,
+        content: str,
+        source_ref: str,
+        evidence_span: str,
+        revision_number: int,
+        chunk_ordinal: int,
+        supersedes_revision_id: str | None,
+        metadata: dict[str, Any],
+        legal_identity: dict[str, Any] | None,
+        idempotency_key: str | None,
+        payload_hash: str | None,
+        finalize_revision: bool,
+        document_chunk: bool = False,
+    ) -> dict:
+        await _require_mutation_admission(dao, require_projection_consumer=True)
+        embedding_identity = configured_embedding_identity()
+        try:
+            admission = await dao.admit_v4_memory(
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                dataset_id=dataset_id,
+                agent_id=agent_id,
+                session_id=session_id,
+                document_id=document_id,
+                revision_id=revision_id,
+                chunk_id=chunk_id,
+                title=title,
+                content_payload=content,
+                source_ref=source_ref,
+                evidence_span=evidence_span,
+                revision_number=revision_number,
+                chunk_ordinal=chunk_ordinal,
+                supersedes_revision_id=supersedes_revision_id,
+                metadata=metadata,
+                document_chunk=document_chunk,
+                legal_identity=legal_identity,
+                embedding_provider=embedding_identity.provider,
+                embedding_model=embedding_identity.model,
+                embedding_version=embedding_identity.version,
+                embedding_dimension=embedding_identity.dimension,
+                embedding_space_id=embedding_identity.embedding_space_id,
+                embedding_model_revision=embedding_identity.model_revision,
+                embedding_normalized=embedding_identity.normalized,
+                policy=config.queue_admission_policy,
+                validation_mode=0,
+                idempotency_key=idempotency_key,
+                payload_hash=payload_hash if idempotency_key else None,
+                finalize_revision=finalize_revision,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        except QueueRecordTooLargeError:
+            raise HTTPException(status_code=413, detail="queue_record_too_large")
+        except QueueOverCapacityError:
+            raise HTTPException(status_code=503, detail="queue_over_capacity")
+        except QueueUnavailableError:
+            raise HTTPException(status_code=503, detail="queue_unavailable")
+        if admission["outcome"] == "IN_PROGRESS":
+            raise HTTPException(
+                status_code=409, detail="idempotency_key is in progress"
+            )
+        response = dict(admission["response"])
+        if admission["outcome"] == "DUPLICATE":
+            response["duplicate"] = True
+        return response
+
     async def insert_memory(
         request: Request,
         payload: V4MemoryInsertRequest,
@@ -1155,64 +1361,37 @@ def create_v4_router(
             raise HTTPException(
                 status_code=403, detail="Dataset is outside session scope"
             )
-        await _require_mutation_admission(dao, require_projection_consumer=True)
         payload_hash = hashlib.sha256(
             payload.model_dump_json(exclude={"session_id", "idempotency_key"}).encode()
         ).hexdigest()
-        embedding_identity = configured_embedding_identity()
-        try:
-            admission = await dao.admit_v4_memory(
-                tenant_id=str(session["tenant_id"]),
-                workspace_id=str(session["workspace_id"]),
-                dataset_id=payload.dataset_id,
-                agent_id=str(session["agent_id"]),
-                session_id=payload.session_id,
-                document_id=payload.document_id,
-                revision_id=payload.revision_id,
-                chunk_id=payload.chunk_id,
-                title=payload.title,
-                content_payload=payload.content,
-                source_ref=payload.source_ref,
-                evidence_span=payload.evidence_span,
-                revision_number=payload.revision_number,
-                chunk_ordinal=payload.chunk_ordinal,
-                supersedes_revision_id=payload.supersedes_revision_id,
-                metadata=payload.metadata,
-                document_chunk=document_chunk,
-                legal_identity=(
-                    payload.legal_identity.model_dump(exclude_none=True)
-                    if payload.legal_identity is not None
-                    else None
-                ),
-                embedding_provider=embedding_identity.provider,
-                embedding_model=embedding_identity.model,
-                embedding_version=embedding_identity.version,
-                embedding_dimension=embedding_identity.dimension,
-                embedding_space_id=embedding_identity.embedding_space_id,
-                embedding_model_revision=embedding_identity.model_revision,
-                embedding_normalized=embedding_identity.normalized,
-                policy=config.queue_admission_policy,
-                validation_mode=0,
-                idempotency_key=payload.idempotency_key,
-                payload_hash=payload_hash if payload.idempotency_key else None,
-                finalize_revision=payload.finalize_revision,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
-        except QueueRecordTooLargeError:
-            raise HTTPException(status_code=413, detail="queue_record_too_large")
-        except QueueOverCapacityError:
-            raise HTTPException(status_code=503, detail="queue_over_capacity")
-        except QueueUnavailableError:
-            raise HTTPException(status_code=503, detail="queue_unavailable")
-        if admission["outcome"] == "IN_PROGRESS":
-            raise HTTPException(
-                status_code=409, detail="idempotency_key is in progress"
-            )
-        response = dict(admission["response"])
-        if admission["outcome"] == "DUPLICATE":
-            response["duplicate"] = True
-        return response
+        return await _admit_chunk(
+            dao,
+            tenant_id=str(session["tenant_id"]),
+            workspace_id=str(session["workspace_id"]),
+            dataset_id=payload.dataset_id,
+            agent_id=str(session["agent_id"]),
+            session_id=payload.session_id,
+            document_id=payload.document_id,
+            revision_id=payload.revision_id,
+            chunk_id=payload.chunk_id,
+            title=payload.title,
+            content=payload.content,
+            source_ref=payload.source_ref,
+            evidence_span=payload.evidence_span,
+            revision_number=payload.revision_number,
+            chunk_ordinal=payload.chunk_ordinal,
+            supersedes_revision_id=payload.supersedes_revision_id,
+            metadata=payload.metadata,
+            legal_identity=(
+                payload.legal_identity.model_dump(exclude_none=True)
+                if payload.legal_identity is not None
+                else None
+            ),
+            idempotency_key=payload.idempotency_key,
+            payload_hash=payload_hash if payload.idempotency_key else None,
+            finalize_revision=payload.finalize_revision,
+            document_chunk=document_chunk,
+        )
 
     @router.post("/documents", response_model=V4DocumentIngestResponse, status_code=202)
     async def ingest_document(
@@ -1234,13 +1413,19 @@ def create_v4_router(
             for error in errors:
                 error["loc"] = ("body", *error["loc"])
             raise RequestValidationError(errors) from exc
-        session = await _authorized_v4_session(
-            request, dao, access_control, payload.session_id, level="WRITE"
-        )
-        if payload.dataset_id not in session["dataset_ids"]:
-            raise HTTPException(
-                status_code=403, detail="Dataset is outside session scope"
+        tenant_id, workspace_id, agent_id, _datasets, effective_session_id = (
+            await _resolve_v4_scope(
+                request,
+                dao,
+                access_control,
+                session_id=payload.session_id,
+                tenant_id=payload.tenant_id,
+                workspace_id=payload.workspace_id,
+                agent_id=payload.agent_id,
+                dataset_ids=[payload.dataset_id],
+                level="WRITE",
             )
+        )
         await _require_mutation_admission(dao, require_projection_consumer=True)
         content_hash = hashlib.sha256(payload.content.encode("utf-8")).hexdigest()
         revision_id = (
@@ -1250,7 +1435,7 @@ def create_v4_router(
             ).hexdigest()[:32]
         )
         scope = {
-            "tenant_id": str(session["tenant_id"]),
+            "tenant_id": tenant_id,
             "dataset_id": payload.dataset_id,
         }
         configured_plan = config.chunking
@@ -1438,23 +1623,60 @@ def create_v4_router(
                 if ordinal in admitted:
                     continue
                 chunk_id = f"{revision_id}-c{ordinal:05d}"
-                chunk_payload = V4MemoryInsertRequest(
-                    **payload.model_dump(exclude={"content"}),
-                    content=chunk,
-                    legal_identity=identities[ordinal],
-                    revision_id=revision_id,
-                    chunk_id=chunk_id,
-                    revision_number=revision["revision_number"],
-                    chunk_ordinal=ordinal,
-                    supersedes_revision_id=revision["supersedes_revision_id"],
-                    finalize_revision=ordinal == len(chunks) - 1,
-                    idempotency_key=chunk_id,
+                chunk_legal = (
+                    V4LegalIdentityRequest.model_validate(identities[ordinal]).model_dump(
+                        exclude_none=True
+                    )
+                    if identities[ordinal] is not None
+                    else None
                 )
+                chunk_hash = hashlib.sha256(
+                    json.dumps(
+                        {
+                            "dataset_id": payload.dataset_id,
+                            "document_id": payload.document_id,
+                            "revision_id": revision_id,
+                            "chunk_id": chunk_id,
+                            "title": payload.title,
+                            "source_ref": payload.source_ref,
+                            "content": chunk,
+                            "evidence_span": "",
+                            "revision_number": revision["revision_number"],
+                            "chunk_ordinal": ordinal,
+                            "finalize_revision": ordinal == len(chunks) - 1,
+                            "supersedes_revision_id": revision["supersedes_revision_id"],
+                            "metadata": payload.metadata,
+                            "legal_identity": chunk_legal,
+                        },
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest()
                 capacity_deadline = asyncio.get_running_loop().time() + 5.0
                 while True:
                     try:
-                        response = await insert_memory(
-                            request, chunk_payload, dao, access_control,
+                        response = await _admit_chunk(
+                            dao,
+                            tenant_id=tenant_id,
+                            workspace_id=workspace_id,
+                            dataset_id=payload.dataset_id,
+                            agent_id=agent_id,
+                            session_id=effective_session_id,
+                            document_id=payload.document_id,
+                            revision_id=revision_id,
+                            chunk_id=chunk_id,
+                            title=payload.title,
+                            content=chunk,
+                            source_ref=payload.source_ref,
+                            evidence_span="",
+                            revision_number=revision["revision_number"],
+                            chunk_ordinal=ordinal,
+                            supersedes_revision_id=revision["supersedes_revision_id"],
+                            metadata=payload.metadata,
+                            legal_identity=chunk_legal,
+                            idempotency_key=chunk_id,
+                            payload_hash=chunk_hash,
+                            finalize_revision=ordinal == len(chunks) - 1,
                             document_chunk=True,
                         )
                         break
@@ -1486,20 +1708,25 @@ def create_v4_router(
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
     ) -> dict:
-        session = await _authorized_v4_session(
-            request, dao, access_control, payload.session_id, level="READ"
-        )
-        datasets = payload.dataset_ids or list(session["dataset_ids"])
-        if not set(datasets).issubset(set(session["dataset_ids"])):
-            raise HTTPException(
-                status_code=403, detail="Dataset is outside session scope"
+        tenant_id, _workspace_id, agent_id, datasets, _effective_session_id = (
+            await _resolve_v4_scope(
+                request,
+                dao,
+                access_control,
+                session_id=payload.session_id,
+                tenant_id=payload.tenant_id,
+                workspace_id=payload.workspace_id,
+                agent_id=payload.agent_id,
+                dataset_ids=payload.dataset_ids,
+                level="READ",
             )
+        )
         try:
             certification_metadata: dict[str, Any] = {}
             principal = _active_principal(request)
             results = await dao.search_v4_memory(
-                tenant_id=str(session["tenant_id"]),
-                agent_id=str(session["agent_id"]),
+                tenant_id=tenant_id,
+                agent_id=agent_id,
                 dataset_ids=datasets,
                 query=payload.query,
                 limit=payload.limit,
@@ -1555,11 +1782,11 @@ def create_v4_router(
         mutation = await dao.get_mutation_summary(mutation_id)
         if mutation is None:
             raise HTTPException(status_code=404, detail="Unknown mutation")
-        await _authorized_v4_session(
+        await _authorize_mutation_access(
             request,
             dao,
             access_control,
-            str(mutation["session_id"]),
+            mutation,
             level="READ",
         )
         pipeline = (
@@ -1589,19 +1816,20 @@ def create_v4_router(
         mutation = await dao.get_mutation_summary(mutation_id)
         if mutation is None:
             raise HTTPException(status_code=404, detail="Unknown mutation")
-        session = await _authorized_v4_session(
+        tenant_id, session = await _authorize_mutation_access(
             request,
             dao,
             access_control,
-            str(mutation["session_id"]),
+            mutation,
             level="WRITE",
             allow_closed=True,
         )
-        _require_historical_mutation_scope(mutation, session)
+        if session is not None:
+            _require_historical_mutation_scope(mutation, session)
         principal = _active_principal(request)
         if not await access_control.check_dataset_permission(
             principal.principal_id,
-            tenant_id=str(session["tenant_id"]),
+            tenant_id=tenant_id,
             dataset_id=str(mutation["dataset_id"]),
             permission="ROLLBACK",
         ):
@@ -1627,19 +1855,20 @@ def create_v4_router(
         mutation = await dao.get_mutation_summary(mutation_id)
         if mutation is None:
             raise HTTPException(status_code=404, detail="Unknown mutation")
-        session = await _authorized_v4_session(
+        tenant_id, session = await _authorize_mutation_access(
             request,
             dao,
             access_control,
-            str(mutation["session_id"]),
+            mutation,
             level="WRITE",
             allow_closed=True,
         )
-        _require_historical_mutation_scope(mutation, session)
+        if session is not None:
+            _require_historical_mutation_scope(mutation, session)
         principal = _active_principal(request)
         if not await access_control.check_dataset_permission(
             principal.principal_id,
-            tenant_id=str(session["tenant_id"]),
+            tenant_id=tenant_id,
             dataset_id=str(mutation["dataset_id"]),
             permission="ROLLBACK",
         ):

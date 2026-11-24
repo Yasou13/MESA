@@ -37,7 +37,7 @@ class MemoryCandidate(BaseModel):
     revision_id: str = Field(min_length=1)
     chunk_id: str = Field(min_length=1)
     agent_id: str = Field(min_length=1)
-    session_id: str = Field(min_length=1)
+    session_id: str = Field(default="")
     content_payload: str = Field(min_length=1)
     source_ref: str = Field(min_length=1)
     evidence_span: str = ""
