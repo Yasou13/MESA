@@ -277,7 +277,17 @@ def status_command(args: argparse.Namespace) -> None:
         print(f"Health (/health): {health_status}")
 
 
-def mcp_config_command(args: argparse.Namespace) -> None:
+MCP_CONFIG_CLIENTS = (
+    "claude-code",
+    "claude-desktop",
+    "codex",
+    "cursor",
+    "gemini",
+    "antigravity",
+)
+
+
+def _resolve_mcp_server_entry() -> tuple[str, dict[str, str]]:
     home, _, _ = resolve_local_paths()
     creds_path = home / "credentials.json"
     creds: dict[str, Any] = {}
@@ -298,22 +308,55 @@ def mcp_config_command(args: argparse.Namespace) -> None:
     else:
         cmd = str(Path(cmd).resolve())
 
+    env = {
+        "MESA_BASE_URL": str(creds.get("base_url", "http://127.0.0.1:8000")),
+        "MESA_API_KEY": str(creds.get("api_key", "")),
+        "MESA_TENANT_ID": str(creds.get("tenant_id", "local")),
+        "MESA_WORKSPACE_ID": str(creds.get("workspace_id", "default")),
+        "MESA_DATASET_ID": str(creds.get("dataset_id", "default")),
+        "MESA_ACTOR_ID": str(creds.get("agent_id", "local-agent")),
+    }
+    return cmd, env
+
+
+def render_mcp_config(client: str, cmd: str, env: dict[str, str]) -> str:
+    """Render a ready-to-paste MCP client configuration snippet without writing files (D97)."""
+    if client == "codex":
+        lines = [
+            "[mcp_servers.mesa]",
+            f"command = {json.dumps(cmd)}",
+            "args = []",
+            "",
+            "[mcp_servers.mesa.env]",
+        ]
+        for key, value in env.items():
+            lines.append(f"{key} = {json.dumps(value)}")
+        return "\n".join(lines)
+
+    entry: dict[str, Any] = {
+        "command": cmd,
+        "args": [],
+        "env": env,
+    }
+    if client == "claude-code":
+        entry = {"type": "stdio", **entry}
+    return json.dumps({"mcpServers": {"mesa": entry}}, indent=2)
+
+
+def mcp_config_command(args: argparse.Namespace) -> None:
+    cmd, env = _resolve_mcp_server_entry()
     sys.stderr.write(
         "Warning: the configuration below contains your MESA API key in plaintext.\n"
     )
-
+    client = getattr(args, "client", None)
+    if client is not None:
+        print(render_mcp_config(client, cmd, env))
+        return
     config = {
         "mcpServers": {
             "mesa": {
                 "command": cmd,
-                "env": {
-                    "MESA_BASE_URL": creds.get("base_url", "http://127.0.0.1:8000"),
-                    "MESA_API_KEY": creds.get("api_key", ""),
-                    "MESA_TENANT_ID": creds.get("tenant_id", "local"),
-                    "MESA_WORKSPACE_ID": creds.get("workspace_id", "default"),
-                    "MESA_DATASET_ID": creds.get("dataset_id", "default"),
-                    "MESA_ACTOR_ID": creds.get("agent_id", "local-agent"),
-                },
+                "env": env,
             }
         }
     }
@@ -374,6 +417,19 @@ def register_local_commands(subparsers: argparse._SubParsersAction) -> None:
         "mcp-config", help="print MCP client configuration JSON"
     )
 
+    mcp_parser = subparsers.add_parser(
+        "mcp", help="MCP client configuration helpers"
+    )
+    mcp_sub = mcp_parser.add_subparsers(dest="mcp_command", required=True)
+    mcp_cfg = mcp_sub.add_parser(
+        "config", help="print a ready-to-paste MCP config snippet for a client"
+    )
+    mcp_cfg.add_argument(
+        "client",
+        choices=MCP_CONFIG_CLIENTS,
+        help="target MCP client",
+    )
+
 
 def handle_local_command(args: argparse.Namespace) -> None:
     handlers = {
@@ -383,6 +439,7 @@ def handle_local_command(args: argparse.Namespace) -> None:
         "delete": delete_command,
         "status": status_command,
         "mcp-config": mcp_config_command,
+        "mcp": mcp_config_command,
     }
     handler = handlers.get(args.group)
     if handler:

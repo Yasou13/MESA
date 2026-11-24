@@ -91,8 +91,7 @@ mesa-v4-rebuild = "mesa_memory.rebuild_runner:main"
 mesa-v4-admin = "mesa_memory.security.admin_cli:main"
 mesa-mcp = "mesa_mcp.server:main"
 mesa-mcp-gateway = "mesa_mcp.gateway.app:main"
-mesa-antigravity-bridge = "mesa_mcp.antigravity_bridge:main"
-mesa = "mesa_mcp.codex_cli:main"
+mesa = "mesa_mcp.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/Yasou13/MESA"
