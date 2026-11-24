@@ -1904,32 +1904,34 @@ def create_v4_router(
         try:
             certification_metadata: dict[str, Any] = {}
             principal = _active_principal(request)
-            results = await dao.search_v4_memory(
-                tenant_id=tenant_id,
-                agent_id=agent_id,
-                dataset_ids=datasets,
-                document_ids=payload.document_ids,
-                query=payload.query,
-                limit=payload.limit,
-                jurisdiction=payload.jurisdiction,
-                valid_at=(
+            search_kwargs: dict[str, Any] = {
+                "tenant_id": tenant_id,
+                "agent_id": agent_id,
+                "dataset_ids": datasets,
+                "query": payload.query,
+                "limit": payload.limit,
+                "jurisdiction": payload.jurisdiction,
+                "valid_at": (
                     payload.valid_at.astimezone(timezone.utc).isoformat()
                     if payload.valid_at
                     else None
                 ),
-                valid_from=(
+                "valid_from": (
                     payload.valid_from.astimezone(timezone.utc).isoformat()
                     if payload.valid_from
                     else None
                 ),
-                valid_to=(
+                "valid_to": (
                     payload.valid_to.astimezone(timezone.utc).isoformat()
                     if payload.valid_to
                     else None
                 ),
-                request_principal_id=str(principal.principal_id),
-                certification_metadata=certification_metadata,
-            )
+                "request_principal_id": str(principal.principal_id),
+                "certification_metadata": certification_metadata,
+            }
+            if payload.document_ids is not None:
+                search_kwargs["document_ids"] = payload.document_ids
+            results = await dao.search_v4_memory(**search_kwargs)
         except EmbeddingMigrationRequiredError:
             raise HTTPException(
                 status_code=409,
