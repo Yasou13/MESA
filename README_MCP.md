@@ -155,7 +155,9 @@ lifecycle.
 
 - `mesa_health` reports bridge, gateway, MESA and spool state, including
   `DEGRADED` operation.
-- `mesa_recall` performs scoped V4 search or token-bounded context retrieval.
+- `mesa_recall` performs scoped V4 search or token-bounded context retrieval,
+  returning additive `revision_number`, `valid_from`, and `valid_to` fields
+  (`""` when unset) alongside wrapped evidence.
 - `mesa_remember`, `mesa_improve` and `mesa_forget` return durable operation
   IDs; default policy returns `PENDING_APPROVAL` rather than holding stdio open.
 - `mesa_get_operation_status` polls approval and mutation progress.

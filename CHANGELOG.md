@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Additive revision validity fields (`revision_number`, `valid_from`,
+  `valid_to`, empty string when unset) on search results across HTTP
+  (`/v4/memory/search`), Python SDK (`V4SearchResult`, `V4ContextSource`), MCP
+  (`mesa_recall` and gateway recall), and HTTP context source lists
+  (`GET /v4/sessions/{session_id}/context`) (D88).
 - Out-of-order ingestion for dated document revisions (D87): when revisions
   carry `metadata.valid_from`, validity order rather than upload order decides
   the `ACTIVE` head and `[valid_from, valid_to)` history chain. Older versions
