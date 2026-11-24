@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock
 import pytest
 from cryptography.fernet import Fernet
 
-from mesa_mcp import codex_hooks
 from mesa_mcp.gateway.auth import GatewayPrincipal
 from mesa_mcp.gateway.operations import GatewayOperationService
 from mesa_memory.context_builder import TAG_CLOSE, TAG_OPEN, ContextBuilder
@@ -110,81 +109,3 @@ async def test_mcp_recall_context_contains_stored_injection_as_data() -> None:
         arguments={"query": "architecture", "mode": "context"},
     )
     _assert_bounded(result["context_text"])
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("event", ["SessionStart", "PostCompact"])
-async def test_codex_context_contains_stored_injection_as_data(
-    event: str, tmp_path, monkeypatch
-) -> None:
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
-    monkeypatch.setattr(codex_hooks, "workspace_fingerprint", lambda _root: "fp")
-    monkeypatch.setattr(
-        codex_hooks,
-        "_post",
-        AsyncMock(
-            return_value={
-                "profile": {
-                    "session_start_enabled": True,
-                    "post_compact_enabled": True,
-                }
-            }
-        ),
-    )
-    monkeypatch.setattr(
-        codex_hooks,
-        "_recall",
-        AsyncMock(
-            return_value={
-                "context_text": ATTACK,
-                "memories": [
-                    {
-                        "memory_id": "memory-1",
-                        "memory_type": "decision",
-                        "content": ATTACK,
-                    }
-                ],
-            }
-        ),
-    )
-    context = await codex_hooks._context(
-        {"cwd": str(tmp_path), "session_id": "session-1", "hook_event_name": event}
-    )
-    _assert_bounded(context)
-
-
-@pytest.mark.asyncio
-async def test_codex_cache_fallback_preserves_untrusted_boundary(
-    tmp_path, monkeypatch
-) -> None:
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
-    monkeypatch.setattr(codex_hooks, "workspace_fingerprint", lambda _root: "fp")
-    monkeypatch.setattr(
-        codex_hooks,
-        "_post",
-        AsyncMock(return_value={"profile": {"session_start_enabled": True}}),
-    )
-    monkeypatch.setattr(
-        codex_hooks,
-        "_recall",
-        AsyncMock(
-            return_value={
-                "context_text": ATTACK,
-                "memories": [
-                    {
-                        "memory_id": "memory-1",
-                        "memory_type": "decision",
-                        "content": ATTACK,
-                    }
-                ],
-            }
-        ),
-    )
-    payload = {
-        "cwd": str(tmp_path),
-        "session_id": "session-1",
-        "hook_event_name": "SessionStart",
-    }
-    _assert_bounded(await codex_hooks._context(payload))
-    monkeypatch.setattr(codex_hooks, "_post", AsyncMock(side_effect=OSError("offline")))
-    _assert_bounded(await codex_hooks._context(payload))

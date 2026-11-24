@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mesa_mcp import codex_cli
+from mesa_mcp import cli
 from mesa_mcp.local_cli import (
     add_command,
     delete_command,
@@ -109,7 +109,7 @@ def test_start_host_reaches_uvicorn_but_credentials_stay_loopback(tmp_path, monk
     arguments = ["start", "--home", str(home), "--storage-root", str(storage), "--port", "8123"]
     if host is not None:
         arguments += ["--host", host]
-    args = codex_cli._parser().parse_args(arguments)
+    args = cli._parser().parse_args(arguments)
     assert args.host == (host or "127.0.0.1")
     with patch("uvicorn.run") as run:
         start_command(args)
@@ -233,7 +233,7 @@ def test_cli_add_waits_by_default_and_prints_searchable(tmp_path, capsys):
     with patch("mesa_client.Mesa", return_value=mock_mesa):
         test_file = tmp_path / "doc.txt"
         test_file.write_text("sample content", encoding="utf-8")
-        parser = codex_cli._parser()
+        parser = cli._parser()
         args = parser.parse_args(["add", str(test_file), "--source", "file://doc.txt"])
         add_command(args)
         out, _ = capsys.readouterr()
@@ -255,7 +255,7 @@ def test_cli_add_no_wait_skips_searchable(tmp_path, capsys):
     with patch("mesa_client.Mesa", return_value=mock_mesa):
         test_file = tmp_path / "doc.txt"
         test_file.write_text("sample content", encoding="utf-8")
-        parser = codex_cli._parser()
+        parser = cli._parser()
         args = parser.parse_args(["add", str(test_file), "--source", "file://doc.txt", "--no-wait"])
         add_command(args)
         out, _ = capsys.readouterr()
@@ -266,8 +266,8 @@ def test_cli_add_no_wait_skips_searchable(tmp_path, capsys):
         assert "searchable" not in out
 
 
-def test_codex_cli_parser_routes_to_local_commands():
-    parser = codex_cli._parser()
+def test_cli_parser_routes_to_local_commands():
+    parser = cli._parser()
     args_start = parser.parse_args(["start", "--port", "9000"])
     assert args_start.group == "start"
     assert args_start.port == 9000
@@ -419,13 +419,13 @@ def test_cli_add_prints_mutation_failure_without_traceback(tmp_path, capsys):
 
 
 def test_cli_delete_by_source(capsys):
-    from mesa_mcp import codex_cli
+    from mesa_mcp import cli
     from mesa_mcp.local_cli import delete_command
 
     mock_mesa = MagicMock()
     mock_mesa.delete.return_value = {"status": "purged", "document_id": "doc-derived-123"}
     with patch("mesa_client.Mesa", return_value=mock_mesa):
-        parser = codex_cli._parser()
+        parser = cli._parser()
         args = parser.parse_args(["delete", "--source", "file://doc.txt"])
         delete_command(args)
         out, _ = capsys.readouterr()
