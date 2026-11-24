@@ -23,6 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `AsyncMesaV4Client`, `Mesa`), and MCP (`mesa_recall`) (D95). Applied in the
   pre-rank scope query across BM25, vector, and legal lanes, included in the
   search scope cache key, and bypasses the dataset-wide persistent BM25 index.
+- Citation spans (`char_start`/`char_end` on `source_chunks` via Alembic
+  migration `b1e2f3a4b5c6` with exact cumulative backfill for existing stores)
+  and `revision_id`, `chunk_id`, `span` (`{"start", "end"}`) fields on every
+  search result and context source list across HTTP, SDK, and MCP (D95).
+- Document text read endpoint `GET /v4/documents/{document_id}/text` (and SDK
+  `get_document_text`) returning the full rebuilt text or a `start`/`end` slice
+  for the active or a specified historical revision with dataset `READER`
+  access (D96).
 
 ## [0.9.5] - 2026-11-24
 

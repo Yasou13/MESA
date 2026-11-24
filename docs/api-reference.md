@@ -319,6 +319,25 @@ validation and errors as `/v4/memory/insert`. Queue and maintenance failures
 use the existing admission errors below. See [Versioned documents](#versioned-documents)
 for validity dates and out-of-order history rules.
 
+### Document text: `GET /v4/documents/{document_id}/text`
+
+Returns a revision's full text (default: `ACTIVE`) or a character slice
+(`start` / `end`), rebuilt from `source_chunks` in ordinal order. Pass query
+parameters `tenant_id`, `workspace_id`, `dataset_id`, optional `revision_id`
+(including historical `SUPERSEDED` revisions), and optional `start` / `end`
+non-negative character offsets (`start <= end`). Requires dataset `READER`
+role. Purged documents return HTTP 409; unknown documents or revisions return
+HTTP 404. To delete/purge a document, use
+`DELETE /v4/catalog/documents/{document_id}` (see [V4 catalog](#v4-catalog)).
+
+Each search result and context source item carries stable citation fields:
+`document_id`, `revision_id`, `revision_number`, `chunk_id`, and
+`span` (`{"start": int, "end": int}` character offsets inside the revision's
+full text so `text[span.start:span.end]` reproduces the passage). Chunks
+written through `/v4/memory/insert` carry `span` `0..len(chunk)`. File-format
+locator fields (`page` for PDF, `sheet` and `row_start`/`row_end` for XLSX)
+are reserved on result items for file ingestion (D99).
+
 ### Versioned documents
 
 Documents that change over time (such as amended laws or policies) can carry

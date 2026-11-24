@@ -1060,6 +1060,138 @@
         ]
       }
     },
+    "/v4/documents/{document_id}/text": {
+      "get": {
+        "tags": [
+          "v4-full-cognitive"
+        ],
+        "summary": "Get Document Text",
+        "operationId": "get_document_text_v4_documents__document_id__text_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "title": "Document Id"
+            }
+          },
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Workspace Id"
+            }
+          },
+          {
+            "name": "dataset_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Dataset Id"
+            }
+          },
+          {
+            "name": "revision_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Revision Id"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V4DocumentTextResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v4/memory/search": {
       "post": {
         "tags": [
@@ -2606,6 +2738,27 @@
         ],
         "title": "V4CapabilityResponse"
       },
+      "V4CitationSpan": {
+        "properties": {
+          "start": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start",
+          "end"
+        ],
+        "title": "V4CitationSpan",
+        "description": "Character offsets of a chunk inside its revision's full text (D95)."
+      },
       "V4ContextResponse": {
         "properties": {
           "tenant_id": {
@@ -2941,6 +3094,58 @@
           "title"
         ],
         "title": "V4DocumentRequest"
+      },
+      "V4DocumentTextResponse": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "revision_id": {
+            "type": "string",
+            "title": "Revision Id"
+          },
+          "revision_number": {
+            "type": "integer",
+            "title": "Revision Number"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "total_length": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Length"
+          },
+          "start": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "End"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id",
+          "revision_id",
+          "revision_number",
+          "status",
+          "total_length",
+          "start",
+          "end",
+          "text"
+        ],
+        "title": "V4DocumentTextResponse",
+        "description": "Rebuilt text (or character slice) for one document revision (D96)."
       },
       "V4LegalIdentityRequest": {
         "properties": {
@@ -3690,6 +3895,28 @@
       },
       "V4SearchResultItem": {
         "properties": {
+          "document_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision Id"
+          },
           "revision_number": {
             "anyOf": [
               {
@@ -3700,6 +3927,27 @@
               }
             ],
             "title": "Revision Number"
+          },
+          "chunk_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunk Id"
+          },
+          "span": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/V4CitationSpan"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "valid_from": {
             "type": "string",
@@ -3715,7 +3963,7 @@
         "additionalProperties": true,
         "type": "object",
         "title": "V4SearchResultItem",
-        "description": "One ranked search or context source item with revision validity (D88)."
+        "description": "One ranked search or context source item with revision validity and span (D88, D95)."
       },
       "V4SessionStartRequest": {
         "properties": {
