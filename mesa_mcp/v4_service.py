@@ -542,6 +542,15 @@ def _typed_result(item: dict[str, Any]) -> dict[str, Any]:
         provenance = raw_provenance
     else:
         provenance = {}
+    revision_number = item.get("revision_number")
+    if revision_number is None:
+        revision_number = primary_assertion.get("revision_number")
+    valid_from = item.get("valid_from")
+    if valid_from is None:
+        valid_from = primary_assertion.get("valid_from")
+    valid_to = item.get("valid_to")
+    if valid_to is None:
+        valid_to = primary_assertion.get("valid_to")
     return {
         "memory_id": item.get("memory_id")
         or evidence_id
@@ -551,6 +560,9 @@ def _typed_result(item: dict[str, Any]) -> dict[str, Any]:
         "chunk_id": item.get("source_chunk_id")
         or item.get("chunk_id")
         or primary_assertion.get("chunk_id"),
+        "revision_number": revision_number,
+        "valid_from": str(valid_from or ""),
+        "valid_to": str(valid_to or ""),
         "content": item.get("chunk_text")
         or primary_assertion.get("chunk_text")
         or item.get("content")

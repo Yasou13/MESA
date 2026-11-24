@@ -505,6 +505,9 @@ class GatewayOperationService:
             "memory_id": memory.get("memory_id") or memory.get("chunk_id"),
             "document_id": memory.get("document_id"),
             "chunk_id": memory.get("chunk_id"),
+            "revision_number": memory.get("revision_number"),
+            "valid_from": str(memory.get("valid_from") or ""),
+            "valid_to": str(memory.get("valid_to") or ""),
             "score": memory.get("score", 0.0),
             "content": wrapped,
         }

@@ -387,15 +387,43 @@ class V4VectorLaneDiagnostics(BaseModel):
     missing_vector_id_count: int = Field(ge=0)
 
 
+class V4SearchResultItem(BaseModel):
+    """One ranked search or context source item with revision validity (D88)."""
+
+    model_config = ConfigDict(extra="allow", frozen=True)
+
+    revision_number: int | None = None
+    valid_from: str = ""
+    valid_to: str = ""
+
+
 class V4SearchResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     session_id: str
     dataset_ids: list[str]
-    results: list[dict[str, Any]]
+    results: list[V4SearchResultItem]
     degraded_sources: list[str] = []
     scope_audit: V4ScopeAudit | None = None
     vector_lane: V4VectorLaneDiagnostics | None = None
+
+
+class V4ContextResponse(BaseModel):
+    """Context bundle response carrying validity metadata on source items (D88)."""
+
+    model_config = ConfigDict(extra="allow", frozen=True)
+
+    tenant_id: str
+    workspace_id: str
+    dataset_ids: list[str]
+    agent_id: str
+    session_id: str
+    context: str
+    canonical_memories: list[V4SearchResultItem]
+    estimated_token_count: int
+    context_status: str
+    context_diagnostics: dict[str, Any]
+    mutations: list[dict[str, Any]]
 
 
 def _active_principal(request: Request):
@@ -1627,7 +1655,7 @@ def create_v4_router(
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    @router.get("/sessions/{session_id}/context")
+    @router.get("/sessions/{session_id}/context", response_model=V4ContextResponse)
     async def get_context(
         session_id: PublicIdentifier,
         request: Request,

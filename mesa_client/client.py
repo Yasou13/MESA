@@ -13,7 +13,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Callable, Literal, Optional
+from typing import Any, Callable, Literal, Optional, TypedDict
 from urllib.parse import quote
 
 import httpx
@@ -35,6 +35,45 @@ RECOMMENDED_SYSTEM_PROMPT = (
     "If the provided evidence does not answer the question, say so clearly.\n"
     "Never invent, extrapolate, or hallucinate sources or facts."
 )
+
+
+class V4SearchResult(TypedDict, total=False):
+    """Typed shape of a V4 search result item including revision validity (D88)."""
+
+    entity: dict[str, Any]
+    candidate_id: str
+    evidence_id: str
+    assertion_id: str
+    source_chunk_id: str | None
+    document_id: str | None
+    revision_number: int | None
+    valid_from: str
+    valid_to: str
+    evidence_span: str | None
+    raw_score: float | None
+    rrf_score: float
+    legal_factor: float
+    final_score: float
+    provenance: list[dict[str, Any]]
+    matched_assertions: list[dict[str, Any]]
+    supporting_assertions: list[dict[str, Any]]
+    retrieval_provenance: dict[str, Any]
+
+
+class V4ContextSource(TypedDict, total=False):
+    """Typed shape of a canonical source entry in a V4 context response (D88)."""
+
+    entity: dict[str, Any]
+    candidate_id: str
+    evidence_id: str
+    assertion_id: str
+    source_chunk_id: str | None
+    document_id: str | None
+    revision_number: int | None
+    valid_from: str
+    valid_to: str
+    provenance: list[dict[str, Any]]
+    retrieval_provenance: dict[str, Any]
 
 
 class MesaClientError(Exception):

@@ -8389,10 +8389,35 @@ class MemoryDAO:
                 ) as cursor:
                     for row in await cursor.fetchall():
                         external_ids[(str(row[0]), str(row[1]))] = str(row[2])
+            physical_revision_ids = sorted(
+                {
+                    str(assertion["revision_id"])
+                    for assertion in all_materialized_assertions
+                    if assertion.get("revision_id")
+                }
+            )
+            revision_numbers: dict[str, int] = {}
+            for offset in range(0, len(physical_revision_ids), 500):
+                rev_batch = physical_revision_ids[offset : offset + 500]
+                rev_placeholders = ",".join("?" for _ in rev_batch)
+                async with db.execute(
+                    "SELECT revision_id, revision_number FROM document_revisions "
+                    f"WHERE tenant_id = ? AND revision_id IN ({rev_placeholders})",
+                    (tenant_id, *rev_batch),
+                ) as cursor:
+                    for row in await cursor.fetchall():
+                        revision_numbers[str(row[0])] = int(row[1])
             for assertion in all_materialized_assertions:
                 metadata = metadata_by_mutation.get(str(assertion.get("mutation_id")))
                 if metadata:
                     assertion["metadata"] = metadata
+                physical_rev_id = str(assertion.get("revision_id") or "")
+                if physical_rev_id in revision_numbers:
+                    assertion["revision_number"] = revision_numbers[physical_rev_id]
+                else:
+                    assertion.setdefault("revision_number", None)
+                assertion["valid_from"] = str(assertion.get("valid_from") or "")
+                assertion["valid_to"] = str(assertion.get("valid_to") or "")
                 for field, kind in catalog_fields:
                     physical_id = assertion.get(field)
                     if physical_id:
@@ -8457,7 +8482,8 @@ class MemoryDAO:
             cand_prov = cand["materialized_provenance"]
             if not cand_prov:
                 continue
-            item_set = legal_items_by_mutation.get(str(cand_prov[0]["mutation_id"]))
+            first_prov = cand_prov[0]
+            item_set = legal_items_by_mutation.get(str(first_prov["mutation_id"]))
             if item_set is not None:
                 retrieval_provenance["legal_items"] = item_set
             result = {
@@ -8467,6 +8493,9 @@ class MemoryDAO:
                 "assertion_id": cand["assertion_id"],
                 "source_chunk_id": cand["source_chunk_id"],
                 "document_id": cand["document_id"],
+                "revision_number": first_prov.get("revision_number"),
+                "valid_from": str(first_prov.get("valid_from") or ""),
+                "valid_to": str(first_prov.get("valid_to") or ""),
                 "evidence_span": cand["evidence_span"],
                 "raw_score": (
                     cand["raw_scores"].get("vector")

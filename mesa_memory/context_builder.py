@@ -377,6 +377,9 @@ class ContextBuilder:
                         rev_id = p.get("revision_id")
                         if rev_id:
                             fact_dict["revision_id"] = str(rev_id)
+                        rev_num = p.get("revision_number")
+                        if rev_num is not None:
+                            fact_dict["revision_number"] = int(rev_num)
                         chunk_id = p.get("chunk_id")
                         if chunk_id:
                             fact_dict["chunk_id"] = str(chunk_id)
@@ -392,6 +395,12 @@ class ContextBuilder:
                         authority = p.get("authority_level")
                         if authority:
                             fact_dict["authority_level"] = str(authority)
+                        valid_from = str(p.get("valid_from") or "")
+                        if valid_from:
+                            fact_dict["valid_from"] = valid_from
+                        valid_to = str(p.get("valid_to") or "")
+                        if valid_to:
+                            fact_dict["valid_to"] = valid_to
                     facts.append(fact_dict)
 
             retrieval_prov = item.get("retrieval_provenance") or {}
@@ -623,20 +632,21 @@ class ContextBuilder:
             if idx in retained_indices:
                 matching_cur = retained_indices[idx]
                 retained_facts = matching_cur.get("facts", [])
+                visible_provenance = [
+                    {
+                        key: value
+                        for key, value in fact.items()
+                        if not key.startswith("_")
+                    }
+                    for fact in retained_facts
+                ]
                 visible_item: dict[str, Any] = {
                     "entity": {
                         "canonical_name": str(
                             raw_mem.get("entity", {}).get("canonical_name", "")
                         )
                     },
-                    "provenance": [
-                        {
-                            key: value
-                            for key, value in fact.items()
-                            if not key.startswith("_")
-                        }
-                        for fact in retained_facts
-                    ],
+                    "provenance": visible_provenance,
                 }
                 for key in (
                     "candidate_id",
@@ -644,6 +654,9 @@ class ContextBuilder:
                     "assertion_id",
                     "source_chunk_id",
                     "document_id",
+                    "revision_number",
+                    "valid_from",
+                    "valid_to",
                     "scope_identity",
                     "rrf_score",
                     "final_score",
@@ -651,6 +664,22 @@ class ContextBuilder:
                 ):
                     if key in raw_mem:
                         visible_item[key] = raw_mem[key]
+                visible_item.setdefault(
+                    "revision_number",
+                    visible_provenance[0].get("revision_number")
+                    if visible_provenance
+                    else None,
+                )
+                visible_item["valid_from"] = str(
+                    visible_item.get("valid_from")
+                    or (visible_provenance[0].get("valid_from") if visible_provenance else "")
+                    or ""
+                )
+                visible_item["valid_to"] = str(
+                    visible_item.get("valid_to")
+                    or (visible_provenance[0].get("valid_to") if visible_provenance else "")
+                    or ""
+                )
                 if "retrieval_provenance" in raw_mem:
                     visible_item["retrieval_provenance"] = matching_cur.get(
                         "_retrieval_provenance", raw_mem["retrieval_provenance"]
