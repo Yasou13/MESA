@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   prefilters by dataset and agent before ranking and verifies eligibility in
   SQLite. Older LanceDB tables receive their scope keys on startup. The live
   projection worker batches vector upserts and retains per-mutation receipts.
+- The [architecture overview](ARCHITECTURE.md) explains how documents become
+  searchable and where MESA fits in an application.
 
 ### Fixed
 
