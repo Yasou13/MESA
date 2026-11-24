@@ -12,7 +12,7 @@ import asyncio
 import hashlib
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated, Any, Callable, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -67,6 +67,7 @@ from mesa_storage.repositories.operations import (
     OperationNotFoundError,
     OperationStateError,
 )
+from mesa_storage.temporal import parse_iso8601_temporal as _parse_iso8601_temporal
 from mesa_storage.vector_engine import (
     EmbeddingMigrationRequiredError,
     VectorSearchError,
@@ -279,7 +280,8 @@ class V4MemoryInsertRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_write_boundary(self) -> "V4MemoryInsertRequest":
-        validate_write_payload(self.content, self.metadata)
+        normalized = validate_write_payload(self.content, self.metadata)
+        object.__setattr__(self, "metadata", normalized)
         return self
 
 
@@ -302,7 +304,8 @@ class V4DocumentIngestRequest(BaseModel):
             )
         if not self.content.strip():
             raise ValueError("content must not be empty")
-        validate_write_payload(self.content, self.metadata)
+        normalized = validate_write_payload(self.content, self.metadata)
+        object.__setattr__(self, "metadata", normalized)
         return self
 
 
@@ -338,30 +341,7 @@ class V4SearchRequest(BaseModel):
     def parse_iso8601_temporal(cls, value: Any) -> Any:
         if value is None:
             return None
-        if isinstance(value, datetime):
-            return value
-        if isinstance(value, str):
-            raw = value.strip()
-            if not raw or len(raw) > 128 or any(ord(char) < 32 for char in raw):
-                raise ValueError(
-                    "temporal value must be a valid ISO-8601 timestamp string"
-                )
-            if raw.endswith(("Z", "z")):
-                normalized = raw[:-1] + "+00:00"
-            else:
-                normalized = raw
-            try:
-                parsed = datetime.fromisoformat(normalized)
-            except ValueError as exc:
-                raise ValueError(
-                    "temporal value must be a valid ISO-8601 timestamp string"
-                ) from exc
-            if parsed.tzinfo is None or parsed.tzinfo.utcoffset(parsed) is None:
-                raise ValueError(
-                    "temporal value must include a timezone offset (e.g. 'Z' or '+00:00')"
-                )
-            return parsed
-        return value
+        return _parse_iso8601_temporal(value)
 
     @model_validator(mode="after")
     def validate_temporal_range(self) -> "V4SearchRequest":
@@ -1434,11 +1414,21 @@ def create_v4_router(
                 query=payload.query,
                 limit=payload.limit,
                 jurisdiction=payload.jurisdiction,
-                valid_at=payload.valid_at.isoformat() if payload.valid_at else None,
-                valid_from=(
-                    payload.valid_from.isoformat() if payload.valid_from else None
+                valid_at=(
+                    payload.valid_at.astimezone(timezone.utc).isoformat()
+                    if payload.valid_at
+                    else None
                 ),
-                valid_to=payload.valid_to.isoformat() if payload.valid_to else None,
+                valid_from=(
+                    payload.valid_from.astimezone(timezone.utc).isoformat()
+                    if payload.valid_from
+                    else None
+                ),
+                valid_to=(
+                    payload.valid_to.astimezone(timezone.utc).isoformat()
+                    if payload.valid_to
+                    else None
+                ),
                 request_principal_id=str(principal.principal_id),
                 certification_metadata=certification_metadata,
             )
@@ -1631,9 +1621,17 @@ def create_v4_router(
                 session_id=session_id,
                 token_budget=token_budget,
                 jurisdiction=jurisdiction,
-                valid_at=valid_at.isoformat() if valid_at else None,
-                valid_from=valid_from.isoformat() if valid_from else None,
-                valid_to=valid_to.isoformat() if valid_to else None,
+                valid_at=(
+                    valid_at.astimezone(timezone.utc).isoformat() if valid_at else None
+                ),
+                valid_from=(
+                    valid_from.astimezone(timezone.utc).isoformat()
+                    if valid_from
+                    else None
+                ),
+                valid_to=(
+                    valid_to.astimezone(timezone.utc).isoformat() if valid_to else None
+                ),
                 retrieval_mode=retrieval_mode,
             )
         except EmbeddingMigrationRequiredError:

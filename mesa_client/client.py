@@ -20,6 +20,7 @@ import httpx
 from typing_extensions import Self
 
 from mesa_api.schemas import ErrorResponse
+from mesa_storage.temporal import normalize_temporal_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,17 @@ class MesaValidationError(MesaClientError, ValueError):
     """Exception raised when Pydantic validation fails for request or response payloads."""
 
     pass
+
+
+def _prepare_write_metadata(
+    metadata: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if metadata is None:
+        return None
+    try:
+        return normalize_temporal_metadata(metadata)
+    except ValueError as exc:
+        raise MesaValidationError(str(exc)) from exc
 
 
 _RETRYABLE_503_DETAILS = frozenset(
@@ -616,6 +628,7 @@ class MesaV4Client(MesaClient):
         legal_identity: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
+        normalized_metadata = _prepare_write_metadata(metadata)
         return self._request(
             "POST",
             "/v4/memory/insert",
@@ -633,7 +646,7 @@ class MesaV4Client(MesaClient):
                 "chunk_ordinal": chunk_ordinal,
                 "finalize_revision": finalize_revision,
                 "supersedes_revision_id": supersedes_revision_id,
-                "metadata": metadata or {},
+                "metadata": normalized_metadata or {},
                 **({"legal_identity": legal_identity} if legal_identity is not None else {}),
                 **({"idempotency_key": idempotency_key} if idempotency_key else {}),
             },
@@ -766,7 +779,7 @@ class MesaV4Client(MesaClient):
             "content": content,
         }
         if metadata is not None:
-            payload["metadata"] = metadata
+            payload["metadata"] = _prepare_write_metadata(metadata)
         total_deadline = timeout if timeout is not None else deadline
         start = time.monotonic()
         backoff = 0.5
@@ -1070,6 +1083,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
         legal_identity: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
+        normalized_metadata = _prepare_write_metadata(metadata)
         return await self._request(
             "POST",
             "/v4/memory/insert",
@@ -1087,7 +1101,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
                 "chunk_ordinal": chunk_ordinal,
                 "finalize_revision": finalize_revision,
                 "supersedes_revision_id": supersedes_revision_id,
-                "metadata": metadata or {},
+                "metadata": normalized_metadata or {},
                 **({"legal_identity": legal_identity} if legal_identity is not None else {}),
                 **({"idempotency_key": idempotency_key} if idempotency_key else {}),
             },
@@ -1220,7 +1234,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
             "content": content,
         }
         if metadata is not None:
-            payload["metadata"] = metadata
+            payload["metadata"] = _prepare_write_metadata(metadata)
         total_deadline = timeout if timeout is not None else deadline
         start = time.monotonic()
         backoff = 0.5
@@ -1419,6 +1433,7 @@ class Mesa:
         source: str,
         title: str | None = None,
         document_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
         wait: bool = False,
         timeout: float = 600.0,
         deadline: float | None = None,
@@ -1435,6 +1450,7 @@ class Mesa:
             title=doc_title,
             source_ref=source,
             content=text,
+            metadata=metadata,
             deadline=total_timeout,
         )
         if wait:
@@ -1457,21 +1473,47 @@ class Mesa:
             )
         return res
 
-    def search(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        limit: int = 10,
+        *,
+        valid_at: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Search memory within the active dataset session."""
         session_id = self._ensure_session()
-        resp = self._client.search(session_id=session_id, query=query, limit=limit)
+        resp = self._client.search(
+            session_id=session_id,
+            query=query,
+            limit=limit,
+            valid_at=valid_at,
+            valid_from=valid_from,
+            valid_to=valid_to,
+        )
         if isinstance(resp, dict):
             return list(resp.get("results", []))
         return list(resp)
 
-    def context(self, query: str, max_tokens: int = 2000) -> str:
+    def context(
+        self,
+        query: str,
+        max_tokens: int = 2000,
+        *,
+        valid_at: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
+    ) -> str:
         """Return the wrapped context evidence for the given query."""
         session_id = self._ensure_session()
         resp = self._client.get_context(
             session_id=session_id,
             query=query,
             token_budget=max_tokens,
+            valid_at=valid_at,
+            valid_from=valid_from,
+            valid_to=valid_to,
         )
         return str(resp.get("context", ""))
 
