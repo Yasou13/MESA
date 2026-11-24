@@ -1226,6 +1226,7 @@ def create_v4_router(
             "dataset_id": payload.dataset_id,
         }
         configured_plan = config.chunking
+        new_valid_from = str(payload.metadata.get("valid_from") or "")
         async with document_admission_lock:
             try:
                 document = await dao.create_v4_document(
@@ -1234,15 +1235,72 @@ def create_v4_router(
                 if document["status"] == "PURGED":
                     raise ValueError("document is purged")
                 revisions = await dao.list_v4_revisions(
-                    **scope, document_id=payload.document_id, include_chunking_plan=True
+                    **scope,
+                    document_id=payload.document_id,
+                    include_chunking_plan=True,
+                    include_temporal=True,
                 )
                 revision = next(
                     (r for r in revisions if r["revision_id"] == revision_id), None
                 )
                 if revision is None:
+                    live_revisions = [
+                        r
+                        for r in revisions
+                        if r["status"] in {"ACTIVE", "SUPERSEDED", "PENDING"}
+                    ]
+                    dated_revisions = [
+                        (r, str(r.get("valid_from") or ""))
+                        for r in live_revisions
+                        if r.get("valid_from")
+                    ]
+                    if dated_revisions and not new_valid_from:
+                        raise HTTPException(
+                            status_code=422,
+                            detail="valid_from is required for a document that already has dated revisions",
+                        )
+                    new_vf_dt = (
+                        _parse_iso8601_temporal(new_valid_from).astimezone(timezone.utc)
+                        if new_valid_from
+                        else None
+                    )
+                    if new_vf_dt is not None and dated_revisions:
+                        for existing_rev, existing_vf in dated_revisions:
+                            try:
+                                existing_dt = _parse_iso8601_temporal(
+                                    existing_vf
+                                ).astimezone(timezone.utc)
+                            except ValueError:
+                                continue
+                            if existing_dt == new_vf_dt:
+                                raise ValueError(
+                                    f"revision {existing_rev['revision_number']} "
+                                    f"already has valid_from {new_valid_from}"
+                                )
                     active = next(
                         (r for r in revisions if r["status"] == "ACTIVE"), None
                     )
+                    supersedes_id: str | None = None
+                    if active is not None:
+                        active_vf = str(active.get("valid_from") or "")
+                        active_vf_dt = None
+                        if active_vf:
+                            try:
+                                active_vf_dt = _parse_iso8601_temporal(
+                                    active_vf
+                                ).astimezone(timezone.utc)
+                            except ValueError:
+                                active_vf_dt = None
+                        if (
+                            new_vf_dt is not None
+                            and active_vf_dt is not None
+                            and new_vf_dt < active_vf_dt
+                        ):
+                            # D87 history revision: inserted behind the ACTIVE head;
+                            # supersedes_revision_id stays None so ACTIVE does not move.
+                            supersedes_id = None
+                        else:
+                            supersedes_id = active["revision_id"]
                     revision = await dao.create_v4_revision(
                         **scope,
                         document_id=payload.document_id,
@@ -1252,11 +1310,15 @@ def create_v4_router(
                         )
                         + 1,
                         content_hash=content_hash,
-                        supersedes_revision_id=active["revision_id"]
-                        if active
-                        else None,
+                        supersedes_revision_id=supersedes_id,
                         chunking_plan=configured_plan,
                     )
+                elif revision["status"] == "PENDING":
+                    existing_pending_vf = str(revision.get("valid_from") or "")
+                    if existing_pending_vf and existing_pending_vf != new_valid_from:
+                        raise ValueError(
+                            "admitted chunks for this pending revision already have a different valid_from"
+                        )
                 if revision["status"] not in {"ACTIVE", "PENDING"}:
                     raise ValueError(
                         f"content equals revision {revision['revision_number']} "

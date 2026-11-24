@@ -812,10 +812,11 @@ class MesaV4Client(MesaClient):
         document_id: str,
         revision_id: str,
         mutation_ids: list[str] | None = None,
+        allow_superseded: bool = False,
         timeout_seconds: float = 600.0,
         poll_interval_seconds: float = 1.0,
     ) -> dict[str, Any]:
-        """Poll revision status once per second until ACTIVE or terminal failure."""
+        """Poll revision status once per second until ACTIVE (or SUPERSEDED when allowed) or terminal failure."""
         deadline = time.monotonic() + timeout_seconds
         mut_list = [str(m) for m in mutation_ids] if mutation_ids else []
         mut_cursor = 0
@@ -833,7 +834,7 @@ class MesaV4Client(MesaClient):
             )
             if rev is not None:
                 status = rev.get("status")
-                if status == "ACTIVE":
+                if status == "ACTIVE" or (allow_superseded and status == "SUPERSEDED"):
                     return rev
                 if status in {
                     "REJECTED",
@@ -1267,10 +1268,11 @@ class AsyncMesaV4Client(AsyncMesaClient):
         document_id: str,
         revision_id: str,
         mutation_ids: list[str] | None = None,
+        allow_superseded: bool = False,
         timeout_seconds: float = 600.0,
         poll_interval_seconds: float = 1.0,
     ) -> dict[str, Any]:
-        """Poll revision status once per second until ACTIVE or terminal failure."""
+        """Poll revision status once per second until ACTIVE (or SUPERSEDED when allowed) or terminal failure."""
         deadline = time.monotonic() + timeout_seconds
         mut_list = [str(m) for m in mutation_ids] if mutation_ids else []
         mut_cursor = 0
@@ -1288,7 +1290,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
             )
             if rev is not None:
                 status = rev.get("status")
-                if status == "ACTIVE":
+                if status == "ACTIVE" or (allow_superseded and status == "SUPERSEDED"):
                     return rev
                 if status in {
                     "REJECTED",
@@ -1468,6 +1470,7 @@ class Mesa:
                 document_id=doc_id,
                 revision_id=rev_id,
                 mutation_ids=mutation_ids,
+                allow_superseded=bool(metadata and metadata.get("valid_from")),
                 timeout_seconds=total_timeout,
                 poll_interval_seconds=1.0,
             )

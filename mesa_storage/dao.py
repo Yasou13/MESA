@@ -28,6 +28,7 @@ import uuid
 from collections import Counter, OrderedDict
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Any, Protocol, cast
 from urllib.parse import urlsplit, urlunsplit
 
@@ -62,6 +63,7 @@ from mesa_storage.retrieval_scope import (
     stable_contract_hash,
 )
 from mesa_storage.sqlite_engine import AsyncEngine
+from mesa_storage.temporal import parse_iso8601_temporal
 from mesa_storage.vector_engine import (
     SemanticRuntimeDisabledError,
     VectorEngine,
@@ -1039,6 +1041,7 @@ class MemoryDAO:
         dataset_id: str,
         document_id: str,
         include_chunking_plan: bool = False,
+        include_temporal: bool = False,
     ) -> list[dict[str, Any]]:
         async with self._sql.connection() as db:
             dataset_id = await self._catalog.resolve_id_in_tx(
@@ -1048,7 +1051,8 @@ class MemoryDAO:
                 db, tenant_id=tenant_id, kind="document", external_id=document_id
             )
             async with db.execute(
-                "SELECT ri.external_id AS revision_id, r.tenant_id, "
+                "SELECT r.revision_id AS _physical_revision_id, "
+                "ri.external_id AS revision_id, r.tenant_id, "
                 "di.external_id AS document_id, r.revision_number, "
                 "r.content_hash, r.declared_content_hash, r.manifest_hash, r.status, "
                 "r.supersedes_revision_id, r.created_at, r.chunking_plan "
@@ -1064,8 +1068,13 @@ class MemoryDAO:
             ) as cursor:
                 rows = [dict(row) for row in await cursor.fetchall()]
             for row in rows:
+                physical_rev_id = str(row.pop("_physical_revision_id"))
                 if not include_chunking_plan:
                     row.pop("chunking_plan")
+                if include_temporal:
+                    row["valid_from"] = await self._revision_valid_from_in_tx(
+                        db, tenant_id, physical_rev_id
+                    )
                 if row["supersedes_revision_id"]:
                     row[
                         "supersedes_revision_id"
@@ -3578,8 +3587,40 @@ class MemoryDAO:
             )
 
     @staticmethod
+    async def _revision_valid_from_in_tx(
+        db: Any, tenant_id: str, revision_id: str
+    ) -> str:
+        """Read a revision's valid_from timestamp from its mutations or canonical assertions."""
+        async with db.execute(
+            "SELECT metadata_json FROM memory_mutations "
+            "WHERE tenant_id = ? AND revision_id = ? "
+            "AND state NOT IN ('ROLLED_BACK', 'PURGED', 'REJECTED', 'CANCELLED') "
+            "ORDER BY rowid ASC LIMIT 1",
+            (tenant_id, revision_id),
+        ) as cursor:
+            m_row = await cursor.fetchone()
+        if m_row and m_row[0]:
+            try:
+                meta = json.loads(str(m_row[0]))
+                if isinstance(meta, dict) and meta.get("valid_from"):
+                    return str(meta["valid_from"])
+            except (TypeError, json.JSONDecodeError):
+                pass
+        async with db.execute(
+            "SELECT valid_from FROM v4_assertions "
+            "WHERE tenant_id = ? AND revision_id = ? "
+            "AND status IN ('ACTIVE', 'SUPERSEDED') AND valid_from != '' "
+            "LIMIT 1",
+            (tenant_id, revision_id),
+        ) as cursor:
+            a_row = await cursor.fetchone()
+        if a_row and a_row[0]:
+            return str(a_row[0])
+        return ""
+
+    @staticmethod
     async def _reconcile_revision_activation_in_tx(db: Any, revision_id: str) -> None:
-        """Evaluate canonical completeness and head invariant for a revision."""
+        """Evaluate canonical completeness and head/history invariant for a revision."""
         if not revision_id:
             return
         async with db.execute(
@@ -3622,21 +3663,105 @@ class MemoryDAO:
         if manifest_size < 1 or missing_work > 0:
             return
 
-        valid_from = ""
-        if supersedes_revision_id:
-            async with db.execute(
-                "SELECT metadata_json FROM memory_mutations WHERE revision_id = ? AND state = 'COMMITTED' LIMIT 1",
-                (revision_id,),
-            ) as cursor:
-                m_row = await cursor.fetchone()
-            if m_row and m_row[0]:
-                try:
-                    meta = json.loads(str(m_row[0]))
-                    if isinstance(meta, dict):
-                        valid_from = str(meta.get("valid_from") or "")
-                except (TypeError, json.JSONDecodeError):
-                    pass
+        valid_from = await MemoryDAO._revision_valid_from_in_tx(
+            db, tenant_id, revision_id
+        )
+        new_vf_dt: datetime | None = None
+        if valid_from:
+            try:
+                new_vf_dt = parse_iso8601_temporal(valid_from).astimezone(timezone.utc)
+            except ValueError:
+                new_vf_dt = None
 
+        # D87: for dated revisions, validity order rather than upload order
+        # decides whether the finalizing revision becomes ACTIVE or history.
+        if new_vf_dt is not None:
+            async with db.execute(
+                "SELECT revision_id, status FROM document_revisions "
+                "WHERE tenant_id = ? AND document_id = ? "
+                "AND status IN ('ACTIVE', 'SUPERSEDED') AND revision_id != ?",
+                (tenant_id, document_id, revision_id),
+            ) as cursor:
+                existing_committed = list(await cursor.fetchall())
+
+            active_rev_id: str | None = None
+            active_vf_dt: datetime | None = None
+            dated_committed: list[tuple[datetime, str, str]] = []
+            for row in existing_committed:
+                other_id = str(row[0])
+                other_status = str(row[1])
+                other_vf = await MemoryDAO._revision_valid_from_in_tx(
+                    db, tenant_id, other_id
+                )
+                other_dt: datetime | None = None
+                if other_vf:
+                    try:
+                        other_dt = parse_iso8601_temporal(other_vf).astimezone(
+                            timezone.utc
+                        )
+                    except ValueError:
+                        other_dt = None
+                if other_dt is not None:
+                    if other_dt == new_vf_dt:
+                        raise ValueError(
+                            f"revision with the same valid_from ({valid_from}) "
+                            "already exists for this document"
+                        )
+                    dated_committed.append((other_dt, other_vf, other_id))
+                if other_status == "ACTIVE":
+                    active_rev_id = other_id
+                    active_vf_dt = other_dt
+
+            if (
+                active_rev_id is not None
+                and active_vf_dt is not None
+                and new_vf_dt < active_vf_dt
+            ):
+                dated_committed.sort(key=lambda item: item[0])
+                prev_rev: tuple[datetime, str, str] | None = None
+                next_rev: tuple[datetime, str, str] | None = None
+                for item in dated_committed:
+                    if item[0] < new_vf_dt:
+                        prev_rev = item
+                    elif item[0] > new_vf_dt and next_rev is None:
+                        next_rev = item
+                        break
+                assert next_rev is not None
+                next_vf_str = next_rev[1]
+                hist_update = await db.execute(
+                    "UPDATE document_revisions SET status = 'SUPERSEDED' "
+                    "WHERE revision_id = ? AND status = 'PENDING'",
+                    (revision_id,),
+                )
+                if hist_update.rowcount != 1:
+                    raise ValueError(
+                        "revision history conflict: revision is not pending"
+                    )
+                await db.execute(
+                    "UPDATE v4_assertions SET status = 'SUPERSEDED', "
+                    "valid_to = CASE WHEN valid_to = '' OR julianday(valid_to) > julianday(?) "
+                    "THEN ? ELSE valid_to END "
+                    "WHERE tenant_id = ? AND revision_id = ? AND status IN ('ACTIVE', 'SUPERSEDED')",
+                    (next_vf_str, next_vf_str, tenant_id, revision_id),
+                )
+                await MemoryDAO._sync_dataset_fts_delete_revision_in_tx(
+                    db, tenant_id, revision_id
+                )
+                if prev_rev is not None:
+                    prev_rev_id = prev_rev[2]
+                    await db.execute(
+                        "UPDATE v4_assertions SET "
+                        "valid_to = CASE WHEN valid_to = '' OR julianday(valid_to) > julianday(?) "
+                        "THEN ? ELSE valid_to END "
+                        "WHERE tenant_id = ? AND revision_id = ? AND status = 'SUPERSEDED'",
+                        (valid_from, valid_from, tenant_id, prev_rev_id),
+                    )
+                return
+
+            if supersedes_revision_id is None and active_rev_id is not None:
+                supersedes_revision_id = active_rev_id
+
+        if supersedes_revision_id:
             async with db.execute(
                 "SELECT status FROM document_revisions WHERE revision_id = ?",
                 (supersedes_revision_id,),
@@ -3666,13 +3791,24 @@ class MemoryDAO:
                 )
             await db.execute(
                 "UPDATE v4_assertions SET status = 'SUPERSEDED', "
-                "valid_to = CASE WHEN valid_to = '' AND ? != '' THEN ? ELSE valid_to END "
+                "valid_to = CASE "
+                "WHEN ? != '' AND (valid_to = '' OR julianday(valid_to) > julianday(?)) "
+                "THEN ? ELSE valid_to END "
                 "WHERE tenant_id = ? AND revision_id = ? AND status = 'ACTIVE'",
-                (valid_from, valid_from, tenant_id, supersedes_revision_id),
+                (valid_from, valid_from, valid_from, tenant_id, supersedes_revision_id),
             )
             await MemoryDAO._sync_dataset_fts_delete_revision_in_tx(
                 db, tenant_id, supersedes_revision_id
             )
+            promoted = await db.execute(
+                "UPDATE v4_assertions SET status = 'ACTIVE' "
+                "WHERE tenant_id = ? AND revision_id = ? AND status = 'SUPERSEDED'",
+                (tenant_id, revision_id),
+            )
+            if promoted.rowcount > 0:
+                await MemoryDAO._sync_dataset_fts_upsert_revision_in_tx(
+                    db, tenant_id, revision_id
+                )
         else:
             cursor = await db.execute(
                 "UPDATE document_revisions SET status = 'ACTIVE' "
@@ -3692,6 +3828,15 @@ class MemoryDAO:
                     return
                 raise ValueError(
                     "revision-head conflict: document already has an ACTIVE revision"
+                )
+            promoted = await db.execute(
+                "UPDATE v4_assertions SET status = 'ACTIVE' "
+                "WHERE tenant_id = ? AND revision_id = ? AND status = 'SUPERSEDED'",
+                (tenant_id, revision_id),
+            )
+            if promoted.rowcount > 0:
+                await MemoryDAO._sync_dataset_fts_upsert_revision_in_tx(
+                    db, tenant_id, revision_id
                 )
 
     @staticmethod
@@ -6072,6 +6217,36 @@ class MemoryDAO:
             source_ref = str(mutation.get("source_ref") or "")
             pipeline_run_id = str(mutation.get("pipeline_run_id") or "")
 
+        assertion_status = "ACTIVE"
+        if valid_from:
+            try:
+                new_vf_dt = parse_iso8601_temporal(valid_from).astimezone(timezone.utc)
+            except ValueError:
+                new_vf_dt = None
+            if new_vf_dt is not None:
+                async with db.execute(
+                    "SELECT revision_id FROM document_revisions "
+                    "WHERE tenant_id = ? AND document_id = ? "
+                    "AND status = 'ACTIVE' AND revision_id != ? LIMIT 1",
+                    (tenant_id, p_doc_id, p_rev_id),
+                ) as active_cur:
+                    active_row = await active_cur.fetchone()
+                if active_row is not None:
+                    active_vf = await self._revision_valid_from_in_tx(
+                        db, tenant_id, str(active_row[0])
+                    )
+                    if active_vf:
+                        try:
+                            active_vf_dt = parse_iso8601_temporal(active_vf).astimezone(
+                                timezone.utc
+                            )
+                        except ValueError:
+                            active_vf_dt = None
+                        if active_vf_dt is not None and new_vf_dt < active_vf_dt:
+                            # D87 history revision: keep assertions out of the
+                            # undated ACTIVE pool and persistent BM25 index.
+                            assertion_status = "SUPERSEDED"
+
         assertion_id = self.v4_assertion_id(
             tenant_id=tenant_id,
             dataset_id=p_dataset_id,
@@ -6093,7 +6268,7 @@ class MemoryDAO:
             "legal_version_id, legal_identity_source, "
             "status, mutation_id, pipeline_run_id) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-            "?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)",
+            "?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 assertion_id,
                 tenant_id,
@@ -6122,11 +6297,12 @@ class MemoryDAO:
                 str((legal_identity or {}).get("clause_id") or ""),
                 str((legal_identity or {}).get("version_id") or ""),
                 str((legal_identity or {}).get("identity_source") or ""),
+                assertion_status,
                 mutation["mutation_id"],
                 pipeline_run_id,
             ),
         )
-        if str(mutation.get("state") or "") == "COMMITTED":
+        if assertion_status == "ACTIVE" and str(mutation.get("state") or "") == "COMMITTED":
             await self._sync_dataset_fts_upsert_assertions_in_tx(db, [assertion_id])
         async with db.execute(
             "SELECT supersedes_revision_id FROM document_revisions "
