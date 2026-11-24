@@ -267,7 +267,9 @@ Search requests can run **without a session** by passing `tenant_id`,
 `agent_id` defaults to `local-agent`, matching CLI-ingested data); access is
 authorized via dataset `READER` role. Session-based search continues to work by
 passing `session_id` (with optional `dataset_ids` subset). Mixing `session_id`
-with disagreeing explicit scope fields returns HTTP 422. `query` is 1..4096
+with disagreeing explicit scope fields returns HTTP 422. Optional
+`document_ids` (1..64 caller document IDs) restricts every search lane to those
+documents before ranking; unknown document IDs match nothing. `query` is 1..4096
 characters, `limit` defaults to 10 (1..50), and `graph_mode` is accepted as a
 compatibility no-op. ISO timestamp strings must include a timezone offset, and
 `valid_from > valid_to` is rejected. Response carries `session_id` (`null` when

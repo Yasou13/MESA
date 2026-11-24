@@ -3529,6 +3529,24 @@
             ],
             "title": "Dataset Ids"
           },
+          "document_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "array",
+                "maxItems": 64,
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Ids"
+          },
           "query": {
             "type": "string",
             "maxLength": 4096,

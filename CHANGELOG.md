@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tenant_id`, `workspace_id`, and dataset scope (`agent_id` defaults to
   `local-agent`); mixing `session_id` with disagreeing scope fields returns
   HTTP 422. Session-based calls and agent memory routes remain unchanged.
+- Optional `document_ids` search filter (1..64 caller document IDs) across
+  HTTP (`POST /v4/memory/search`), Python SDK (`MesaV4Client`,
+  `AsyncMesaV4Client`, `Mesa`), and MCP (`mesa_recall`) (D95). Applied in the
+  pre-rank scope query across BM25, vector, and legal lanes, included in the
+  search scope cache key, and bypasses the dataset-wide persistent BM25 index.
 
 ## [0.9.5] - 2026-11-24
 
