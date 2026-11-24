@@ -475,6 +475,59 @@ async def test_async_wait_raises_immediately_on_chunk_failure(fake_server):
         await client.aclose()
 
 
+@pytest.mark.parametrize("allow_superseded", [False, True])
+def test_sync_wait_until_revision_active_handles_superseded(fake_server, allow_superseded):
+    url, _ = fake_server
+    FakeMesaServerHandler.revisions_status_sequence = ["PENDING", "SUPERSEDED"]
+    with MesaV4Client(base_url=url, api_key="test-key") as client:
+        args = {
+            "tenant_id": "local",
+            "workspace_id": "default",
+            "dataset_id": "default",
+            "document_id": "doc-test",
+            "revision_id": "rev-test1234",
+        }
+        if allow_superseded:
+            revision = client.wait_until_revision_active(
+                **args, allow_superseded=True, poll_interval_seconds=0,
+            )
+            assert revision["status"] == "SUPERSEDED"
+        else:
+            with pytest.raises(MesaClientError, match="terminal state: SUPERSEDED"):
+                client.wait_until_revision_active(
+                    **args, allow_superseded=False, poll_interval_seconds=0,
+                )
+    assert not FakeMesaServerHandler.revisions_status_sequence
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("allow_superseded", [False, True])
+async def test_async_wait_until_revision_active_handles_superseded(
+    fake_server, allow_superseded
+):
+    url, _ = fake_server
+    FakeMesaServerHandler.revisions_status_sequence = ["PENDING", "SUPERSEDED"]
+    async with AsyncMesaV4Client(base_url=url, api_key="test-key") as client:
+        args = {
+            "tenant_id": "local",
+            "workspace_id": "default",
+            "dataset_id": "default",
+            "document_id": "doc-test",
+            "revision_id": "rev-test1234",
+        }
+        if allow_superseded:
+            revision = await client.wait_until_revision_active(
+                **args, allow_superseded=True, poll_interval_seconds=0,
+            )
+            assert revision["status"] == "SUPERSEDED"
+        else:
+            with pytest.raises(MesaClientError, match="terminal state: SUPERSEDED"):
+                await client.wait_until_revision_active(
+                    **args, allow_superseded=False, poll_interval_seconds=0,
+                )
+    assert not FakeMesaServerHandler.revisions_status_sequence
+
+
 def test_mesa_sdk_delete_by_source(fake_server):
     url, logs = fake_server
     source = "file://sozlesme.txt"
