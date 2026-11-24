@@ -221,7 +221,7 @@ async def test_admission_and_decision_query_extract_off_the_event_loop(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("plan", ["auto", "plain"])
-async def test_document_chunking_and_resume_alternative_run_off_loop(
+async def test_document_chunking_and_recorded_plan_resume_run_off_loop(
     model_runtime, monkeypatch, plan
 ):
     from mesa_api import v4_router
@@ -259,7 +259,7 @@ async def test_document_chunking_and_resume_alternative_run_off_loop(
         calls.clear()
         await env.restart(MESA_CHUNKING="plain" if plan == "auto" else "auto")
         await _add(env, content)
-        assert sorted(calls) == ["chunk_document", "chunk_legal_document"]
+        assert calls == ["chunk_legal_document" if plan == "auto" else "chunk_document"]
 
 
 @pytest.mark.asyncio

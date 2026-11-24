@@ -77,7 +77,7 @@ async def test_legacy_store_with_graph_outbox_rows_migrates_and_reaches_readines
     finally:
         conn.close()
 
-    # Upgrade to head (f9c0d1e2f3a4)
+    # Upgrade through the graph-removal migration to head.
     command.upgrade(cfg, "head")
 
     conn = sqlite3.connect(str(db_path))

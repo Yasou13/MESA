@@ -917,6 +917,7 @@ class MemoryDAO:
         revision_number: int,
         content_hash: str,
         supersedes_revision_id: str | None = None,
+        chunking_plan: str | None = None,
     ) -> dict[str, Any]:
         """Create one immutable document revision and retain its predecessor."""
         normalized_hash = content_hash.strip().casefold()
@@ -976,7 +977,8 @@ class MemoryDAO:
             await db.execute(
                 "INSERT OR IGNORE INTO document_revisions "
                 "(revision_id, tenant_id, document_id, revision_number, content_hash, "
-                "status, supersedes_revision_id, declared_content_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "status, supersedes_revision_id, declared_content_hash, chunking_plan) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     revision_id,
                     tenant_id,
@@ -988,6 +990,7 @@ class MemoryDAO:
                     "PENDING",
                     supersedes_revision_id,
                     normalized_hash,
+                    chunking_plan,
                 ),
             )
             async with db.execute(
@@ -1022,10 +1025,17 @@ class MemoryDAO:
         result["revision_id"] = external_revision_id
         result["supersedes_revision_id"] = external_supersedes_id
         result["dataset_id"] = external_dataset_id
+        if chunking_plan is None:
+            result.pop("chunking_plan")
         return result
 
     async def list_v4_revisions(
-        self, *, tenant_id: str, dataset_id: str, document_id: str
+        self,
+        *,
+        tenant_id: str,
+        dataset_id: str,
+        document_id: str,
+        include_chunking_plan: bool = False,
     ) -> list[dict[str, Any]]:
         async with self._sql.connection() as db:
             dataset_id = await self._catalog.resolve_id_in_tx(
@@ -1037,7 +1047,8 @@ class MemoryDAO:
             async with db.execute(
                 "SELECT ri.external_id AS revision_id, r.tenant_id, "
                 "di.external_id AS document_id, r.revision_number, "
-                "r.content_hash, r.declared_content_hash, r.manifest_hash, r.status, r.supersedes_revision_id, r.created_at "
+                "r.content_hash, r.declared_content_hash, r.manifest_hash, r.status, "
+                "r.supersedes_revision_id, r.created_at, r.chunking_plan "
                 "FROM document_revisions r JOIN documents d "
                 "ON d.document_id = r.document_id "
                 "JOIN v4_catalog_identities ri ON ri.tenant_id = r.tenant_id "
@@ -1050,6 +1061,8 @@ class MemoryDAO:
             ) as cursor:
                 rows = [dict(row) for row in await cursor.fetchall()]
             for row in rows:
+                if not include_chunking_plan:
+                    row.pop("chunking_plan")
                 if row["supersedes_revision_id"]:
                     row[
                         "supersedes_revision_id"
@@ -1060,6 +1073,37 @@ class MemoryDAO:
                         physical_id=str(row["supersedes_revision_id"]),
                     )
             return rows
+
+    async def record_v4_revision_chunking_plan(
+        self, *, tenant_id: str, dataset_id: str, revision_id: str, chunking_plan: str
+    ) -> None:
+        """Pin a legacy revision's verified plan before admitting more chunks."""
+        async with self._sql.transaction() as db:
+            dataset_id = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+            )
+            revision_id = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="revision", external_id=revision_id
+            )
+            cursor = await db.execute(
+                "UPDATE document_revisions SET chunking_plan = ? "
+                "WHERE revision_id = ? AND tenant_id = ? AND status IN ('PENDING', 'ACTIVE') "
+                "AND (chunking_plan IS NULL OR chunking_plan = ?) "
+                "AND EXISTS (SELECT 1 FROM documents d "
+                "WHERE d.document_id = document_revisions.document_id "
+                "AND d.tenant_id = ? AND d.dataset_id = ? AND d.status != 'PURGED')",
+                (
+                    chunking_plan,
+                    revision_id,
+                    tenant_id,
+                    chunking_plan,
+                    tenant_id,
+                    dataset_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("revision is unavailable or its chunking plan already differs")
+            await db.commit()
 
     async def list_v4_revision_mutations(
         self, *, tenant_id: str, dataset_id: str, revision_id: str

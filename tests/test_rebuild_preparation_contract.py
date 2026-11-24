@@ -85,7 +85,7 @@ def test_preflight_requires_drain_capacity_and_safe_nonoverlapping_paths(
     with StorageWriterLock.acquire(storage, owner="rebuild-runner") as writer_lock:
         preflight = _inspect(trusted, storage, work, writer_lock)
         assert preflight.source_generation_id == "legacy"
-        assert preflight.source_manifest["alembic_head"] == "f9c0d1e2f3a4"
+        assert preflight.source_manifest["alembic_head"] == "a0d1e2f3a4b5"
 
         connection = sqlite3.connect(database)
         connection.execute(

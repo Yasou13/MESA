@@ -194,6 +194,8 @@ def validate_postflight(
             {"manifest_hash", "manifest_frozen_at", "declared_content_hash"},
             label="revision manifest columns",
         )
+        if versions[0][0] == expected_head:
+            _require_members(revision_columns, {"chunking_plan"}, label="revision admission columns")
         content_hash = next(
             row
             for row in _rows(connection, "PRAGMA table_info(document_revisions)")

@@ -1245,6 +1245,7 @@ def create_v4_router(
             "tenant_id": str(session["tenant_id"]),
             "dataset_id": payload.dataset_id,
         }
+        configured_plan = config.chunking
         async with document_admission_lock:
             try:
                 document = await dao.create_v4_document(
@@ -1253,7 +1254,7 @@ def create_v4_router(
                 if document["status"] == "PURGED":
                     raise ValueError("document is purged")
                 revisions = await dao.list_v4_revisions(
-                    **scope, document_id=payload.document_id
+                    **scope, document_id=payload.document_id, include_chunking_plan=True
                 )
                 revision = next(
                     (r for r in revisions if r["revision_id"] == revision_id), None
@@ -1274,6 +1275,7 @@ def create_v4_router(
                         supersedes_revision_id=active["revision_id"]
                         if active
                         else None,
+                        chunking_plan=configured_plan,
                     )
                 if revision["status"] not in {"ACTIVE", "PENDING"}:
                     raise ValueError(
@@ -1296,52 +1298,32 @@ def create_v4_router(
                     "mutation_ids": [admitted[i] for i in sorted(admitted)],
                     "duplicate": True,
                 }
-            legal_plan = config.chunking == "auto"
+            stored_plan = revision.get("chunking_plan")
+            chunking_plan = stored_plan or configured_plan
+            legal_plan = chunking_plan == "auto"
             chunks = (
                 await asyncio.to_thread(chunk_legal_document, payload.content)
-                if config.chunking == "auto"
+                if legal_plan
                 else await asyncio.to_thread(chunk_document, payload.content)
             )
-            if admitted:
-                # Admissions are already scoped above. Their durable payloads,
-                # including chunks committed before a restart, pin the plan.
-                texts = {}
-                for ordinal, mutation_id in admitted.items():
-                    mutation = await dao.get_projection_mutation(mutation_id)
-                    if mutation is None:
-                        raise HTTPException(409, "admitted chunk is unavailable")
-                    texts[ordinal] = mutation["content_payload"]
-
-                def matches(plan: list[str]) -> bool:
-                    return all(
-                        ordinal < len(plan) and plan[ordinal] == text
-                        for ordinal, text in texts.items()
-                    )
-
-                alternative = (
-                    await asyncio.to_thread(chunk_document, payload.content)
-                    if config.chunking == "auto"
-                    else await asyncio.to_thread(chunk_legal_document, payload.content)
-                )
-                preferred_matches = matches(chunks)
-                alternative_matches = matches(alternative)
-                if preferred_matches and alternative_matches and chunks != alternative:
+            for ordinal, mutation_id in admitted.items():
+                mutation = await dao.get_projection_mutation(mutation_id)
+                if mutation is None:
+                    raise HTTPException(409, "admitted chunk is unavailable")
+                if ordinal >= len(chunks) or chunks[ordinal] != mutation["content_payload"]:
                     raise HTTPException(
                         409,
-                        "admitted chunking plan is ambiguous; no chunks appended. "
+                        "admitted chunks do not match a supported chunking plan. "
                         "Retry with the MESA_CHUNKING value used when this revision was "
                         "first added, or add the content under a new document_id.",
                     )
-                if not preferred_matches:
-                    if not alternative_matches:
-                        raise HTTPException(
-                            409,
-                            "admitted chunks do not match a supported chunking plan. "
-                            "Retry with the MESA_CHUNKING value used when this revision was "
-                            "first added, or add the content under a new document_id.",
-                        )
-                    chunks = alternative
-                    legal_plan = not legal_plan
+            if stored_plan is None:
+                try:
+                    await dao.record_v4_revision_chunking_plan(
+                        **scope, revision_id=revision_id, chunking_plan=chunking_plan
+                    )
+                except ValueError as exc:
+                    raise HTTPException(status_code=409, detail=str(exc)) from exc
             identities: list[dict[str, str] | None] = [None] * len(chunks)
             if config.legal_rules_enabled and legal_plan:
                 headings = list(_ARTICLE_HEADING.finditer(payload.content))

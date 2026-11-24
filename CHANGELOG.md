@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Whole-document uploads retain the chunking plan selected at admission.
+  Retries continue the same revision from its saved chunks, including legacy
+  uploads whose stored prefix matches the configured plan.
+
 - Internal storage identifiers (`document_id`, `revision_id`, `chunk_id`,
   `assertion_id`, and catalog-mapped `mesa-*` entity names) are excluded from
   lexical FTS5 indexing, lexical passage/assertion scoring, and legal citation
