@@ -63,6 +63,35 @@ print(mesa.context("your query"))
 
 `Mesa()` uses `MESA_API_KEY` and `MESA_BASE_URL` when they are set, otherwise the local credentials in `~/.mesa/credentials.json`.
 
+#### Law versions
+
+Use the same `document_id` for each version and give each version a
+timezone-aware `metadata.valid_from`. This example loads two versions of a
+fictional rule into a fresh local store, newest first, then searches the
+older wording.
+
+```python
+from mesa_client import Mesa
+
+mesa = Mesa()
+for start, days in [("2025-06-01T00:00:00+03:00", 30), ("2024-01-01T00:00:00+03:00", 15)]:
+    mesa.add(
+        f"MADDE 1 - Arşiv başvuru süresi {days} gündür.",
+        source=f"file://arsiv-{start[:10]}.txt",
+        document_id="ornek-arsiv-yonetmeligi",
+        title="Örnek Arşiv Yönetmeliği",
+        metadata={"valid_from": start},
+        wait=True,
+    )
+
+hit = mesa.search("Arşiv başvuru süresi", valid_at="2025-05-31T23:59:59+03:00")[0]
+print(hit["evidence_span"])  # MADDE 1 - Arşiv başvuru süresi 15 gündür.
+```
+
+At `2025-06-01T00:00:00+03:00`, the dated search returns the 30-day
+version. Omit `valid_at` to search active versions. See
+[versioned documents](api-reference.md#versioned-documents) for validity bounds.
+
 ### 4. Connect MCP clients
 
 Connect Claude Desktop or any MCP client by generating a ready-to-paste configuration block:

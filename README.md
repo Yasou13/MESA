@@ -48,6 +48,8 @@ print(mesa.context("your query"))
 
 `Mesa()` uses `MESA_API_KEY` and `MESA_BASE_URL` when they are set, otherwise the local credentials in `~/.mesa/credentials.json`.
 
+See [Law versions](docs/getting-started.md#law-versions) to store revisions of a law and search the wording in force on a date.
+
 ## Connect MCP clients
 
 Generate a ready-to-paste configuration block for Claude Desktop or any MCP client:
