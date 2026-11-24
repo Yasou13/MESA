@@ -880,6 +880,25 @@ class MesaV4Client(MesaClient):
                     continue
                 raise
 
+    def get_document(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+    ) -> dict[str, Any]:
+        """Return document metadata and per-revision ingest status (D96)."""
+        return self._request(
+            "GET",
+            f"/v4/documents/{quote(document_id, safe='')}",
+            params={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_id": dataset_id,
+            },
+        )
+
     def get_document_text(
         self,
         *,
@@ -1386,6 +1405,25 @@ class AsyncMesaV4Client(AsyncMesaClient):
                     continue
                 raise
 
+    async def get_document(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+    ) -> dict[str, Any]:
+        """Return document metadata and per-revision ingest status (D96)."""
+        return await self._request(
+            "GET",
+            f"/v4/documents/{quote(document_id, safe='')}",
+            params={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_id": dataset_id,
+            },
+        )
+
     async def get_document_text(
         self,
         *,
@@ -1673,6 +1711,15 @@ class Mesa:
             valid_to=valid_to,
         )
         return str(resp.get("context", ""))
+
+    def get_document(self, document_id: str) -> dict[str, Any]:
+        """Return document metadata and per-revision ingest status (D96)."""
+        return self._client.get_document(
+            tenant_id=self.tenant_id,
+            workspace_id=self.workspace_id,
+            dataset_id=self.dataset_id,
+            document_id=document_id,
+        )
 
     def get_document_text(
         self,

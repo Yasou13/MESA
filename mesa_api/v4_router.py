@@ -451,6 +451,48 @@ class V4DocumentTextResponse(BaseModel):
     text: str
 
 
+class V4DocumentError(BaseModel):
+    """Plain-English failure summary for a failed document revision (D96)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    code: str
+    message: str
+
+
+class V4DocumentRevisionStatus(BaseModel):
+    """Revision status, validity dates, and ingest progress summary (D96)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    revision_id: str
+    revision_number: int
+    status: str
+    valid_from: str = ""
+    valid_to: str = ""
+    supersedes_revision_id: str | None = None
+    created_at: str
+    stage: Literal["admitted", "processing", "indexed", "active", "failed", "superseded"]
+    total_chunks: int = Field(ge=0)
+    chunks_by_state: dict[str, int]
+    error: V4DocumentError | None = None
+
+
+class V4DocumentStatusResponse(BaseModel):
+    """Document metadata and per-revision ingest status for viewers (D96)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    document_id: str
+    tenant_id: str
+    dataset_id: str
+    title: str
+    status: str
+    external_ref: str | None = None
+    created_at: str
+    revisions: list[V4DocumentRevisionStatus]
+
+
 class V4SearchResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -1744,6 +1786,46 @@ def create_v4_router(
                 "mutation_ids": [admitted[i] for i in range(len(chunks))],
                 "duplicate": duplicate,
             }
+
+    @router.get(
+        "/documents/{document_id}",
+        response_model=V4DocumentStatusResponse,
+    )
+    async def get_document_status(
+        document_id: SourceIdentifier,
+        tenant_id: PublicIdentifier,
+        workspace_id: PublicIdentifier,
+        dataset_id: PublicIdentifier,
+        request: Request,
+        dao: MemoryDAO = Depends(get_dao),
+        access_control: AccessControl = Depends(get_access_control),
+    ) -> dict:
+        await _require_dataset_roles(
+            request,
+            access_control,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            dataset_ids=[dataset_id],
+            required_role="READER",
+        )
+        try:
+            await dao.verify_v4_workspace_datasets(
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                dataset_ids=[dataset_id],
+            )
+        except CatalogIdentityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        try:
+            return await dao.get_v4_document_status(
+                tenant_id=tenant_id,
+                dataset_id=dataset_id,
+                document_id=document_id,
+            )
+        except CatalogIdentityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @router.get(
         "/documents/{document_id}/text",

@@ -35,6 +35,7 @@ from urllib.parse import urlsplit, urlunsplit
 import aiosqlite
 
 from mesa_storage import legal_rules
+from mesa_storage.error_messages import format_failure_error
 from mesa_storage.legal_identity import (
     LegalEntityResolver,
     canonicalize_trusted_legal_identity,
@@ -1237,6 +1238,215 @@ class MemoryDAO:
             "start": slice_start,
             "end": slice_end,
             "text": full_text[slice_start:slice_end],
+        }
+
+    async def get_v4_document_status(
+        self,
+        *,
+        tenant_id: str,
+        dataset_id: str,
+        document_id: str,
+    ) -> dict[str, Any]:
+        """Return document metadata and per-revision ingest summaries in constant SQL passes (D96)."""
+        external_dataset_id = dataset_id
+        external_document_id = document_id
+        failed_mutation_states = {
+            "DEAD_LETTER",
+            "REJECTED",
+            "BLOCKED",
+            "FAILED",
+            "CANCELLED",
+            "ROLLED_BACK",
+        }
+        failed_revision_states = failed_mutation_states | {"PURGED"}
+        async with self._sql.connection() as db:
+            physical_dataset = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+            )
+            physical_document = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="document", external_id=document_id
+            )
+            async with db.execute(
+                "SELECT document_id, title, external_ref, status, created_at "
+                "FROM documents WHERE tenant_id = ? AND dataset_id = ? AND document_id = ?",
+                (tenant_id, physical_dataset, physical_document),
+            ) as cursor:
+                doc_row = await cursor.fetchone()
+            if doc_row is None:
+                raise CatalogIdentityNotFoundError("document not found in dataset")
+
+            async with db.execute(
+                "SELECT r.revision_id AS physical_revision_id, "
+                "COALESCE(ri.external_id, r.revision_id) AS revision_id, "
+                "r.revision_number, r.status, r.supersedes_revision_id, "
+                "COALESCE(si.external_id, r.supersedes_revision_id) AS ext_supersedes_id, "
+                "r.created_at "
+                "FROM document_revisions r "
+                "LEFT JOIN v4_catalog_identities ri ON ri.tenant_id = r.tenant_id "
+                "AND ri.kind = 'revision' AND ri.physical_id = r.revision_id "
+                "LEFT JOIN v4_catalog_identities si ON si.tenant_id = r.tenant_id "
+                "AND si.kind = 'revision' AND si.physical_id = r.supersedes_revision_id "
+                "WHERE r.tenant_id = ? AND r.document_id = ? "
+                "ORDER BY r.revision_number, r.revision_id",
+                (tenant_id, physical_document),
+            ) as cursor:
+                rev_rows = [dict(row) for row in await cursor.fetchall()]
+
+            physical_rev_ids = [str(r["physical_revision_id"]) for r in rev_rows]
+            source_counts: dict[str, int] = {}
+            state_counts: dict[str, dict[str, int]] = {}
+            temporal_by_rev: dict[str, tuple[str, str]] = {}
+            error_by_rev: dict[str, str] = {}
+            active_proj_revs: set[str] = set()
+
+            if physical_rev_ids:
+                rev_marks = ",".join("?" for _ in physical_rev_ids)
+                async with db.execute(
+                    "SELECT revision_id, COUNT(*) FROM source_chunks "
+                    f"WHERE tenant_id = ? AND dataset_id = ? AND revision_id IN ({rev_marks}) "
+                    "GROUP BY revision_id",
+                    (tenant_id, physical_dataset, *physical_rev_ids),
+                ) as cursor:
+                    for row in await cursor.fetchall():
+                        source_counts[str(row[0])] = int(row[1])
+
+                async with db.execute(
+                    "SELECT revision_id, state, COUNT(*) FROM memory_mutations "
+                    "WHERE tenant_id = ? AND dataset_id = ? AND document_id = ? "
+                    "GROUP BY revision_id, state",
+                    (tenant_id, physical_dataset, physical_document),
+                ) as cursor:
+                    for row in await cursor.fetchall():
+                        rev_key = str(row[0])
+                        state_counts.setdefault(rev_key, {})[str(row[1])] = int(row[2])
+
+                async with db.execute(
+                    "SELECT revision_id, MAX(valid_from), MAX(valid_to) "
+                    "FROM v4_assertions "
+                    "WHERE tenant_id = ? AND dataset_id = ? AND document_id = ? "
+                    "GROUP BY revision_id",
+                    (tenant_id, physical_dataset, physical_document),
+                ) as cursor:
+                    for row in await cursor.fetchall():
+                        temporal_by_rev[str(row[0])] = (
+                            str(row[1] or ""),
+                            str(row[2] or ""),
+                        )
+
+                # Fill validity dates from mutation metadata for pending revisions
+                # that have not projected assertions yet.
+                missing_temporal = [
+                    rid for rid in physical_rev_ids if rid not in temporal_by_rev
+                ]
+                if missing_temporal:
+                    miss_marks = ",".join("?" for _ in missing_temporal)
+                    async with db.execute(
+                        "SELECT revision_id, MIN(metadata_json) "
+                        "FROM memory_mutations "
+                        "WHERE tenant_id = ? AND dataset_id = ? AND document_id = ? "
+                        f"AND revision_id IN ({miss_marks}) "
+                        "GROUP BY revision_id",
+                        (tenant_id, physical_dataset, physical_document, *missing_temporal),
+                    ) as cursor:
+                        for row in await cursor.fetchall():
+                            try:
+                                meta = json.loads(str(row[1] or "{}"))
+                            except (TypeError, ValueError):
+                                meta = {}
+                            if isinstance(meta, dict):
+                                temporal_by_rev[str(row[0])] = (
+                                    str(meta.get("valid_from") or ""),
+                                    str(meta.get("valid_to") or ""),
+                                )
+
+                async with db.execute(
+                    "SELECT m.revision_id, "
+                    "COALESCE(NULLIF(m.failure_class, ''), NULLIF(p.last_error_class, ''), '') AS err_class, "
+                    "m.state AS mut_state, p.state AS proj_state "
+                    "FROM memory_mutations m "
+                    "LEFT JOIN projection_outbox p ON p.mutation_id = m.mutation_id "
+                    "WHERE m.tenant_id = ? AND m.dataset_id = ? AND m.document_id = ? "
+                    "AND ( "
+                    "  m.state IN ('DEAD_LETTER', 'REJECTED', 'BLOCKED', 'FAILED', 'CANCELLED', 'ROLLED_BACK') "
+                    "  OR p.state IN ('DEAD_LETTER', 'FAILED', 'CLAIMED', 'RETRY_PENDING', 'COMPLETED') "
+                    ") "
+                    "ORDER BY m.revision_id, m.updated_at DESC",
+                    (tenant_id, physical_dataset, physical_document),
+                ) as cursor:
+                    for row in await cursor.fetchall():
+                        rev_key = str(row[0])
+                        err_cls = str(row[1] or "")
+                        mut_state = str(row[2] or "")
+                        proj_state = str(row[3] or "")
+                        if proj_state in {"CLAIMED", "RETRY_PENDING", "COMPLETED"}:
+                            active_proj_revs.add(rev_key)
+                        if (
+                            mut_state in failed_mutation_states
+                            or proj_state in {"DEAD_LETTER", "FAILED"}
+                        ) and rev_key not in error_by_rev:
+                            error_by_rev[rev_key] = err_cls
+
+        revisions_out: list[dict[str, Any]] = []
+        for rev in rev_rows:
+            phys_rev = str(rev["physical_revision_id"])
+            rev_status = str(rev["status"])
+            rev_upper = rev_status.upper()
+            counts = dict(sorted(state_counts.get(phys_rev, {}).items()))
+            total_chunks = max(source_counts.get(phys_rev, 0), sum(counts.values()))
+            vf, vt = temporal_by_rev.get(phys_rev, ("", ""))
+
+            has_failure = (
+                rev_upper in failed_revision_states
+                or any(st in failed_mutation_states for st in counts)
+                or phys_rev in error_by_rev
+            )
+            error_obj: dict[str, str] | None = None
+            if rev_upper == "ACTIVE":
+                stage = "active"
+            elif rev_upper == "SUPERSEDED":
+                stage = "superseded"
+            elif has_failure:
+                stage = "failed"
+                error_obj = format_failure_error(error_by_rev.get(phys_rev))
+            elif total_chunks > 0 and counts.get("COMMITTED", 0) >= total_chunks:
+                stage = "indexed"
+            elif (
+                any(st != "RECEIVED" for st in counts)
+                or phys_rev in active_proj_revs
+            ):
+                stage = "processing"
+            else:
+                stage = "admitted"
+
+            revisions_out.append(
+                {
+                    "revision_id": str(rev["revision_id"]),
+                    "revision_number": int(rev["revision_number"]),
+                    "status": rev_status,
+                    "valid_from": vf,
+                    "valid_to": vt,
+                    "supersedes_revision_id": (
+                        str(rev["ext_supersedes_id"])
+                        if rev.get("supersedes_revision_id")
+                        else None
+                    ),
+                    "created_at": str(rev["created_at"]),
+                    "stage": stage,
+                    "total_chunks": total_chunks,
+                    "chunks_by_state": counts,
+                    "error": error_obj,
+                }
+            )
+
+        return {
+            "document_id": external_document_id,
+            "tenant_id": tenant_id,
+            "dataset_id": external_dataset_id,
+            "title": str(doc_row["title"]),
+            "status": str(doc_row["status"]),
+            "external_ref": doc_row["external_ref"],
+            "created_at": str(doc_row["created_at"]),
+            "revisions": revisions_out,
         }
 
     async def create_v4_source_chunk(
