@@ -1141,6 +1141,104 @@ class MemoryDAO:
             ) as cursor:
                 return {int(row[0]): str(row[1]) for row in await cursor.fetchall()}
 
+    async def get_v4_document_text(
+        self,
+        *,
+        tenant_id: str,
+        dataset_id: str,
+        document_id: str,
+        revision_id: str | None = None,
+        start: int | None = None,
+        end: int | None = None,
+    ) -> dict[str, Any]:
+        """Rebuild a revision's text (or a character slice) from its source chunks (D96)."""
+        if start is not None and start < 0:
+            raise ValueError("start must be non-negative")
+        if end is not None and end < 0:
+            raise ValueError("end must be non-negative")
+        if start is not None and end is not None and start > end:
+            raise ValueError("start must not exceed end")
+        external_document_id = document_id
+        async with self._sql.connection() as db:
+            physical_dataset = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+            )
+            physical_document = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="document", external_id=document_id
+            )
+            async with db.execute(
+                "SELECT status FROM documents "
+                "WHERE tenant_id = ? AND dataset_id = ? AND document_id = ?",
+                (tenant_id, physical_dataset, physical_document),
+            ) as cursor:
+                doc_row = await cursor.fetchone()
+            if doc_row is None:
+                raise CatalogIdentityNotFoundError("document not found in dataset")
+            if str(doc_row["status"]) == "PURGED":
+                raise ValueError("document is purged")
+
+            if revision_id is not None:
+                physical_revision = await self._catalog.resolve_id_in_tx(
+                    db, tenant_id=tenant_id, kind="revision", external_id=revision_id
+                )
+                async with db.execute(
+                    "SELECT revision_id, revision_number, status "
+                    "FROM document_revisions "
+                    "WHERE tenant_id = ? AND document_id = ? AND revision_id = ?",
+                    (tenant_id, physical_document, physical_revision),
+                ) as cursor:
+                    rev_row = await cursor.fetchone()
+                if rev_row is None:
+                    raise CatalogIdentityNotFoundError("revision not found for document")
+                external_revision_id = revision_id
+            else:
+                async with db.execute(
+                    "SELECT revision_id, revision_number, status "
+                    "FROM document_revisions "
+                    "WHERE tenant_id = ? AND document_id = ? AND status = 'ACTIVE' "
+                    "ORDER BY revision_number DESC LIMIT 1",
+                    (tenant_id, physical_document),
+                ) as cursor:
+                    rev_row = await cursor.fetchone()
+                if rev_row is None:
+                    raise CatalogIdentityNotFoundError("no active revision for document")
+                physical_revision = str(rev_row["revision_id"])
+                resolved_ext = await self._catalog.external_id_in_tx(
+                    db,
+                    tenant_id=tenant_id,
+                    kind="revision",
+                    physical_id=physical_revision,
+                )
+                external_revision_id = resolved_ext or physical_revision
+
+            if str(rev_row["status"]) == "PURGED":
+                raise ValueError("revision is purged")
+
+            async with db.execute(
+                "SELECT content_payload FROM source_chunks "
+                "WHERE tenant_id = ? AND dataset_id = ? AND revision_id = ? "
+                "ORDER BY ordinal, chunk_id",
+                (tenant_id, physical_dataset, physical_revision),
+            ) as cursor:
+                chunk_rows = await cursor.fetchall()
+
+        full_text = "".join(str(row[0] or "") for row in chunk_rows)
+        total_length = len(full_text)
+        slice_start = 0 if start is None else min(start, total_length)
+        slice_end = total_length if end is None else min(end, total_length)
+        if slice_start > slice_end:
+            slice_start = slice_end
+        return {
+            "document_id": external_document_id,
+            "revision_id": external_revision_id,
+            "revision_number": int(rev_row["revision_number"]),
+            "status": str(rev_row["status"]),
+            "total_length": total_length,
+            "start": slice_start,
+            "end": slice_end,
+            "text": full_text[slice_start:slice_end],
+        }
+
     async def create_v4_source_chunk(
         self,
         *,
@@ -1157,6 +1255,8 @@ class MemoryDAO:
         external_ref: str | None = None,
         supersedes_revision_id: str | None = None,
         finalize_revision: bool = True,
+        char_start: int | None = None,
+        char_end: int | None = None,
     ) -> dict[str, Any]:
         """Create immutable document/revision/chunk provenance."""
         if not all(
@@ -1292,11 +1392,17 @@ class MemoryDAO:
                     predecessor = await cursor.fetchone()
                 if predecessor is None or predecessor[0] != document_id:
                     raise ValueError("superseded revision is outside document scope")
+            effective_char_start = 0 if char_start is None else int(char_start)
+            effective_char_end = (
+                effective_char_start + len(content_payload)
+                if char_end is None
+                else int(char_end)
+            )
             await db.execute(
                 "INSERT OR IGNORE INTO source_chunks "
                 "(chunk_id, tenant_id, dataset_id, revision_id, ordinal, "
-                "content_payload, content_hash, source_ref) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "content_payload, content_hash, source_ref, char_start, char_end) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     chunk_id,
                     tenant_id,
@@ -1306,6 +1412,8 @@ class MemoryDAO:
                     content_payload,
                     content_hash,
                     source_ref,
+                    effective_char_start,
+                    effective_char_end,
                 ),
             )
             async with db.execute(
@@ -2164,6 +2272,8 @@ class MemoryDAO:
         idempotency_key: str | None = None,
         payload_hash: str | None = None,
         finalize_revision: bool = True,
+        char_start: int | None = None,
+        char_end: int | None = None,
     ) -> dict[str, Any]:
         """Atomically admit one V4 write and all of its durable records.
 
@@ -2420,10 +2530,16 @@ class MemoryDAO:
                         raise ValueError(
                             "superseded revision is outside document scope"
                         )
+                effective_char_start = 0 if char_start is None else int(char_start)
+                effective_char_end = (
+                    effective_char_start + len(content_payload)
+                    if char_end is None
+                    else int(char_end)
+                )
                 await db.execute(
                     "INSERT OR IGNORE INTO source_chunks "
-                    "(chunk_id, tenant_id, dataset_id, revision_id, ordinal, content_payload, content_hash, source_ref) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "(chunk_id, tenant_id, dataset_id, revision_id, ordinal, content_payload, content_hash, source_ref, char_start, char_end) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         chunk_id,
                         tenant_id,
@@ -2433,6 +2549,8 @@ class MemoryDAO:
                         content_payload,
                         content_hash,
                         source_ref,
+                        effective_char_start,
+                        effective_char_end,
                     ),
                 )
                 async with db.execute(
@@ -8508,6 +8626,29 @@ class MemoryDAO:
                 ) as cursor:
                     for row in await cursor.fetchall():
                         revision_numbers[str(row[0])] = int(row[1])
+            physical_chunk_ids = sorted(
+                {
+                    str(assertion["chunk_id"])
+                    for assertion in all_materialized_assertions
+                    if assertion.get("chunk_id")
+                }
+            )
+            chunk_spans: dict[str, dict[str, int]] = {}
+            for offset in range(0, len(physical_chunk_ids), 500):
+                c_batch = physical_chunk_ids[offset : offset + 500]
+                c_placeholders = ",".join("?" for _ in c_batch)
+                async with db.execute(
+                    "SELECT chunk_id, char_start, char_end, LENGTH(content_payload) "
+                    "FROM source_chunks "
+                    f"WHERE tenant_id = ? AND chunk_id IN ({c_placeholders})",
+                    (tenant_id, *c_batch),
+                ) as cursor:
+                    for row in await cursor.fetchall():
+                        c_start = int(row[1] or 0)
+                        c_end = int(row[2] or 0)
+                        if c_end == 0 and c_start == 0 and row[3]:
+                            c_end = int(row[3])
+                        chunk_spans[str(row[0])] = {"start": c_start, "end": c_end}
             for assertion in all_materialized_assertions:
                 metadata = metadata_by_mutation.get(str(assertion.get("mutation_id")))
                 if metadata:
@@ -8517,6 +8658,16 @@ class MemoryDAO:
                     assertion["revision_number"] = revision_numbers[physical_rev_id]
                 else:
                     assertion.setdefault("revision_number", None)
+                physical_chunk_id = str(assertion.get("chunk_id") or "")
+                span = chunk_spans.get(physical_chunk_id)
+                if span is None:
+                    fallback_text = str(
+                        assertion.get("chunk_text")
+                        or assertion.get("evidence_span")
+                        or ""
+                    )
+                    span = {"start": 0, "end": len(fallback_text)}
+                assertion["span"] = dict(span)
                 assertion["valid_from"] = str(assertion.get("valid_from") or "")
                 assertion["valid_to"] = str(assertion.get("valid_to") or "")
                 for field, kind in catalog_fields:
@@ -8594,7 +8745,10 @@ class MemoryDAO:
                 "assertion_id": cand["assertion_id"],
                 "source_chunk_id": cand["source_chunk_id"],
                 "document_id": cand["document_id"],
+                "revision_id": first_prov.get("revision_id"),
                 "revision_number": first_prov.get("revision_number"),
+                "chunk_id": cand["source_chunk_id"],
+                "span": dict(first_prov.get("span") or {"start": 0, "end": 0}),
                 "valid_from": str(first_prov.get("valid_from") or ""),
                 "valid_to": str(first_prov.get("valid_to") or ""),
                 "evidence_span": cand["evidence_span"],
