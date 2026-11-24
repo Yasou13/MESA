@@ -18,8 +18,7 @@ response must not be used as a fixed feature promise.
 | `canonical_ledger`, `projection_outbox`, `idempotent_ingestion` | Durable canonical work and projection contracts |
 | `vector_retrieval` | Operational embedding generation, not merely configured identity |
 | `lexical_retrieval`, `assertion_relational_lane` | SQLite lexical/assertion retrieval; not graph traversal |
-| `graph_projection` | Graph projection availability |
-| `graph_neighbor_retrieval` | Operational neighbor retrieval implementation |
+| `graph_projection`, `graph_neighbor_retrieval` | Always `false`; kept for client compatibility after the graph store was removed |
 | `validity_interval_filtering` | Validity filtering, not bitemporal semantics |
 | `durable_rebuild` | Enabled by `MESA_V4_REBUILD_ENABLED`; still offline and full-root |
 | `associative_ppr`, `bitemporal_query`, `human_review` | Not advertised as implemented Core capabilities |

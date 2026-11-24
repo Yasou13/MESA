@@ -169,15 +169,8 @@ paylaşımlı lease/koordinasyon servisi tasarlanıp doğrulandıktan sonra aç�
 `MESA_MODEL_ENABLED` ve `MESA_EXTERNAL_PROVIDER_ENABLED` açıkça ayarlanır.
 Provider timeout/rate-limit hatası retryable; bozuk şema permanent; sürekli
 aynı toksik payload poison olarak sınıflanır. Seçili validation policy
-tamamlanmadan SQL/vector/graph projection başlamaz. Provider’ı atlamak için mutation’ı doğrudan VALIDATED
+tamamlanmadan SQL/vector projection başlamaz. Provider’ı atlamak için mutation’ı doğrudan VALIDATED
 duruma çekmeyin.
-
-## 8. PageRank
-
-V4 PageRank çıktısı yalnız telemetridir. Düşük merkezilik bir memory,
-assertion, vector veya source’u karantinaya alamaz. PageRank temelli
-`hallucination`/delete davranışı görülürse deploy durdurulmalı; bu v4
-sözleşmesine aykırıdır.
 
 ## 9. Session finalization
 

@@ -157,18 +157,16 @@ run. Assertion identity includes predicate, source and temporal context, so
 different relations between the same entities remain distinct.
 
 `CONTRADICTS` and `SUPERSEDES` connect assertions and preserve provenance.
-PageRank only publishes observation telemetry; it cannot quarantine,
-tombstone, delete or otherwise change retrieval eligibility.
 
 ## Artifact ownership and rollback
 
-`artifact_registry` represents physical SQL, vector and graph artifacts.
+`artifact_registry` represents physical SQL and vector artifacts.
 `artifact_sources` allows several mutations/source chunks to own the same
 entity or vector.
 
 Rollback removes only the requesting run's source ownership. A shared artifact
 remains active while another source owns it. The last-owner path writes the
-SQLite retrieval tombstone first and schedules idempotent vector/graph cleanup.
+SQLite retrieval tombstone first and schedules idempotent vector cleanup.
 An unfinished cleanup leaves the run `BLOCKED`, never falsely committed.
 
 A new document revision does not erase history. Prior assertions become
@@ -192,13 +190,13 @@ they are not individual fields in the public `/health` response.
 
 ## Retrieval
 
-All SQL, vector and graph lanes receive the authorized dataset filter before
-ranking. V4 combines rank positions using real reciprocal rank fusion. Jurisdiction and validity constrain eligibility before ranking; assertion
+The BM25, assertion and vector lanes receive the authorized dataset filter
+before ranking. V4 combines rank positions using real reciprocal rank fusion. Jurisdiction and validity constrain eligibility before ranking; assertion
 confidence affects assertion-lane ordering. The bounded post-RRF legal factor
 uses query statute/article identity. See [retrieval](retrieval-and-graph.md). Candidate assertion identity is the deterministic final tie-break.
 
 Responses include document, revision, chunk, evidence, assertion, pipeline and
-embedding provenance. PageRank is not a retrieval eligibility signal.
+embedding provenance.
 
 ### Bounded adaptive context retrieval
 
@@ -286,7 +284,7 @@ model accuracy. Provider pairing quality requires its own measured evidence.
 
 No v0.8.0 throughput, recall, accuracy, latency or 10–20 GB corpus-capacity result
 has been measured in this documentation release. A unit/fixture smoke is not a
-production soak, and bounded graph traversal does not guarantee complete recall.
+production soak.
 
 Historical benchmark and audit documents have been retired from the working
 tree. Earlier reports in Git history describe their own fixtures and revisions,
