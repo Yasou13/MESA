@@ -18,6 +18,12 @@ from .client import (
     V4ContextSource,
     V4SearchResult,
 )
+from .tools import (
+    MESA_OPENAI_TOOLS,
+    aexecute_tool_call,
+    execute_tool_call,
+    get_openai_tools,
+)
 
 __all__ = [
     "Mesa",
@@ -36,4 +42,8 @@ __all__ = [
     "V4SearchResult",
     "V4ContextSource",
     "RECOMMENDED_SYSTEM_PROMPT",
+    "MESA_OPENAI_TOOLS",
+    "get_openai_tools",
+    "execute_tool_call",
+    "aexecute_tool_call",
 ]
