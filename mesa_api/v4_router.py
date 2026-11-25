@@ -764,6 +764,14 @@ async def _resolve_v4_scope(
             detail="tenant_id, workspace_id and dataset scope are required when session_id is omitted",
         )
     datasets = list(dataset_ids)
+    effective_agent = agent_id or DEFAULT_LOCAL_AGENT_ID
+    # R25 amendment A1: the same agent check as /v4/sessions/start.
+    if not await access_control.check_principal_permission(
+        _active_principal(request).principal_id, effective_agent, "SESSION_CREATE"
+    ):
+        raise HTTPException(
+            status_code=403, detail="Principal lacks SESSION_CREATE permission"
+        )
     await _require_dataset_roles(
         request,
         access_control,
@@ -782,7 +790,7 @@ async def _resolve_v4_scope(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
-    return (tenant_id, workspace_id, agent_id or DEFAULT_LOCAL_AGENT_ID, datasets, "")
+    return (tenant_id, workspace_id, effective_agent, datasets, "")
 
 
 async def _authorize_mutation_access(

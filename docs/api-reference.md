@@ -273,7 +273,9 @@ Public/source ID validator farkları için çalışan OpenAPI kullanılır.
 Search requests can run **without a session** by passing `tenant_id`,
 `workspace_id`, `dataset_ids` (1..64 dataset IDs), and `query` (optional
 `agent_id` defaults to `local-agent`, matching CLI-ingested data); access is
-authorized via dataset `READER` role. Session-based search continues to work by
+authorized via dataset `READER` role plus the principal's `SESSION_CREATE`
+permission for that `agent_id`, the same agent check as `/v4/sessions/start`.
+Session-based search continues to work by
 passing `session_id` (with optional `dataset_ids` subset). Mixing `session_id`
 with disagreeing explicit scope fields returns HTTP 422. Optional
 `document_ids` (1..64 caller document IDs) restricts every search lane to those
@@ -294,10 +296,18 @@ bu sürümde uygulanmamaktadır (per-minute and daily limits are not enforced in
 
 ### Whole documents: `POST /v4/documents`
 
+A direct HTTP client must create the workspace and dataset through the catalog
+routes before its first sessionless call: `POST /v4/catalog/workspaces`, then
+`POST /v4/catalog/datasets`. Until they exist, sessionless ingest, upload and
+search return HTTP 404 for the unknown workspace or dataset. The SDK's `Mesa`
+client does this on first use, and a `409` from either route means the scope
+already exists.
+
 Sessionless form (recommended for document loaders and apps): send `tenant_id`,
 `workspace_id`, `dataset_id`, `document_id`, `title`, `source_ref`, `content`,
 optional `agent_id` (defaults to `local-agent`), and optional `metadata`. Access
-requires the dataset `WRITER` role. Session-based form continues to work by
+requires the dataset `WRITER` role and `SESSION_CREATE` for that `agent_id`
+(HTTP 403 otherwise). Session-based form continues to work by
 sending `session_id` instead of `tenant_id`/`workspace_id` (the session requires
 WRITE access to the dataset). Mixing `session_id` with disagreeing explicit
 scope fields returns HTTP 422. The runtime must own the combined consumer, just
@@ -332,7 +342,8 @@ for validity dates and out-of-order history rules.
 Send `multipart/form-data` with one `file` and the same scope, document ID,
 title, and source fields as `POST /v4/documents`. Pass `metadata` as a
 JSON-encoded object. You can also pass `valid_from` and `valid_to` as
-individual form fields. Sessionless uploads require dataset `WRITER` access.
+individual form fields. Sessionless uploads require dataset `WRITER` access and
+`SESSION_CREATE` for the `agent_id`.
 The response is the same HTTP 202 admission receipt as for text documents.
 
 Supported extensions are `.pdf`, `.docx`, `.udf`, `.xlsx`, `.txt`, and

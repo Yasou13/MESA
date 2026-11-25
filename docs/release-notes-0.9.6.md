@@ -11,7 +11,8 @@ and open the exact passage behind a search result.
   `POST /v4/documents/upload`. File uploads share the text ingest path's
   revision, retry, and validity rules. [Upload API](api-reference.md#upload-a-file-with-post-v4documentsupload)
 - Use tenant, workspace, and dataset IDs to upload and search without
-  starting a session. Dataset roles govern access. Use `document_ids` to
+  starting a session. Dataset roles and the agent's `SESSION_CREATE`
+  permission govern access. Use `document_ids` to
   scope the search before ranking. [Quickstart](getting-started.md#quickstart)
 - Use `GET /v4/documents/{document_id}` to check revision stages, chunk
   states, and readable ingest errors. Search and context results include

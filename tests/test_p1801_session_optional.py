@@ -123,6 +123,11 @@ def d94_runtime(tmp_path, monkeypatch):
                 workspace_id="ws1",
                 role="READER",
             )
+            # R25 amendment A1: sessionless calls need the agent permission.
+            for principal in ("reader-principal", "ws1-reader"):
+                await access.grant_principal_permission(
+                    principal, "local-agent", "SESSION_CREATE"
+                )
 
             def make_client(api_key: str) -> httpx.AsyncClient:
                 return httpx.AsyncClient(
@@ -551,3 +556,82 @@ async def test_mcp_sessionless_recall_for_reader_only_principal(d94_runtime) -> 
                 )
         finally:
             await v4_svc.close()
+
+
+@pytest.mark.asyncio
+async def test_sessionless_requires_agent_permission_amendment_a1(d94_runtime) -> None:
+    """R25 amendment A1: sessionless calls pass the /v4/sessions/start agent check."""
+    async with d94_runtime() as env:
+        writer = env["writer"]
+        scope = {"tenant_id": "t1", "workspace_id": "ws1"}
+
+        def document(agent_id: str, document_id: str) -> dict:
+            return {
+                **scope,
+                "dataset_id": "ds1",
+                "agent_id": agent_id,
+                "document_id": document_id,
+                "title": "Agent scoped",
+                "source_ref": f"file://{document_id}.txt",
+                "content": "Agent scoped quartz evidence.",
+            }
+
+        def search(agent_id: str) -> dict:
+            return {
+                **scope,
+                "dataset_ids": ["ds1"],
+                "agent_id": agent_id,
+                "query": "quartz evidence",
+            }
+
+        # The WRITER has dataset rights but no permission for agent X.
+        denied_session = await writer.post(
+            "/v4/sessions/start",
+            json={**scope, "dataset_ids": ["ds1"], "agent_id": "agent-x"},
+        )
+        assert denied_session.status_code == 403
+        denied_write = await writer.post("/v4/documents", json=document("agent-x", "x1"))
+        assert denied_write.status_code == 403, denied_write.text
+        fields = {k: v for k, v in document("agent-x", "x2").items() if k != "content"}
+        denied_upload = await writer.post(
+            "/v4/documents/upload",
+            data=fields,
+            files={"file": ("x2.txt", b"Agent scoped quartz evidence.")},
+        )
+        assert denied_upload.status_code == 403, denied_upload.text
+        denied_search = await writer.post("/v4/memory/search", json=search("agent-x"))
+        assert denied_search.status_code == 403, denied_search.text
+
+        # With the permission, the same calls work.
+        allowed_write = await writer.post(
+            "/v4/documents", json=document("custom-agent", "c1")
+        )
+        assert allowed_write.status_code == 202, allowed_write.text
+        await _drain_all_work(env["dao"])
+        allowed_search = await writer.post(
+            "/v4/memory/search", json=search("custom-agent")
+        )
+        assert allowed_search.status_code == 200, allowed_search.text
+        assert [item["document_id"] for item in allowed_search.json()["results"]] == ["c1"]
+
+        # The default agent goes through the same check.
+        await server.state.access_control.grant_scope_role(
+            "no-agent-reader",
+            tenant_id="t1",
+            workspace_id="ws1",
+            dataset_id="ds1",
+            role="READER",
+        )
+        no_agent_key = await server.state.api_key_store.issue_key(
+            principal_id="no-agent-reader"
+        )
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=server.app),
+            base_url="http://test",
+            headers={"X-API-Key": no_agent_key},
+        ) as no_agent_reader:
+            default_search = await no_agent_reader.post(
+                "/v4/memory/search",
+                json={**scope, "dataset_ids": ["ds1"], "query": "quartz evidence"},
+            )
+        assert default_search.status_code == 403, default_search.text

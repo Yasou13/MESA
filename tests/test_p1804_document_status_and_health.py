@@ -89,6 +89,11 @@ def status_runtime(tmp_path, monkeypatch):
                 dataset_id="ds1",
                 role="READER",
             )
+            # R25 amendment A1: sessionless calls need the agent permission.
+            for principal in ("owner-principal", "reader-principal"):
+                await access.grant_principal_permission(
+                    principal, "local-agent", "SESSION_CREATE"
+                )
 
             def make_client(api_key: str) -> httpx.AsyncClient:
                 return httpx.AsyncClient(

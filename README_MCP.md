@@ -76,8 +76,9 @@ database and works from any working directory):
   credentials.
 - `mesa_recall`: searches V4 dataset memory and wraps every returned passage as
   untrusted data. Supports sessionless search when `dataset_ids` is passed or
-  `use_session: false` is set (allowing `READER`-only API keys to search
-  without starting a write session), and accepts optional `document_ids` (1..64
+  `use_session: false` is set (allowing keys with dataset `READER` and
+  `SESSION_CREATE` for the actor agent to search without starting a write
+  session), and accepts optional `document_ids` (1..64
   caller document IDs). Each recalled item includes `document_id`,
   `revision_id`, `revision_number`, `chunk_id`, `span` (`{"start", "end"}`),
   `valid_from`, and `valid_to`. PDF results carry `page`. XLSX results

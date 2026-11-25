@@ -20,7 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`mesa_recall` with `dataset_ids` or `use_session=false`) (D94). Requests
   without `session_id` authorize against dataset `READER`/`WRITER` roles with
   `tenant_id`, `workspace_id`, and dataset scope (`agent_id` defaults to
-  `local-agent`); mixing `session_id` with disagreeing scope fields returns
+  `local-agent`) and require the principal's `SESSION_CREATE` permission for
+  that agent, the same check as `/v4/sessions/start` (R25 amendment A1); mixing `session_id` with disagreeing scope fields returns
   HTTP 422. Session-based calls and agent memory routes remain unchanged.
 - Optional `document_ids` search filter (1..64 caller document IDs) across
   HTTP (`POST /v4/memory/search`), Python SDK (`MesaV4Client`,

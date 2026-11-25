@@ -90,6 +90,10 @@ def d95_runtime(tmp_path, monkeypatch):
                 dataset_id="ds1",
                 role="WRITER",
             )
+            # R25 amendment A1: sessionless calls need the agent permission.
+            await access.grant_principal_permission(
+                "d95-principal", "local-agent", "SESSION_CREATE"
+            )
             client = await stack.enter_async_context(
                 httpx.AsyncClient(
                     transport=httpx.ASGITransport(app=server.app),
