@@ -1250,6 +1250,250 @@ class MemoryDAO:
             "text": full_text[slice_start:slice_end],
         }
 
+    async def expand_v4_passages(
+        self,
+        *,
+        tenant_id: str,
+        agent_id: str,
+        dataset_ids: list[str],
+        results: list[dict[str, Any]],
+        expand: Literal["none", "neighbors", "article"],
+        document_ids: list[str] | None = None,
+        jurisdiction: str | None = None,
+        valid_at: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
+    ) -> dict[int, str]:
+        """Expand ranked passages for LLM context while enforcing exact search scope (D106).
+
+        Returns a mapping ``{result_index: expanded_text}`` only for results that
+        have authorized expansion chunks in the same revision. Never mutates
+        ``results`` or changes citation spans.
+        """
+        if expand == "none" or not results or not dataset_ids:
+            return {}
+        if expand not in {"neighbors", "article"}:
+            raise ValueError(f"Unsupported expand mode: {expand}")
+        _assert_valid_agent_id(agent_id)
+
+        historical_query = bool(valid_at or valid_from or valid_to)
+        assertion_status_sql = (
+            "(a.status = 'ACTIVE' OR (a.status = 'SUPERSEDED' AND a.valid_to != ''))"
+            if historical_query
+            else "a.status = 'ACTIVE'"
+        )
+        provenance_filters: list[str] = []
+        provenance_params: list[Any] = []
+        if jurisdiction:
+            provenance_filters.append("a.jurisdiction = ?")
+            provenance_params.append(jurisdiction)
+        if valid_at:
+            provenance_filters.extend(
+                (
+                    "(a.valid_from = '' OR julianday(a.valid_from) <= julianday(?))",
+                    "(a.valid_to = '' OR julianday(a.valid_to) > julianday(?))",
+                )
+            )
+            provenance_params.extend((valid_at, valid_at))
+        if valid_from:
+            provenance_filters.append(
+                "(a.valid_to = '' OR julianday(a.valid_to) > julianday(?))"
+            )
+            provenance_params.append(valid_from)
+        if valid_to:
+            provenance_filters.append(
+                "(a.valid_from = '' OR julianday(a.valid_from) < julianday(?))"
+            )
+            provenance_params.append(valid_to)
+
+        expanded: dict[int, str] = {}
+        async with self._sql.connection() as db:
+            resolved_datasets: list[str] = []
+            for ext_ds in sorted(set(dataset_ids)):
+                try:
+                    resolved_datasets.append(
+                        await self._catalog.resolve_id_in_tx(
+                            db,
+                            tenant_id=tenant_id,
+                            kind="dataset",
+                            external_id=ext_ds,
+                        )
+                    )
+                except CatalogIdentityNotFoundError:
+                    continue
+            if not resolved_datasets:
+                return {}
+            ds_placeholders = ",".join("?" for _ in resolved_datasets)
+
+            if document_ids is not None:
+                resolved_docs: list[str] = []
+                for ext_doc in sorted(set(document_ids)):
+                    try:
+                        resolved_docs.append(
+                            await self._catalog.resolve_id_in_tx(
+                                db,
+                                tenant_id=tenant_id,
+                                kind="document",
+                                external_id=ext_doc,
+                            )
+                        )
+                    except CatalogIdentityNotFoundError:
+                        continue
+                if not resolved_docs:
+                    return {}
+                doc_placeholders = ",".join("?" for _ in resolved_docs)
+                provenance_filters.append(f"a.document_id IN ({doc_placeholders})")
+                provenance_params.extend(resolved_docs)
+
+            extra_prov_sql = (
+                " AND " + " AND ".join(provenance_filters) if provenance_filters else ""
+            )
+            authorized_chunk_exists = (
+                "EXISTS ("
+                "SELECT 1 FROM v4_assertions a "
+                "JOIN memory_mutations m ON m.mutation_id = a.mutation_id "
+                f"WHERE a.tenant_id = c.tenant_id AND a.dataset_id = c.dataset_id "
+                "AND a.revision_id = c.revision_id AND a.chunk_id = c.chunk_id "
+                f"AND {assertion_status_sql} "
+                "AND m.agent_id = ? AND m.state = 'COMMITTED'"
+                f"{extra_prov_sql}"
+                ")"
+            )
+
+            for idx, item in enumerate(results):
+                provenance = item.get("provenance")
+                first_prov = (
+                    provenance[0]
+                    if isinstance(provenance, list)
+                    and provenance
+                    and isinstance(provenance[0], dict)
+                    else {}
+                )
+                ext_rev_id = item.get("revision_id") or first_prov.get("revision_id")
+                ext_chunk_id = (
+                    item.get("chunk_id")
+                    or item.get("source_chunk_id")
+                    or first_prov.get("chunk_id")
+                )
+                if not ext_rev_id or not ext_chunk_id:
+                    continue
+                try:
+                    phys_rev_id = await self._catalog.resolve_id_in_tx(
+                        db,
+                        tenant_id=tenant_id,
+                        kind="revision",
+                        external_id=str(ext_rev_id),
+                    )
+                    phys_chunk_id = await self._catalog.resolve_id_in_tx(
+                        db,
+                        tenant_id=tenant_id,
+                        kind="chunk",
+                        external_id=str(ext_chunk_id),
+                    )
+                except CatalogIdentityNotFoundError:
+                    continue
+
+                async with db.execute(
+                    "SELECT c.dataset_id, r.document_id, c.ordinal "
+                    "FROM source_chunks c "
+                    "JOIN document_revisions r ON r.tenant_id = c.tenant_id AND r.revision_id = c.revision_id "
+                    "JOIN documents d ON d.tenant_id = r.tenant_id AND d.document_id = r.document_id "
+                    f"WHERE c.tenant_id = ? AND c.dataset_id IN ({ds_placeholders}) "
+                    "AND c.revision_id = ? AND c.chunk_id = ? "
+                    "AND d.status != 'PURGED' AND r.status != 'PURGED' "
+                    f"AND {authorized_chunk_exists}",
+                    (
+                        tenant_id,
+                        *resolved_datasets,
+                        phys_rev_id,
+                        phys_chunk_id,
+                        agent_id,
+                        *provenance_params,
+                    ),
+                ) as cursor:
+                    seed_row = await cursor.fetchone()
+                if seed_row is None:
+                    continue
+
+                phys_ds_id = str(seed_row[0])
+                seed_ordinal = int(seed_row[2])
+
+                if expand == "neighbors":
+                    async with db.execute(
+                        "SELECT c.content_payload FROM source_chunks c "
+                        "WHERE c.tenant_id = ? AND c.dataset_id = ? AND c.revision_id = ? "
+                        "AND c.ordinal BETWEEN ? AND ? "
+                        f"AND {authorized_chunk_exists} "
+                        "ORDER BY c.ordinal ASC, c.chunk_id ASC",
+                        (
+                            tenant_id,
+                            phys_ds_id,
+                            phys_rev_id,
+                            seed_ordinal - 1,
+                            seed_ordinal + 1,
+                            agent_id,
+                            *provenance_params,
+                        ),
+                    ) as cursor:
+                        rows = await cursor.fetchall()
+                else:
+                    # expand == "article": expand only when the seed chunk carries a legal identity.
+                    async with db.execute(
+                        "SELECT a.law_id, a.article_id FROM v4_assertions a "
+                        "JOIN memory_mutations m ON m.mutation_id = a.mutation_id "
+                        "WHERE a.tenant_id = ? AND a.dataset_id = ? "
+                        "AND a.revision_id = ? AND a.chunk_id = ? "
+                        f"AND {assertion_status_sql} "
+                        "AND m.agent_id = ? AND m.state = 'COMMITTED' "
+                        "AND a.law_id != '' AND a.article_id != ''"
+                        f"{extra_prov_sql} "
+                        "ORDER BY a.law_id, a.article_id LIMIT 1",
+                        (
+                            tenant_id,
+                            phys_ds_id,
+                            phys_rev_id,
+                            phys_chunk_id,
+                            agent_id,
+                            *provenance_params,
+                        ),
+                    ) as cursor:
+                        legal_row = await cursor.fetchone()
+                    if legal_row is None:
+                        continue
+                    seed_law_id = str(legal_row[0])
+                    seed_article_id = str(legal_row[1])
+                    async with db.execute(
+                        "SELECT c.content_payload FROM source_chunks c "
+                        "WHERE c.tenant_id = ? AND c.dataset_id = ? AND c.revision_id = ? "
+                        "AND EXISTS ("
+                        "SELECT 1 FROM v4_assertions a "
+                        "JOIN memory_mutations m ON m.mutation_id = a.mutation_id "
+                        "WHERE a.tenant_id = c.tenant_id AND a.dataset_id = c.dataset_id "
+                        "AND a.revision_id = c.revision_id AND a.chunk_id = c.chunk_id "
+                        f"AND {assertion_status_sql} "
+                        "AND m.agent_id = ? AND m.state = 'COMMITTED' "
+                        "AND a.law_id = ? AND a.article_id = ?"
+                        f"{extra_prov_sql}"
+                        ") "
+                        "ORDER BY c.ordinal ASC, c.chunk_id ASC",
+                        (
+                            tenant_id,
+                            phys_ds_id,
+                            phys_rev_id,
+                            agent_id,
+                            seed_law_id,
+                            seed_article_id,
+                            *provenance_params,
+                        ),
+                    ) as cursor:
+                        rows = await cursor.fetchall()
+
+                joined = "".join(str(r[0] or "") for r in rows).strip()
+                if joined:
+                    expanded[idx] = joined
+
+        return expanded
+
     async def get_v4_document_status(
         self,
         *,

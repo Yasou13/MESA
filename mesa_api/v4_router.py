@@ -953,34 +953,56 @@ async def execute_v4_ask(
     try:
         certification_metadata: dict[str, Any] = {}
         principal = _active_principal(request)
-        search_kwargs: dict[str, Any] = {
-            "tenant_id": tenant_id,
-            "agent_id": agent_id,
-            "dataset_ids": datasets,
-            "query": payload.question,
-            "limit": payload.limit,
-            "jurisdiction": payload.jurisdiction,
-            "valid_at": (
-                payload.valid_at.astimezone(timezone.utc).isoformat()
-                if payload.valid_at
-                else None
-            ),
-            "valid_from": (
-                payload.valid_from.astimezone(timezone.utc).isoformat()
-                if payload.valid_from
-                else None
-            ),
-            "valid_to": (
-                payload.valid_to.astimezone(timezone.utc).isoformat()
-                if payload.valid_to
-                else None
-            ),
-            "request_principal_id": str(principal.principal_id),
-            "certification_metadata": certification_metadata,
-        }
-        if payload.document_ids is not None:
-            search_kwargs["document_ids"] = payload.document_ids
-        results = await dao.search_v4_memory(**search_kwargs)
+        valid_at_iso = (
+            payload.valid_at.astimezone(timezone.utc).isoformat()
+            if payload.valid_at
+            else None
+        )
+        valid_from_iso = (
+            payload.valid_from.astimezone(timezone.utc).isoformat()
+            if payload.valid_from
+            else None
+        )
+        valid_to_iso = (
+            payload.valid_to.astimezone(timezone.utc).isoformat()
+            if payload.valid_to
+            else None
+        )
+        if payload.retrieval_mode == "adaptive":
+            planner = BoundedQueryPlanner(adapter)
+            retriever = BoundedAdaptiveQueryRetriever(dao, planner)
+            adaptive_result = await retriever.retrieve(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                dataset_ids=datasets,
+                query=payload.question,
+                limit=payload.limit,
+                document_ids=payload.document_ids,
+                jurisdiction=payload.jurisdiction,
+                valid_at=valid_at_iso,
+                valid_from=valid_from_iso,
+                valid_to=valid_to_iso,
+                request_principal_id=str(principal.principal_id),
+                certification_metadata=certification_metadata,
+            )
+            results = adaptive_result.candidates[: payload.limit]
+        else:
+            search_kwargs: dict[str, Any] = {
+                "tenant_id": tenant_id,
+                "agent_id": agent_id,
+                "dataset_ids": datasets,
+                "query": payload.question,
+                "limit": payload.limit,
+                "jurisdiction": payload.jurisdiction,
+                "valid_at": valid_at_iso,
+                "valid_from": valid_from_iso,
+                "valid_to": valid_to_iso,
+                "request_principal_id": str(principal.principal_id),
+                "certification_metadata": certification_metadata,
+            }
+            if payload.document_ids is not None:
+                search_kwargs["document_ids"] = payload.document_ids
+            results = await dao.search_v4_memory(**search_kwargs)
     except EmbeddingMigrationRequiredError:
         raise HTTPException(
             status_code=409,
@@ -998,6 +1020,21 @@ async def execute_v4_ask(
             detail="vector_backend_unavailable",
         )
 
+    expanded_texts: dict[int, str] | None = None
+    if payload.expand != "none" and results:
+        expanded_texts = await dao.expand_v4_passages(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            dataset_ids=datasets,
+            results=results,
+            expand=payload.expand,
+            document_ids=payload.document_ids,
+            jurisdiction=payload.jurisdiction,
+            valid_at=valid_at_iso,
+            valid_from=valid_from_iso,
+            valid_to=valid_to_iso,
+        )
+
     degraded = list(certification_metadata.get("degraded_sources", []))
     try:
         return await answer_from_results(
@@ -1005,6 +1042,7 @@ async def execute_v4_ask(
             results=results,
             adapter=adapter,
             degraded_sources=degraded,
+            expanded_texts=expanded_texts,
         )
     except LLMResponseError as exc:
         raise HTTPException(
@@ -2574,6 +2612,7 @@ def create_v4_router(
         valid_from: datetime | None = None,
         valid_to: datetime | None = None,
         retrieval_mode: Literal["single", "adaptive"] = "single",
+        expand: Literal["none", "neighbors", "article"] = "none",
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
     ) -> dict:
@@ -2600,7 +2639,7 @@ def create_v4_router(
         adaptive_retriever = None
         if retrieval_mode == "adaptive":
             planner = None
-            if is_extraction_enabled():
+            if is_extraction_enabled() or AdapterFactory.is_llm_configured():
                 try:
                     planner = BoundedQueryPlanner(AdapterFactory.get_adapter())
                 except Exception as exc:
@@ -2631,6 +2670,7 @@ def create_v4_router(
                     valid_to.astimezone(timezone.utc).isoformat() if valid_to else None
                 ),
                 retrieval_mode=retrieval_mode,
+                expand=expand,
             )
         except EmbeddingMigrationRequiredError:
             raise HTTPException(
