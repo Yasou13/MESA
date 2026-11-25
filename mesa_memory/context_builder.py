@@ -383,6 +383,15 @@ class ContextBuilder:
                         chunk_id = p.get("chunk_id")
                         if chunk_id:
                             fact_dict["chunk_id"] = str(chunk_id)
+                        span = p.get("span")
+                        if isinstance(span, dict) and "start" in span and "end" in span:
+                            fact_dict["span"] = {
+                                "start": int(span["start"]),
+                                "end": int(span["end"]),
+                            }
+                        for key in ("page", "sheet", "row_start", "row_end"):
+                            if key in p:
+                                fact_dict[key] = p[key]
                         evidence_span = p.get("evidence_span")
                         if evidence_span:
                             # Evidence is retained intact here.  The token
@@ -654,7 +663,10 @@ class ContextBuilder:
                     "assertion_id",
                     "source_chunk_id",
                     "document_id",
+                    "revision_id",
                     "revision_number",
+                    "chunk_id",
+                    "span",
                     "valid_from",
                     "valid_to",
                     "scope_identity",
@@ -665,8 +677,29 @@ class ContextBuilder:
                     if key in raw_mem:
                         visible_item[key] = raw_mem[key]
                 visible_item.setdefault(
+                    "revision_id",
+                    visible_provenance[0].get("revision_id")
+                    if visible_provenance
+                    else None,
+                )
+                if visible_provenance:
+                    for key in ("page", "sheet", "row_start", "row_end"):
+                        if key in visible_provenance[0]:
+                            visible_item[key] = visible_provenance[0][key]
+                visible_item.setdefault(
                     "revision_number",
                     visible_provenance[0].get("revision_number")
+                    if visible_provenance
+                    else None,
+                )
+                visible_item.setdefault(
+                    "chunk_id",
+                    visible_item.get("source_chunk_id")
+                    or (visible_provenance[0].get("chunk_id") if visible_provenance else None),
+                )
+                visible_item.setdefault(
+                    "span",
+                    visible_provenance[0].get("span")
                     if visible_provenance
                     else None,
                 )

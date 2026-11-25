@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "MESA API",
-    "version": "0.9.5"
+    "version": "0.9.6"
   },
   "paths": {
     "/v4/catalog/workspaces": {
@@ -1058,6 +1058,387 @@
             "APIKeyHeader": []
           }
         ]
+      }
+    },
+    "/v4/documents/upload": {
+      "post": {
+        "tags": [
+          "v4-full-cognitive"
+        ],
+        "summary": "Upload Document",
+        "description": "Upload a file and admit its extracted text as a document revision.",
+        "operationId": "upload_document_v4_documents_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "session_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Session Id"
+                  },
+                  "tenant_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Tenant Id"
+                  },
+                  "workspace_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Workspace Id"
+                  },
+                  "agent_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Agent Id"
+                  },
+                  "dataset_id": {
+                    "type": "string",
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "title": "Dataset Id"
+                  },
+                  "document_id": {
+                    "type": "string",
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "title": "Document Id"
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 512,
+                    "minLength": 1,
+                    "title": "Title"
+                  },
+                  "source_ref": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "minLength": 1,
+                    "title": "Source Ref"
+                  },
+                  "metadata": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Metadata",
+                    "description": "JSON object encoded as a string"
+                  },
+                  "valid_from": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Valid From"
+                  },
+                  "valid_to": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Valid To"
+                  },
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                },
+                "type": "object",
+                "required": [
+                  "dataset_id",
+                  "document_id",
+                  "title",
+                  "source_ref",
+                  "file"
+                ],
+                "title": "V4DocumentUploadFields"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V4DocumentIngestResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "File or extracted text exceeds its size limit"
+          },
+          "422": {
+            "description": "Invalid fields or unsupported document"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/v4/documents/{document_id}": {
+      "get": {
+        "tags": [
+          "v4-full-cognitive"
+        ],
+        "summary": "Get Document Status",
+        "operationId": "get_document_status_v4_documents__document_id__get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "title": "Document Id"
+            }
+          },
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Workspace Id"
+            }
+          },
+          {
+            "name": "dataset_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V4DocumentStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v4/documents/{document_id}/text": {
+      "get": {
+        "tags": [
+          "v4-full-cognitive"
+        ],
+        "summary": "Get Document Text",
+        "operationId": "get_document_text_v4_documents__document_id__text_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "title": "Document Id"
+            }
+          },
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Workspace Id"
+            }
+          },
+          {
+            "name": "dataset_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Dataset Id"
+            }
+          },
+          {
+            "name": "revision_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Revision Id"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V4DocumentTextResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/v4/memory/search": {
@@ -2606,6 +2987,27 @@
         ],
         "title": "V4CapabilityResponse"
       },
+      "V4CitationSpan": {
+        "properties": {
+          "start": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start",
+          "end"
+        ],
+        "title": "V4CitationSpan",
+        "description": "Character offsets of a chunk inside its revision's full text (D95)."
+      },
       "V4ContextResponse": {
         "properties": {
           "tenant_id": {
@@ -2747,13 +3149,78 @@
         ],
         "title": "V4DatasetRequest"
       },
+      "V4DocumentError": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "V4DocumentError",
+        "description": "Plain-English failure summary for a failed document revision (D96)."
+      },
       "V4DocumentIngestRequest": {
         "properties": {
           "session_id": {
-            "type": "string",
-            "maxLength": 128,
-            "minLength": 1,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Session Id"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          },
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
           },
           "dataset_id": {
             "type": "string",
@@ -2792,7 +3259,6 @@
         },
         "type": "object",
         "required": [
-          "session_id",
           "dataset_id",
           "document_id",
           "title",
@@ -2897,6 +3363,203 @@
         ],
         "title": "V4DocumentRequest"
       },
+      "V4DocumentRevisionStatus": {
+        "properties": {
+          "revision_id": {
+            "type": "string",
+            "title": "Revision Id"
+          },
+          "revision_number": {
+            "type": "integer",
+            "title": "Revision Number"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "valid_from": {
+            "type": "string",
+            "title": "Valid From",
+            "default": ""
+          },
+          "valid_to": {
+            "type": "string",
+            "title": "Valid To",
+            "default": ""
+          },
+          "supersedes_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes Revision Id"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "admitted",
+              "processing",
+              "indexed",
+              "active",
+              "failed",
+              "superseded"
+            ],
+            "title": "Stage"
+          },
+          "total_chunks": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Chunks"
+          },
+          "chunks_by_state": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Chunks By State"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/V4DocumentError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "revision_id",
+          "revision_number",
+          "status",
+          "created_at",
+          "stage",
+          "total_chunks",
+          "chunks_by_state"
+        ],
+        "title": "V4DocumentRevisionStatus",
+        "description": "Revision status, validity dates, and ingest progress summary (D96)."
+      },
+      "V4DocumentStatusResponse": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id"
+          },
+          "dataset_id": {
+            "type": "string",
+            "title": "Dataset Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "external_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Ref"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "revisions": {
+            "items": {
+              "$ref": "#/components/schemas/V4DocumentRevisionStatus"
+            },
+            "type": "array",
+            "title": "Revisions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id",
+          "tenant_id",
+          "dataset_id",
+          "title",
+          "status",
+          "created_at",
+          "revisions"
+        ],
+        "title": "V4DocumentStatusResponse",
+        "description": "Document metadata and per-revision ingest status for viewers (D96)."
+      },
+      "V4DocumentTextResponse": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "revision_id": {
+            "type": "string",
+            "title": "Revision Id"
+          },
+          "revision_number": {
+            "type": "integer",
+            "title": "Revision Number"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "total_length": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Length"
+          },
+          "start": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "End"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id",
+          "revision_id",
+          "revision_number",
+          "status",
+          "total_length",
+          "start",
+          "end",
+          "text"
+        ],
+        "title": "V4DocumentTextResponse",
+        "description": "Rebuilt text (or character slice) for one document revision (D96)."
+      },
       "V4LegalIdentityRequest": {
         "properties": {
           "law_id": {
@@ -2921,7 +3584,7 @@
           "article_id": {
             "type": "string",
             "maxLength": 32,
-            "pattern": "^(?:madde[- ]*)?\\d+[A-Za-zÇĞİÖŞÜçğıöşü]?$",
+            "pattern": "^(?:madde[- ]*)?\\d+[A-Za-z\u00c7\u011e\u0130\u00d6\u015e\u00dc\u00e7\u011f\u0131\u00f6\u015f\u00fc]?$",
             "title": "Article Id"
           },
           "version_id": {
@@ -3415,10 +4078,56 @@
       "V4SearchRequest": {
         "properties": {
           "session_id": {
-            "type": "string",
-            "maxLength": 128,
-            "minLength": 1,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Session Id"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          },
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
           },
           "dataset_ids": {
             "anyOf": [
@@ -3437,6 +4146,24 @@
               }
             ],
             "title": "Dataset Ids"
+          },
+          "document_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "array",
+                "maxItems": 64,
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Ids"
           },
           "query": {
             "type": "string",
@@ -3512,7 +4239,6 @@
         },
         "type": "object",
         "required": [
-          "session_id",
           "query"
         ],
         "title": "V4SearchRequest"
@@ -3520,7 +4246,14 @@
       "V4SearchResponse": {
         "properties": {
           "session_id": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Session Id"
           },
           "dataset_ids": {
@@ -3568,7 +4301,6 @@
         },
         "type": "object",
         "required": [
-          "session_id",
           "dataset_ids",
           "results"
         ],
@@ -3576,6 +4308,28 @@
       },
       "V4SearchResultItem": {
         "properties": {
+          "document_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision Id"
+          },
           "revision_number": {
             "anyOf": [
               {
@@ -3586,6 +4340,74 @@
               }
             ],
             "title": "Revision Number"
+          },
+          "chunk_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunk Id"
+          },
+          "span": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/V4CitationSpan"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "sheet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheet"
+          },
+          "row_start": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row Start"
+          },
+          "row_end": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row End"
           },
           "valid_from": {
             "type": "string",
@@ -3601,7 +4423,7 @@
         "additionalProperties": true,
         "type": "object",
         "title": "V4SearchResultItem",
-        "description": "One ranked search or context source item with revision validity (D88)."
+        "description": "One ranked search or context source item with revision validity and span (D88, D95)."
       },
       "V4SessionStartRequest": {
         "properties": {

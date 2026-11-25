@@ -116,8 +116,10 @@ async def test_v4_recall_maps_v4_entity_and_assertion_shape_to_typed_memory():
         {
             "memory_id": "entity-1",
             "document_id": "doc-1",
+            "revision_id": "rev-1",
             "chunk_id": "chunk-1",
             "revision_number": None,
+            "span": None,
             "valid_from": "",
             "valid_to": "",
             "content": "Approved writes",

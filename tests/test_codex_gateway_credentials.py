@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 import pytest
 from alembic import command
 from alembic.config import Config
@@ -188,22 +186,3 @@ async def test_binding_profile_revision_invalidates_context_recall_cache(control
         assert changed["memories"][0]["memory_type"] == "fact"
     finally:
         await middleware.close()
-
-
-def test_hook_is_fail_open_and_does_not_echo_environment_secret(
-    tmp_path, monkeypatch, capsys
-):
-    from mesa_mcp import codex_hooks
-
-    monkeypatch.setenv("MESA_CODEX_MCP_TOKEN", "secret-token-must-not-appear")
-    monkeypatch.setattr(
-        codex_hooks.sys,
-        "stdin",
-        __import__("io").StringIO(
-            json.dumps({"cwd": str(tmp_path), "session_id": "s1"})
-        ),
-    )
-    assert codex_hooks.main("start") == 0
-    output = capsys.readouterr().out
-    assert "secret-token-must-not-appear" not in output
-    assert "hookSpecificOutput" in output

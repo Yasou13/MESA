@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import re
+from collections.abc import AsyncIterator
 from datetime import datetime, timezone
+from itertools import pairwise
 from typing import Annotated, Any, Callable, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -26,8 +29,18 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from python_multipart.exceptions import MultipartParseError
+from starlette.datastructures import UploadFile
+from starlette.formparsers import MultiPartException, MultiPartParser
 
 from mesa_api.admission import require_mutation_admission as _require_mutation_admission
+from mesa_api.document_files import (
+    MAX_DOCUMENT_BYTES,
+    MAX_FILE_BYTES,
+    DocumentFileError,
+    DocumentTextTooLargeError,
+    extract_document_file,
+)
 from mesa_api.identifier_validation import PublicIdentifier, SourceIdentifier
 from mesa_memory.adapter.factory import AdapterFactory
 from mesa_memory.config import config, configured_embedding_identity
@@ -59,6 +72,7 @@ from mesa_storage.dao import (
     QueueRecordTooLargeError,
     QueueUnavailableError,
 )
+from mesa_storage.document_locations import DocumentLocations, document_chunk_boundaries
 from mesa_storage.legal_identity import canonicalize_trusted_legal_identity
 from mesa_storage.repositories.catalog import CatalogIdentityNotFoundError
 from mesa_storage.repositories.operations import (
@@ -285,20 +299,47 @@ class V4MemoryInsertRequest(BaseModel):
         return self
 
 
-class V4DocumentIngestRequest(BaseModel):
+DEFAULT_LOCAL_AGENT_ID = "local-agent"
+
+
+class V4DocumentFields(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True)
 
-    session_id: PublicIdentifier
+    session_id: PublicIdentifier | None = None
+    tenant_id: PublicIdentifier | None = None
+    workspace_id: PublicIdentifier | None = None
+    agent_id: PublicIdentifier | None = None
     dataset_id: PublicIdentifier
     document_id: SourceIdentifier
     title: str = Field(min_length=1, max_length=512)
     source_ref: str = Field(min_length=1, max_length=2048)
+
+    @model_validator(mode="after")
+    def require_scope(self) -> "V4DocumentFields":
+        if self.session_id is None and (
+            self.tenant_id is None or self.workspace_id is None
+        ):
+            raise ValueError(
+                "tenant_id and workspace_id are required when session_id is omitted"
+            )
+        return self
+
+
+class V4DocumentUploadFields(V4DocumentFields):
+    metadata: str | None = Field(
+        default=None, description="JSON object encoded as a string"
+    )
+    valid_from: str | None = None
+    valid_to: str | None = None
+
+
+class V4DocumentIngestRequest(V4DocumentFields):
     content: str = Field(min_length=1)
     metadata: dict = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_write_boundary(self) -> "V4DocumentIngestRequest":
-        if len(self.content.encode("utf-8")) > 5_000_000:
+        if len(self.content.encode("utf-8")) > MAX_DOCUMENT_BYTES:
             raise HTTPException(
                 status_code=413, detail="document exceeds 5,000,000 UTF-8 bytes"
             )
@@ -307,6 +348,30 @@ class V4DocumentIngestRequest(BaseModel):
         normalized = validate_write_payload(self.content, self.metadata)
         object.__setattr__(self, "metadata", normalized)
         return self
+
+
+async def _bounded_upload_stream(request: Request) -> AsyncIterator[bytes]:
+    # Leave room for the multipart fields and framing while bounding the
+    # streamed request even when there is no Content-Length header.
+    limit = MAX_FILE_BYTES + 1024 * 1024
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > limit:
+            raise HTTPException(413, "file exceeds 50 MB")
+        yield chunk
+
+
+def _upload_openapi() -> dict[str, Any]:
+    schema = V4DocumentUploadFields.model_json_schema()
+    schema["properties"]["file"] = {"type": "string", "format": "binary"}
+    schema["required"].append("file")
+    return {
+        "requestBody": {
+            "required": True,
+            "content": {"multipart/form-data": {"schema": schema}},
+        }
+    }
 
 
 class V4DocumentIngestResponse(BaseModel):
@@ -321,8 +386,14 @@ class V4DocumentIngestResponse(BaseModel):
 class V4SearchRequest(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True)
 
-    session_id: PublicIdentifier
+    session_id: PublicIdentifier | None = None
+    tenant_id: PublicIdentifier | None = None
+    workspace_id: PublicIdentifier | None = None
+    agent_id: PublicIdentifier | None = None
     dataset_ids: list[PublicIdentifier] | None = Field(
+        default=None, min_length=1, max_length=64
+    )
+    document_ids: list[SourceIdentifier] | None = Field(
         default=None, min_length=1, max_length=64
     )
     query: str = Field(min_length=1, max_length=4096)
@@ -345,6 +416,13 @@ class V4SearchRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_temporal_range(self) -> "V4SearchRequest":
+        if self.session_id is None:
+            if self.tenant_id is None or self.workspace_id is None:
+                raise ValueError(
+                    "tenant_id and workspace_id are required when session_id is omitted"
+                )
+            if self.dataset_ids is None:
+                raise ValueError("dataset_ids is required when session_id is omitted")
         if self.valid_from and self.valid_to and self.valid_from > self.valid_to:
             raise ValueError("valid_from must not be after valid_to")
         return self
@@ -387,20 +465,94 @@ class V4VectorLaneDiagnostics(BaseModel):
     missing_vector_id_count: int = Field(ge=0)
 
 
+class V4CitationSpan(BaseModel):
+    """Character offsets of a chunk inside its revision's full text (D95)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
+
+
 class V4SearchResultItem(BaseModel):
-    """One ranked search or context source item with revision validity (D88)."""
+    """One ranked search or context source item with revision validity and span (D88, D95)."""
 
     model_config = ConfigDict(extra="allow", frozen=True)
 
+    document_id: str | None = None
+    revision_id: str | None = None
     revision_number: int | None = None
+    chunk_id: str | None = None
+    span: V4CitationSpan | None = None
+    page: int | None = Field(default=None, ge=1, exclude_if=lambda value: value is None)
+    sheet: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    row_start: int | None = Field(default=None, ge=1, exclude_if=lambda value: value is None)
+    row_end: int | None = Field(default=None, ge=1, exclude_if=lambda value: value is None)
     valid_from: str = ""
     valid_to: str = ""
+
+
+class V4DocumentTextResponse(BaseModel):
+    """Rebuilt text (or character slice) for one document revision (D96)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    document_id: str
+    revision_id: str
+    revision_number: int
+    status: str
+    total_length: int = Field(ge=0)
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
+    text: str
+
+
+class V4DocumentError(BaseModel):
+    """Plain-English failure summary for a failed document revision (D96)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    code: str
+    message: str
+
+
+class V4DocumentRevisionStatus(BaseModel):
+    """Revision status, validity dates, and ingest progress summary (D96)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    revision_id: str
+    revision_number: int
+    status: str
+    valid_from: str = ""
+    valid_to: str = ""
+    supersedes_revision_id: str | None = None
+    created_at: str
+    stage: Literal["admitted", "processing", "indexed", "active", "failed", "superseded"]
+    total_chunks: int = Field(ge=0)
+    chunks_by_state: dict[str, int]
+    error: V4DocumentError | None = None
+
+
+class V4DocumentStatusResponse(BaseModel):
+    """Document metadata and per-revision ingest status for viewers (D96)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    document_id: str
+    tenant_id: str
+    dataset_id: str
+    title: str
+    status: str
+    external_ref: str | None = None
+    created_at: str
+    revisions: list[V4DocumentRevisionStatus]
 
 
 class V4SearchResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    session_id: str
+    session_id: str | None = None
     dataset_ids: list[str]
     results: list[V4SearchResultItem]
     degraded_sources: list[str] = []
@@ -562,6 +714,120 @@ async def _authorized_v4_session(
     if not allow_closed and session["status"] != "ACTIVE" and level == "WRITE":
         raise HTTPException(status_code=409, detail="Session is not active")
     return session
+
+
+async def _resolve_v4_scope(
+    request: Request,
+    dao: MemoryDAO,
+    access_control: AccessControl,
+    *,
+    session_id: str | None,
+    tenant_id: str | None,
+    workspace_id: str | None,
+    agent_id: str | None,
+    dataset_ids: list[str] | None,
+    level: str,
+) -> tuple[str, str, str, list[str], str]:
+    """Authorize either a session or explicit dataset-role scope (D94).
+
+    Returns ``(tenant_id, workspace_id, agent_id, dataset_ids, effective_session_id)``.
+    """
+    if session_id is not None:
+        session = await _authorized_v4_session(
+            request, dao, access_control, session_id, level=level
+        )
+        session_tenant = str(session["tenant_id"])
+        session_workspace = str(session["workspace_id"])
+        session_agent = str(session["agent_id"])
+        if tenant_id is not None and tenant_id != session_tenant:
+            raise HTTPException(
+                status_code=422, detail="tenant_id does not match session scope"
+            )
+        if workspace_id is not None and workspace_id != session_workspace:
+            raise HTTPException(
+                status_code=422, detail="workspace_id does not match session scope"
+            )
+        if agent_id is not None and agent_id != session_agent:
+            raise HTTPException(
+                status_code=422, detail="agent_id does not match session scope"
+            )
+        datasets = list(dataset_ids) if dataset_ids is not None else list(session["dataset_ids"])
+        if not set(datasets).issubset(set(session["dataset_ids"])):
+            raise HTTPException(
+                status_code=403, detail="Dataset is outside session scope"
+            )
+        return (session_tenant, session_workspace, session_agent, datasets, session_id)
+
+    if tenant_id is None or workspace_id is None or not dataset_ids:
+        raise HTTPException(
+            status_code=422,
+            detail="tenant_id, workspace_id and dataset scope are required when session_id is omitted",
+        )
+    datasets = list(dataset_ids)
+    effective_agent = agent_id or DEFAULT_LOCAL_AGENT_ID
+    # R25 amendment A1: the same agent check as /v4/sessions/start.
+    if not await access_control.check_principal_permission(
+        _active_principal(request).principal_id, effective_agent, "SESSION_CREATE"
+    ):
+        raise HTTPException(
+            status_code=403, detail="Principal lacks SESSION_CREATE permission"
+        )
+    await _require_dataset_roles(
+        request,
+        access_control,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        dataset_ids=datasets,
+        required_role="WRITER" if level == "WRITE" else "READER",
+    )
+    try:
+        await dao.verify_v4_workspace_datasets(
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            dataset_ids=datasets,
+        )
+    except CatalogIdentityNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return (tenant_id, workspace_id, effective_agent, datasets, "")
+
+
+async def _authorize_mutation_access(
+    request: Request,
+    dao: MemoryDAO,
+    access_control: AccessControl,
+    mutation: dict,
+    *,
+    level: str,
+    allow_closed: bool = False,
+) -> tuple[str, dict | None]:
+    """Authorize mutation reads/actions for both session and sessionless writes."""
+    mutation_session = str(mutation.get("session_id") or "")
+    if mutation_session:
+        session = await _authorized_v4_session(
+            request,
+            dao,
+            access_control,
+            mutation_session,
+            level=level,
+            allow_closed=allow_closed,
+        )
+        return str(session["tenant_id"]), session
+    tenant_id = str(mutation.get("tenant_id") or "")
+    workspace_id = str(mutation.get("workspace_id") or "")
+    dataset_id = str(mutation.get("dataset_id") or "")
+    if not tenant_id or not workspace_id or not dataset_id:
+        raise HTTPException(status_code=403, detail="Mutation scope is incomplete")
+    await _require_dataset_roles(
+        request,
+        access_control,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        dataset_ids=[dataset_id],
+        required_role="WRITER" if level == "WRITE" else "READER",
+    )
+    return tenant_id, None
 
 
 def _require_historical_mutation_scope(mutation: dict, session: dict) -> None:
@@ -1136,6 +1402,87 @@ def create_v4_router(
     ) -> dict:
         return await insert_memory(request, payload, dao, access_control)
 
+    async def _admit_chunk(
+        dao: MemoryDAO,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        agent_id: str,
+        session_id: str,
+        document_id: str,
+        revision_id: str,
+        chunk_id: str,
+        title: str,
+        content: str,
+        source_ref: str,
+        evidence_span: str,
+        revision_number: int,
+        chunk_ordinal: int,
+        supersedes_revision_id: str | None,
+        metadata: dict[str, Any],
+        legal_identity: dict[str, Any] | None,
+        idempotency_key: str | None,
+        payload_hash: str | None,
+        finalize_revision: bool,
+        document_chunk: bool = False,
+        char_start: int | None = None,
+        char_end: int | None = None,
+    ) -> dict:
+        await _require_mutation_admission(dao, require_projection_consumer=True)
+        embedding_identity = configured_embedding_identity()
+        try:
+            admission = await dao.admit_v4_memory(
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                dataset_id=dataset_id,
+                agent_id=agent_id,
+                session_id=session_id,
+                document_id=document_id,
+                revision_id=revision_id,
+                chunk_id=chunk_id,
+                title=title,
+                content_payload=content,
+                source_ref=source_ref,
+                evidence_span=evidence_span,
+                revision_number=revision_number,
+                chunk_ordinal=chunk_ordinal,
+                supersedes_revision_id=supersedes_revision_id,
+                metadata=metadata,
+                document_chunk=document_chunk,
+                legal_identity=legal_identity,
+                embedding_provider=embedding_identity.provider,
+                embedding_model=embedding_identity.model,
+                embedding_version=embedding_identity.version,
+                embedding_dimension=embedding_identity.dimension,
+                embedding_space_id=embedding_identity.embedding_space_id,
+                embedding_model_revision=embedding_identity.model_revision,
+                embedding_normalized=embedding_identity.normalized,
+                policy=config.queue_admission_policy,
+                validation_mode=0,
+                idempotency_key=idempotency_key,
+                payload_hash=payload_hash if idempotency_key else None,
+                finalize_revision=finalize_revision,
+                char_start=char_start,
+                char_end=char_end,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        except QueueRecordTooLargeError:
+            raise HTTPException(status_code=413, detail="queue_record_too_large")
+        except QueueOverCapacityError:
+            raise HTTPException(status_code=503, detail="queue_over_capacity")
+        except QueueUnavailableError:
+            raise HTTPException(status_code=503, detail="queue_unavailable")
+        if admission["outcome"] == "IN_PROGRESS":
+            raise HTTPException(
+                status_code=409, detail="idempotency_key is in progress"
+            )
+        response = dict(admission["response"])
+        if admission["outcome"] == "DUPLICATE":
+            response["duplicate"] = True
+        return response
+
     async def insert_memory(
         request: Request,
         payload: V4MemoryInsertRequest,
@@ -1155,64 +1502,67 @@ def create_v4_router(
             raise HTTPException(
                 status_code=403, detail="Dataset is outside session scope"
             )
-        await _require_mutation_admission(dao, require_projection_consumer=True)
         payload_hash = hashlib.sha256(
             payload.model_dump_json(exclude={"session_id", "idempotency_key"}).encode()
         ).hexdigest()
-        embedding_identity = configured_embedding_identity()
+        return await _admit_chunk(
+            dao,
+            tenant_id=str(session["tenant_id"]),
+            workspace_id=str(session["workspace_id"]),
+            dataset_id=payload.dataset_id,
+            agent_id=str(session["agent_id"]),
+            session_id=payload.session_id,
+            document_id=payload.document_id,
+            revision_id=payload.revision_id,
+            chunk_id=payload.chunk_id,
+            title=payload.title,
+            content=payload.content,
+            source_ref=payload.source_ref,
+            evidence_span=payload.evidence_span,
+            revision_number=payload.revision_number,
+            chunk_ordinal=payload.chunk_ordinal,
+            supersedes_revision_id=payload.supersedes_revision_id,
+            metadata=payload.metadata,
+            legal_identity=(
+                payload.legal_identity.model_dump(exclude_none=True)
+                if payload.legal_identity is not None
+                else None
+            ),
+            idempotency_key=payload.idempotency_key,
+            payload_hash=payload_hash if payload.idempotency_key else None,
+            finalize_revision=payload.finalize_revision,
+            document_chunk=document_chunk,
+        )
+
+    async def _validate_document_payload(payload: Any) -> V4DocumentIngestRequest:
+        # Defer, rather than omit, the same model validation. The annotation
+        # retains its public schema; no payload is used before validation.
         try:
-            admission = await dao.admit_v4_memory(
-                tenant_id=str(session["tenant_id"]),
-                workspace_id=str(session["workspace_id"]),
-                dataset_id=payload.dataset_id,
-                agent_id=str(session["agent_id"]),
-                session_id=payload.session_id,
-                document_id=payload.document_id,
-                revision_id=payload.revision_id,
-                chunk_id=payload.chunk_id,
-                title=payload.title,
-                content_payload=payload.content,
-                source_ref=payload.source_ref,
-                evidence_span=payload.evidence_span,
-                revision_number=payload.revision_number,
-                chunk_ordinal=payload.chunk_ordinal,
-                supersedes_revision_id=payload.supersedes_revision_id,
-                metadata=payload.metadata,
-                document_chunk=document_chunk,
-                legal_identity=(
-                    payload.legal_identity.model_dump(exclude_none=True)
-                    if payload.legal_identity is not None
-                    else None
-                ),
-                embedding_provider=embedding_identity.provider,
-                embedding_model=embedding_identity.model,
-                embedding_version=embedding_identity.version,
-                embedding_dimension=embedding_identity.dimension,
-                embedding_space_id=embedding_identity.embedding_space_id,
-                embedding_model_revision=embedding_identity.model_revision,
-                embedding_normalized=embedding_identity.normalized,
-                policy=config.queue_admission_policy,
-                validation_mode=0,
-                idempotency_key=payload.idempotency_key,
-                payload_hash=payload_hash if payload.idempotency_key else None,
-                finalize_revision=payload.finalize_revision,
+            return await asyncio.to_thread(
+                V4DocumentIngestRequest.model_validate, payload
             )
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
-        except QueueRecordTooLargeError:
-            raise HTTPException(status_code=413, detail="queue_record_too_large")
-        except QueueOverCapacityError:
-            raise HTTPException(status_code=503, detail="queue_over_capacity")
-        except QueueUnavailableError:
-            raise HTTPException(status_code=503, detail="queue_unavailable")
-        if admission["outcome"] == "IN_PROGRESS":
-            raise HTTPException(
-                status_code=409, detail="idempotency_key is in progress"
-            )
-        response = dict(admission["response"])
-        if admission["outcome"] == "DUPLICATE":
-            response["duplicate"] = True
-        return response
+        except ValidationError as exc:
+            errors = exc.errors()
+            for error in errors:
+                error["loc"] = ("body", *error["loc"])
+            raise RequestValidationError(errors) from exc
+    async def _resolve_document_scope(
+        request: Request,
+        payload: V4DocumentFields,
+        dao: MemoryDAO,
+        access_control: AccessControl,
+    ) -> tuple[str, str, str, list[str], str]:
+        return await _resolve_v4_scope(
+            request,
+            dao,
+            access_control,
+            session_id=payload.session_id,
+            tenant_id=payload.tenant_id,
+            workspace_id=payload.workspace_id,
+            agent_id=payload.agent_id,
+            dataset_ids=[payload.dataset_id],
+            level="WRITE",
+        )
 
     @router.post("/documents", response_model=V4DocumentIngestResponse, status_code=202)
     async def ingest_document(
@@ -1223,24 +1573,109 @@ def create_v4_router(
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
     ) -> dict:
-        # Defer, rather than omit, the same model validation. The annotation
-        # retains its public schema; no payload is used before validation.
-        try:
-            payload = await asyncio.to_thread(
-                V4DocumentIngestRequest.model_validate, payload
-            )
-        except ValidationError as exc:
-            errors = exc.errors()
-            for error in errors:
-                error["loc"] = ("body", *error["loc"])
-            raise RequestValidationError(errors) from exc
-        session = await _authorized_v4_session(
-            request, dao, access_control, payload.session_id, level="WRITE"
+        payload = await _validate_document_payload(payload)
+        resolved_scope = await _resolve_document_scope(
+            request, payload, dao, access_control
         )
-        if payload.dataset_id not in session["dataset_ids"]:
-            raise HTTPException(
-                status_code=403, detail="Dataset is outside session scope"
+        return await _ingest_document(request, payload, dao, resolved_scope)
+
+    @router.post(
+        "/documents/upload",
+        response_model=V4DocumentIngestResponse,
+        status_code=202,
+        responses={
+            413: {"description": "File or extracted text exceeds its size limit"},
+            422: {"description": "Invalid fields or unsupported document"},
+        },
+        openapi_extra=_upload_openapi(),
+    )
+    async def upload_document(
+        request: Request,
+        dao: MemoryDAO = Depends(get_dao),
+        access_control: AccessControl = Depends(get_access_control),
+    ) -> dict:
+        """Upload a file and admit its extracted text as a document revision."""
+        _active_principal(request)
+        content_type = request.headers.get("content-type", "").partition(";")[0]
+        if content_type.strip().lower() != "multipart/form-data":
+            raise HTTPException(422, "A multipart/form-data upload is required.")
+        try:
+            form = await MultiPartParser(
+                request.headers,
+                _bounded_upload_stream(request),
+                max_files=1,
+                max_fields=len(V4DocumentUploadFields.model_fields),
+                max_part_size=16 * 1024,
+            ).parse()
+        except (MultiPartException, MultipartParseError) as exc:
+            raise HTTPException(422, "The multipart upload could not be read.") from exc
+        try:
+            if len(form.multi_items()) != len(form):
+                raise HTTPException(422, "Upload fields must not be repeated.")
+            fields = dict(form)
+            file = fields.pop("file", None)
+            if not isinstance(file, UploadFile) or not file.filename:
+                raise HTTPException(422, "A file is required.")
+            if file.size is not None and file.size > MAX_FILE_BYTES:
+                raise HTTPException(413, "file exceeds 50 MB")
+            if fields.keys() - V4DocumentUploadFields.model_fields.keys():
+                raise HTTPException(422, "Unknown upload field.")
+            try:
+                upload = V4DocumentUploadFields.model_validate(fields)
+            except ValidationError as exc:
+                errors = exc.errors()
+                for error in errors:
+                    error["loc"] = ("body", *error["loc"])
+                raise RequestValidationError(errors) from exc
+            metadata = {}
+            if upload.metadata is not None:
+                try:
+                    metadata = json.loads(upload.metadata)
+                except (ValueError, RecursionError) as exc:
+                    raise HTTPException(422, "metadata must be a JSON object.") from exc
+                if not isinstance(metadata, dict):
+                    raise HTTPException(422, "metadata must be a JSON object.")
+            for field in ("valid_from", "valid_to"):
+                value = getattr(upload, field)
+                if value is not None:
+                    if field in metadata:
+                        raise HTTPException(
+                            422, f"Provide {field} once, as a form field or in metadata."
+                        )
+                    metadata[field] = value
+            resolved_scope = await _resolve_document_scope(
+                request, upload, dao, access_control
             )
+            await _require_mutation_admission(dao, require_projection_consumer=True)
+            try:
+                content, locations = await asyncio.to_thread(
+                    extract_document_file, file.file, file.filename
+                )
+            except DocumentTextTooLargeError as exc:
+                raise HTTPException(
+                    413, "document exceeds 5,000,000 UTF-8 bytes"
+                ) from exc
+            except DocumentFileError as exc:
+                raise HTTPException(422, str(exc)) from exc
+        finally:
+            await form.close()
+        payload = await _validate_document_payload(
+            {
+                **upload.model_dump(exclude={"metadata", "valid_from", "valid_to"}),
+                "metadata": metadata,
+                "content": content,
+            }
+        )
+        return await _ingest_document(request, payload, dao, resolved_scope, locations)
+
+    async def _ingest_document(
+        request: Request,
+        payload: V4DocumentIngestRequest,
+        dao: MemoryDAO,
+        resolved_scope: tuple[str, str, str, list[str], str],
+        source_locations: DocumentLocations | None = None,
+    ) -> dict:
+        tenant_id, workspace_id, agent_id, _datasets, effective_session_id = resolved_scope
         await _require_mutation_admission(dao, require_projection_consumer=True)
         content_hash = hashlib.sha256(payload.content.encode("utf-8")).hexdigest()
         revision_id = (
@@ -1250,7 +1685,7 @@ def create_v4_router(
             ).hexdigest()[:32]
         )
         scope = {
-            "tenant_id": str(session["tenant_id"]),
+            "tenant_id": tenant_id,
             "dataset_id": payload.dataset_id,
         }
         configured_plan = config.chunking
@@ -1340,6 +1775,7 @@ def create_v4_router(
                         content_hash=content_hash,
                         supersedes_revision_id=supersedes_id,
                         chunking_plan=configured_plan,
+                        source_locations=source_locations,
                     )
                 elif revision["status"] == "PENDING":
                     existing_pending_vf = str(revision.get("valid_from") or "")
@@ -1371,11 +1807,21 @@ def create_v4_router(
             stored_plan = revision.get("chunking_plan")
             chunking_plan = stored_plan or configured_plan
             legal_plan = chunking_plan == "auto"
-            chunks = (
-                await asyncio.to_thread(chunk_legal_document, payload.content)
-                if legal_plan
-                else await asyncio.to_thread(chunk_document, payload.content)
+            chunk_text = chunk_legal_document if legal_plan else chunk_document
+            boundaries = list(
+                document_chunk_boundaries(revision.get("source_locations") or [])
             )
+
+            def chunk_revision() -> list[str]:
+                if not boundaries:
+                    return chunk_text(payload.content)
+                return [
+                    part
+                    for start, end in pairwise([0, *boundaries])
+                    for part in chunk_text(payload.content[start:end])
+                ]
+
+            chunks = await asyncio.to_thread(chunk_revision)
             for ordinal, mutation_id in admitted.items():
                 mutation = await dao.get_projection_mutation(mutation_id)
                 if mutation is None:
@@ -1434,28 +1880,74 @@ def create_v4_router(
                                 }
                         offset += len(chunk)
             duplicate = len(admitted) == len(chunks)
+            chunk_spans: list[tuple[int, int]] = []
+            span_cursor = 0
+            for chunk in chunks:
+                span_end = span_cursor + len(chunk)
+                chunk_spans.append((span_cursor, span_end))
+                span_cursor = span_end
             for ordinal, chunk in enumerate(chunks):
                 if ordinal in admitted:
                     continue
                 chunk_id = f"{revision_id}-c{ordinal:05d}"
-                chunk_payload = V4MemoryInsertRequest(
-                    **payload.model_dump(exclude={"content"}),
-                    content=chunk,
-                    legal_identity=identities[ordinal],
-                    revision_id=revision_id,
-                    chunk_id=chunk_id,
-                    revision_number=revision["revision_number"],
-                    chunk_ordinal=ordinal,
-                    supersedes_revision_id=revision["supersedes_revision_id"],
-                    finalize_revision=ordinal == len(chunks) - 1,
-                    idempotency_key=chunk_id,
+                char_start, char_end = chunk_spans[ordinal]
+                chunk_legal = (
+                    V4LegalIdentityRequest.model_validate(identities[ordinal]).model_dump(
+                        exclude_none=True
+                    )
+                    if identities[ordinal] is not None
+                    else None
                 )
+                chunk_hash = hashlib.sha256(
+                    json.dumps(
+                        {
+                            "dataset_id": payload.dataset_id,
+                            "document_id": payload.document_id,
+                            "revision_id": revision_id,
+                            "chunk_id": chunk_id,
+                            "title": payload.title,
+                            "source_ref": payload.source_ref,
+                            "content": chunk,
+                            "evidence_span": "",
+                            "revision_number": revision["revision_number"],
+                            "chunk_ordinal": ordinal,
+                            "finalize_revision": ordinal == len(chunks) - 1,
+                            "supersedes_revision_id": revision["supersedes_revision_id"],
+                            "metadata": payload.metadata,
+                            "legal_identity": chunk_legal,
+                        },
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest()
                 capacity_deadline = asyncio.get_running_loop().time() + 5.0
                 while True:
                     try:
-                        response = await insert_memory(
-                            request, chunk_payload, dao, access_control,
+                        response = await _admit_chunk(
+                            dao,
+                            tenant_id=tenant_id,
+                            workspace_id=workspace_id,
+                            dataset_id=payload.dataset_id,
+                            agent_id=agent_id,
+                            session_id=effective_session_id,
+                            document_id=payload.document_id,
+                            revision_id=revision_id,
+                            chunk_id=chunk_id,
+                            title=payload.title,
+                            content=chunk,
+                            source_ref=payload.source_ref,
+                            evidence_span="",
+                            revision_number=revision["revision_number"],
+                            chunk_ordinal=ordinal,
+                            supersedes_revision_id=revision["supersedes_revision_id"],
+                            metadata=payload.metadata,
+                            legal_identity=chunk_legal,
+                            idempotency_key=chunk_id,
+                            payload_hash=chunk_hash,
+                            finalize_revision=ordinal == len(chunks) - 1,
                             document_chunk=True,
+                            char_start=char_start,
+                            char_end=char_end,
                         )
                         break
                     except HTTPException as exc:
@@ -1479,6 +1971,100 @@ def create_v4_router(
                 "duplicate": duplicate,
             }
 
+    @router.get(
+        "/documents/{document_id}",
+        response_model=V4DocumentStatusResponse,
+    )
+    async def get_document_status(
+        document_id: SourceIdentifier,
+        tenant_id: PublicIdentifier,
+        workspace_id: PublicIdentifier,
+        dataset_id: PublicIdentifier,
+        request: Request,
+        dao: MemoryDAO = Depends(get_dao),
+        access_control: AccessControl = Depends(get_access_control),
+    ) -> dict:
+        await _require_dataset_roles(
+            request,
+            access_control,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            dataset_ids=[dataset_id],
+            required_role="READER",
+        )
+        try:
+            await dao.verify_v4_workspace_datasets(
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                dataset_ids=[dataset_id],
+            )
+        except CatalogIdentityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        try:
+            return await dao.get_v4_document_status(
+                tenant_id=tenant_id,
+                dataset_id=dataset_id,
+                document_id=document_id,
+            )
+        except CatalogIdentityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.get(
+        "/documents/{document_id}/text",
+        response_model=V4DocumentTextResponse,
+    )
+    async def get_document_text(
+        document_id: SourceIdentifier,
+        tenant_id: PublicIdentifier,
+        workspace_id: PublicIdentifier,
+        dataset_id: PublicIdentifier,
+        request: Request,
+        revision_id: SourceIdentifier | None = None,
+        start: int | None = None,
+        end: int | None = None,
+        dao: MemoryDAO = Depends(get_dao),
+        access_control: AccessControl = Depends(get_access_control),
+    ) -> dict:
+        if start is not None and start < 0:
+            raise HTTPException(status_code=422, detail="start must be non-negative")
+        if end is not None and end < 0:
+            raise HTTPException(status_code=422, detail="end must be non-negative")
+        if start is not None and end is not None and start > end:
+            raise HTTPException(status_code=422, detail="start must not exceed end")
+        await _require_dataset_roles(
+            request,
+            access_control,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            dataset_ids=[dataset_id],
+            required_role="READER",
+        )
+        try:
+            await dao.verify_v4_workspace_datasets(
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                dataset_ids=[dataset_id],
+            )
+        except CatalogIdentityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        try:
+            return await dao.get_v4_document_text(
+                tenant_id=tenant_id,
+                dataset_id=dataset_id,
+                document_id=document_id,
+                revision_id=revision_id,
+                start=start,
+                end=end,
+            )
+        except CatalogIdentityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     @router.post("/memory/search", response_model=V4SearchResponse)
     async def search_memory(
         request: Request,
@@ -1486,42 +2072,50 @@ def create_v4_router(
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
     ) -> dict:
-        session = await _authorized_v4_session(
-            request, dao, access_control, payload.session_id, level="READ"
-        )
-        datasets = payload.dataset_ids or list(session["dataset_ids"])
-        if not set(datasets).issubset(set(session["dataset_ids"])):
-            raise HTTPException(
-                status_code=403, detail="Dataset is outside session scope"
+        tenant_id, _workspace_id, agent_id, datasets, _effective_session_id = (
+            await _resolve_v4_scope(
+                request,
+                dao,
+                access_control,
+                session_id=payload.session_id,
+                tenant_id=payload.tenant_id,
+                workspace_id=payload.workspace_id,
+                agent_id=payload.agent_id,
+                dataset_ids=payload.dataset_ids,
+                level="READ",
             )
+        )
         try:
             certification_metadata: dict[str, Any] = {}
             principal = _active_principal(request)
-            results = await dao.search_v4_memory(
-                tenant_id=str(session["tenant_id"]),
-                agent_id=str(session["agent_id"]),
-                dataset_ids=datasets,
-                query=payload.query,
-                limit=payload.limit,
-                jurisdiction=payload.jurisdiction,
-                valid_at=(
+            search_kwargs: dict[str, Any] = {
+                "tenant_id": tenant_id,
+                "agent_id": agent_id,
+                "dataset_ids": datasets,
+                "query": payload.query,
+                "limit": payload.limit,
+                "jurisdiction": payload.jurisdiction,
+                "valid_at": (
                     payload.valid_at.astimezone(timezone.utc).isoformat()
                     if payload.valid_at
                     else None
                 ),
-                valid_from=(
+                "valid_from": (
                     payload.valid_from.astimezone(timezone.utc).isoformat()
                     if payload.valid_from
                     else None
                 ),
-                valid_to=(
+                "valid_to": (
                     payload.valid_to.astimezone(timezone.utc).isoformat()
                     if payload.valid_to
                     else None
                 ),
-                request_principal_id=str(principal.principal_id),
-                certification_metadata=certification_metadata,
-            )
+                "request_principal_id": str(principal.principal_id),
+                "certification_metadata": certification_metadata,
+            }
+            if payload.document_ids is not None:
+                search_kwargs["document_ids"] = payload.document_ids
+            results = await dao.search_v4_memory(**search_kwargs)
         except EmbeddingMigrationRequiredError:
             raise HTTPException(
                 status_code=409,
@@ -1555,11 +2149,11 @@ def create_v4_router(
         mutation = await dao.get_mutation_summary(mutation_id)
         if mutation is None:
             raise HTTPException(status_code=404, detail="Unknown mutation")
-        await _authorized_v4_session(
+        await _authorize_mutation_access(
             request,
             dao,
             access_control,
-            str(mutation["session_id"]),
+            mutation,
             level="READ",
         )
         pipeline = (
@@ -1589,19 +2183,20 @@ def create_v4_router(
         mutation = await dao.get_mutation_summary(mutation_id)
         if mutation is None:
             raise HTTPException(status_code=404, detail="Unknown mutation")
-        session = await _authorized_v4_session(
+        tenant_id, session = await _authorize_mutation_access(
             request,
             dao,
             access_control,
-            str(mutation["session_id"]),
+            mutation,
             level="WRITE",
             allow_closed=True,
         )
-        _require_historical_mutation_scope(mutation, session)
+        if session is not None:
+            _require_historical_mutation_scope(mutation, session)
         principal = _active_principal(request)
         if not await access_control.check_dataset_permission(
             principal.principal_id,
-            tenant_id=str(session["tenant_id"]),
+            tenant_id=tenant_id,
             dataset_id=str(mutation["dataset_id"]),
             permission="ROLLBACK",
         ):
@@ -1627,19 +2222,20 @@ def create_v4_router(
         mutation = await dao.get_mutation_summary(mutation_id)
         if mutation is None:
             raise HTTPException(status_code=404, detail="Unknown mutation")
-        session = await _authorized_v4_session(
+        tenant_id, session = await _authorize_mutation_access(
             request,
             dao,
             access_control,
-            str(mutation["session_id"]),
+            mutation,
             level="WRITE",
             allow_closed=True,
         )
-        _require_historical_mutation_scope(mutation, session)
+        if session is not None:
+            _require_historical_mutation_scope(mutation, session)
         principal = _active_principal(request)
         if not await access_control.check_dataset_permission(
             principal.principal_id,
-            tenant_id=str(session["tenant_id"]),
+            tenant_id=tenant_id,
             dataset_id=str(mutation["dataset_id"]),
             permission="ROLLBACK",
         ):

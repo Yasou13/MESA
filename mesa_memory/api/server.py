@@ -767,6 +767,7 @@ async def health():  # type: ignore[no-untyped-def]
         "status": (
             "healthy" if backend_healthy and rebuild_status == "healthy" else "degraded"
         ),
+        "version": __version__,
         "maintenance": rebuild_status == "maintenance",
         "rebuild_state": rebuild_state,
     }

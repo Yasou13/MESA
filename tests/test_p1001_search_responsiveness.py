@@ -78,6 +78,7 @@ async def test_public_health_probes_storage_and_keeps_full_diagnostics_available
         assert response.status_code == 200
         assert response.json() == {
             "status": "healthy",
+            "version": server.__version__,
             "maintenance": False,
             "rebuild_state": "IDLE",
         }

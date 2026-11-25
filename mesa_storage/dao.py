@@ -35,6 +35,8 @@ from urllib.parse import urlsplit, urlunsplit
 import aiosqlite
 
 from mesa_storage import legal_rules
+from mesa_storage.document_locations import DocumentLocations, document_citation
+from mesa_storage.error_messages import format_failure_error
 from mesa_storage.legal_identity import (
     LegalEntityResolver,
     canonicalize_trusted_legal_identity,
@@ -42,7 +44,11 @@ from mesa_storage.legal_identity import (
     normalize_turkish,
 )
 from mesa_storage.rebuild_health import RebuildHealthReader
-from mesa_storage.repositories.catalog import CatalogRepository, CatalogRepositoryPort
+from mesa_storage.repositories.catalog import (
+    CatalogIdentityNotFoundError,
+    CatalogRepository,
+    CatalogRepositoryPort,
+)
 from mesa_storage.repositories.operations import (
     OperationRepository,
     OperationRepositoryPort,
@@ -923,6 +929,7 @@ class MemoryDAO:
         content_hash: str,
         supersedes_revision_id: str | None = None,
         chunking_plan: str | None = None,
+        source_locations: DocumentLocations | None = None,
     ) -> dict[str, Any]:
         """Create one immutable document revision and retain its predecessor."""
         normalized_hash = content_hash.strip().casefold()
@@ -982,8 +989,8 @@ class MemoryDAO:
             await db.execute(
                 "INSERT OR IGNORE INTO document_revisions "
                 "(revision_id, tenant_id, document_id, revision_number, content_hash, "
-                "status, supersedes_revision_id, declared_content_hash, chunking_plan) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "status, supersedes_revision_id, declared_content_hash, chunking_plan, "
+                "source_locations_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     revision_id,
                     tenant_id,
@@ -996,6 +1003,7 @@ class MemoryDAO:
                     supersedes_revision_id,
                     normalized_hash,
                     chunking_plan,
+                    json.dumps(source_locations) if source_locations else None,
                 ),
             )
             async with db.execute(
@@ -1032,6 +1040,9 @@ class MemoryDAO:
         result["dataset_id"] = external_dataset_id
         if chunking_plan is None:
             result.pop("chunking_plan")
+        locations_json = result.pop("source_locations_json")
+        if locations_json:
+            result["source_locations"] = json.loads(locations_json)
         return result
 
     async def list_v4_revisions(
@@ -1055,7 +1066,8 @@ class MemoryDAO:
                 "ri.external_id AS revision_id, r.tenant_id, "
                 "di.external_id AS document_id, r.revision_number, "
                 "r.content_hash, r.declared_content_hash, r.manifest_hash, r.status, "
-                "r.supersedes_revision_id, r.created_at, r.chunking_plan "
+                "r.supersedes_revision_id, r.created_at, r.chunking_plan, "
+                "r.source_locations_json "
                 "FROM document_revisions r JOIN documents d "
                 "ON d.document_id = r.document_id "
                 "JOIN v4_catalog_identities ri ON ri.tenant_id = r.tenant_id "
@@ -1069,8 +1081,11 @@ class MemoryDAO:
                 rows = [dict(row) for row in await cursor.fetchall()]
             for row in rows:
                 physical_rev_id = str(row.pop("_physical_revision_id"))
+                locations_json = row.pop("source_locations_json")
                 if not include_chunking_plan:
                     row.pop("chunking_plan")
+                elif locations_json:
+                    row["source_locations"] = json.loads(locations_json)
                 if include_temporal:
                     row["valid_from"] = await self._revision_valid_from_in_tx(
                         db, tenant_id, physical_rev_id
@@ -1137,6 +1152,313 @@ class MemoryDAO:
             ) as cursor:
                 return {int(row[0]): str(row[1]) for row in await cursor.fetchall()}
 
+    async def get_v4_document_text(
+        self,
+        *,
+        tenant_id: str,
+        dataset_id: str,
+        document_id: str,
+        revision_id: str | None = None,
+        start: int | None = None,
+        end: int | None = None,
+    ) -> dict[str, Any]:
+        """Rebuild a revision's text (or a character slice) from its source chunks (D96)."""
+        if start is not None and start < 0:
+            raise ValueError("start must be non-negative")
+        if end is not None and end < 0:
+            raise ValueError("end must be non-negative")
+        if start is not None and end is not None and start > end:
+            raise ValueError("start must not exceed end")
+        external_document_id = document_id
+        async with self._sql.connection() as db:
+            physical_dataset = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+            )
+            physical_document = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="document", external_id=document_id
+            )
+            async with db.execute(
+                "SELECT status FROM documents "
+                "WHERE tenant_id = ? AND dataset_id = ? AND document_id = ?",
+                (tenant_id, physical_dataset, physical_document),
+            ) as cursor:
+                doc_row = await cursor.fetchone()
+            if doc_row is None:
+                raise CatalogIdentityNotFoundError("document not found in dataset")
+            if str(doc_row["status"]) == "PURGED":
+                raise ValueError("document is purged")
+
+            if revision_id is not None:
+                physical_revision = await self._catalog.resolve_id_in_tx(
+                    db, tenant_id=tenant_id, kind="revision", external_id=revision_id
+                )
+                async with db.execute(
+                    "SELECT revision_id, revision_number, status "
+                    "FROM document_revisions "
+                    "WHERE tenant_id = ? AND document_id = ? AND revision_id = ?",
+                    (tenant_id, physical_document, physical_revision),
+                ) as cursor:
+                    rev_row = await cursor.fetchone()
+                if rev_row is None:
+                    raise CatalogIdentityNotFoundError("revision not found for document")
+                external_revision_id = revision_id
+            else:
+                async with db.execute(
+                    "SELECT revision_id, revision_number, status "
+                    "FROM document_revisions "
+                    "WHERE tenant_id = ? AND document_id = ? AND status = 'ACTIVE' "
+                    "ORDER BY revision_number DESC LIMIT 1",
+                    (tenant_id, physical_document),
+                ) as cursor:
+                    rev_row = await cursor.fetchone()
+                if rev_row is None:
+                    raise CatalogIdentityNotFoundError("no active revision for document")
+                physical_revision = str(rev_row["revision_id"])
+                resolved_ext = await self._catalog.external_id_in_tx(
+                    db,
+                    tenant_id=tenant_id,
+                    kind="revision",
+                    physical_id=physical_revision,
+                )
+                external_revision_id = resolved_ext or physical_revision
+
+            if str(rev_row["status"]) == "PURGED":
+                raise ValueError("revision is purged")
+
+            async with db.execute(
+                "SELECT content_payload FROM source_chunks "
+                "WHERE tenant_id = ? AND dataset_id = ? AND revision_id = ? "
+                "ORDER BY ordinal, chunk_id",
+                (tenant_id, physical_dataset, physical_revision),
+            ) as cursor:
+                chunk_rows = await cursor.fetchall()
+
+        full_text = "".join(str(row[0] or "") for row in chunk_rows)
+        total_length = len(full_text)
+        slice_start = 0 if start is None else min(start, total_length)
+        slice_end = total_length if end is None else min(end, total_length)
+        if slice_start > slice_end:
+            slice_start = slice_end
+        return {
+            "document_id": external_document_id,
+            "revision_id": external_revision_id,
+            "revision_number": int(rev_row["revision_number"]),
+            "status": str(rev_row["status"]),
+            "total_length": total_length,
+            "start": slice_start,
+            "end": slice_end,
+            "text": full_text[slice_start:slice_end],
+        }
+
+    async def get_v4_document_status(
+        self,
+        *,
+        tenant_id: str,
+        dataset_id: str,
+        document_id: str,
+    ) -> dict[str, Any]:
+        """Return document metadata and per-revision ingest summaries in constant SQL passes (D96)."""
+        external_dataset_id = dataset_id
+        external_document_id = document_id
+        failed_mutation_states = {
+            "DEAD_LETTER",
+            "REJECTED",
+            "BLOCKED",
+            "FAILED",
+            "CANCELLED",
+            "ROLLED_BACK",
+        }
+        failed_revision_states = failed_mutation_states | {"PURGED"}
+        async with self._sql.connection() as db:
+            physical_dataset = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="dataset", external_id=dataset_id
+            )
+            physical_document = await self._catalog.resolve_id_in_tx(
+                db, tenant_id=tenant_id, kind="document", external_id=document_id
+            )
+            async with db.execute(
+                "SELECT document_id, title, external_ref, status, created_at "
+                "FROM documents WHERE tenant_id = ? AND dataset_id = ? AND document_id = ?",
+                (tenant_id, physical_dataset, physical_document),
+            ) as cursor:
+                doc_row = await cursor.fetchone()
+            if doc_row is None:
+                raise CatalogIdentityNotFoundError("document not found in dataset")
+
+            async with db.execute(
+                "SELECT r.revision_id AS physical_revision_id, "
+                "COALESCE(ri.external_id, r.revision_id) AS revision_id, "
+                "r.revision_number, r.status, r.supersedes_revision_id, "
+                "COALESCE(si.external_id, r.supersedes_revision_id) AS ext_supersedes_id, "
+                "r.created_at "
+                "FROM document_revisions r "
+                "LEFT JOIN v4_catalog_identities ri ON ri.tenant_id = r.tenant_id "
+                "AND ri.kind = 'revision' AND ri.physical_id = r.revision_id "
+                "LEFT JOIN v4_catalog_identities si ON si.tenant_id = r.tenant_id "
+                "AND si.kind = 'revision' AND si.physical_id = r.supersedes_revision_id "
+                "WHERE r.tenant_id = ? AND r.document_id = ? "
+                "ORDER BY r.revision_number, r.revision_id",
+                (tenant_id, physical_document),
+            ) as cursor:
+                rev_rows = [dict(row) for row in await cursor.fetchall()]
+
+            physical_rev_ids = [str(r["physical_revision_id"]) for r in rev_rows]
+            source_counts: dict[str, int] = {}
+            state_counts: dict[str, dict[str, int]] = {}
+            temporal_by_rev: dict[str, tuple[str, str]] = {}
+            error_by_rev: dict[str, str] = {}
+            active_proj_revs: set[str] = set()
+
+            if physical_rev_ids:
+                rev_marks = ",".join("?" for _ in physical_rev_ids)
+                async with db.execute(
+                    "SELECT revision_id, COUNT(*) FROM source_chunks "
+                    f"WHERE tenant_id = ? AND dataset_id = ? AND revision_id IN ({rev_marks}) "
+                    "GROUP BY revision_id",
+                    (tenant_id, physical_dataset, *physical_rev_ids),
+                ) as cursor:
+                    for row in await cursor.fetchall():
+                        source_counts[str(row[0])] = int(row[1])
+
+                async with db.execute(
+                    "SELECT revision_id, state, COUNT(*) FROM memory_mutations "
+                    "WHERE tenant_id = ? AND dataset_id = ? AND document_id = ? "
+                    "GROUP BY revision_id, state",
+                    (tenant_id, physical_dataset, physical_document),
+                ) as cursor:
+                    for row in await cursor.fetchall():
+                        rev_key = str(row[0])
+                        state_counts.setdefault(rev_key, {})[str(row[1])] = int(row[2])
+
+                async with db.execute(
+                    "SELECT revision_id, MAX(valid_from), MAX(valid_to) "
+                    "FROM v4_assertions "
+                    "WHERE tenant_id = ? AND dataset_id = ? AND document_id = ? "
+                    "GROUP BY revision_id",
+                    (tenant_id, physical_dataset, physical_document),
+                ) as cursor:
+                    for row in await cursor.fetchall():
+                        temporal_by_rev[str(row[0])] = (
+                            str(row[1] or ""),
+                            str(row[2] or ""),
+                        )
+
+                # Fill validity dates from mutation metadata for pending revisions
+                # that have not projected assertions yet.
+                missing_temporal = [
+                    rid for rid in physical_rev_ids if rid not in temporal_by_rev
+                ]
+                if missing_temporal:
+                    miss_marks = ",".join("?" for _ in missing_temporal)
+                    async with db.execute(
+                        "SELECT revision_id, MIN(metadata_json) "
+                        "FROM memory_mutations "
+                        "WHERE tenant_id = ? AND dataset_id = ? AND document_id = ? "
+                        f"AND revision_id IN ({miss_marks}) "
+                        "GROUP BY revision_id",
+                        (tenant_id, physical_dataset, physical_document, *missing_temporal),
+                    ) as cursor:
+                        for row in await cursor.fetchall():
+                            try:
+                                meta = json.loads(str(row[1] or "{}"))
+                            except (TypeError, ValueError):
+                                meta = {}
+                            if isinstance(meta, dict):
+                                temporal_by_rev[str(row[0])] = (
+                                    str(meta.get("valid_from") or ""),
+                                    str(meta.get("valid_to") or ""),
+                                )
+
+                async with db.execute(
+                    "SELECT m.revision_id, "
+                    "COALESCE(NULLIF(m.failure_class, ''), NULLIF(p.last_error_class, ''), '') AS err_class, "
+                    "m.state AS mut_state, p.state AS proj_state "
+                    "FROM memory_mutations m "
+                    "LEFT JOIN projection_outbox p ON p.mutation_id = m.mutation_id "
+                    "WHERE m.tenant_id = ? AND m.dataset_id = ? AND m.document_id = ? "
+                    "AND ( "
+                    "  m.state IN ('DEAD_LETTER', 'REJECTED', 'BLOCKED', 'FAILED', 'CANCELLED', 'ROLLED_BACK') "
+                    "  OR p.state IN ('DEAD_LETTER', 'FAILED', 'CLAIMED', 'RETRY_PENDING', 'COMPLETED') "
+                    ") "
+                    "ORDER BY m.revision_id, m.updated_at DESC",
+                    (tenant_id, physical_dataset, physical_document),
+                ) as cursor:
+                    for row in await cursor.fetchall():
+                        rev_key = str(row[0])
+                        err_cls = str(row[1] or "")
+                        mut_state = str(row[2] or "")
+                        proj_state = str(row[3] or "")
+                        if proj_state in {"CLAIMED", "RETRY_PENDING", "COMPLETED"}:
+                            active_proj_revs.add(rev_key)
+                        if (
+                            mut_state in failed_mutation_states
+                            or proj_state in {"DEAD_LETTER", "FAILED"}
+                        ) and rev_key not in error_by_rev:
+                            error_by_rev[rev_key] = err_cls
+
+        revisions_out: list[dict[str, Any]] = []
+        for rev in rev_rows:
+            phys_rev = str(rev["physical_revision_id"])
+            rev_status = str(rev["status"])
+            rev_upper = rev_status.upper()
+            counts = dict(sorted(state_counts.get(phys_rev, {}).items()))
+            total_chunks = max(source_counts.get(phys_rev, 0), sum(counts.values()))
+            vf, vt = temporal_by_rev.get(phys_rev, ("", ""))
+
+            has_failure = (
+                rev_upper in failed_revision_states
+                or any(st in failed_mutation_states for st in counts)
+                or phys_rev in error_by_rev
+            )
+            error_obj: dict[str, str] | None = None
+            if rev_upper == "ACTIVE":
+                stage = "active"
+            elif rev_upper == "SUPERSEDED":
+                stage = "superseded"
+            elif has_failure:
+                stage = "failed"
+                error_obj = format_failure_error(error_by_rev.get(phys_rev))
+            elif total_chunks > 0 and counts.get("COMMITTED", 0) >= total_chunks:
+                stage = "indexed"
+            elif (
+                any(st != "RECEIVED" for st in counts)
+                or phys_rev in active_proj_revs
+            ):
+                stage = "processing"
+            else:
+                stage = "admitted"
+
+            revisions_out.append(
+                {
+                    "revision_id": str(rev["revision_id"]),
+                    "revision_number": int(rev["revision_number"]),
+                    "status": rev_status,
+                    "valid_from": vf,
+                    "valid_to": vt,
+                    "supersedes_revision_id": (
+                        str(rev["ext_supersedes_id"])
+                        if rev.get("supersedes_revision_id")
+                        else None
+                    ),
+                    "created_at": str(rev["created_at"]),
+                    "stage": stage,
+                    "total_chunks": total_chunks,
+                    "chunks_by_state": counts,
+                    "error": error_obj,
+                }
+            )
+
+        return {
+            "document_id": external_document_id,
+            "tenant_id": tenant_id,
+            "dataset_id": external_dataset_id,
+            "title": str(doc_row["title"]),
+            "status": str(doc_row["status"]),
+            "external_ref": doc_row["external_ref"],
+            "created_at": str(doc_row["created_at"]),
+            "revisions": revisions_out,
+        }
+
     async def create_v4_source_chunk(
         self,
         *,
@@ -1153,6 +1475,8 @@ class MemoryDAO:
         external_ref: str | None = None,
         supersedes_revision_id: str | None = None,
         finalize_revision: bool = True,
+        char_start: int | None = None,
+        char_end: int | None = None,
     ) -> dict[str, Any]:
         """Create immutable document/revision/chunk provenance."""
         if not all(
@@ -1288,11 +1612,17 @@ class MemoryDAO:
                     predecessor = await cursor.fetchone()
                 if predecessor is None or predecessor[0] != document_id:
                     raise ValueError("superseded revision is outside document scope")
+            effective_char_start = 0 if char_start is None else int(char_start)
+            effective_char_end = (
+                effective_char_start + len(content_payload)
+                if char_end is None
+                else int(char_end)
+            )
             await db.execute(
                 "INSERT OR IGNORE INTO source_chunks "
                 "(chunk_id, tenant_id, dataset_id, revision_id, ordinal, "
-                "content_payload, content_hash, source_ref) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "content_payload, content_hash, source_ref, char_start, char_end) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     chunk_id,
                     tenant_id,
@@ -1302,6 +1632,8 @@ class MemoryDAO:
                     content_payload,
                     content_hash,
                     source_ref,
+                    effective_char_start,
+                    effective_char_end,
                 ),
             )
             async with db.execute(
@@ -1440,6 +1772,44 @@ class MemoryDAO:
             "dataset_ids": external_datasets,
             "status": "ACTIVE",
         }
+
+    async def verify_v4_workspace_datasets(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_ids: list[str],
+    ) -> None:
+        """Verify every dataset exists and is ACTIVE inside (tenant_id, workspace_id)."""
+        if not tenant_id or not workspace_id or not dataset_ids:
+            raise ValueError("complete workspace dataset scope is required")
+        external_datasets = sorted(set(dataset_ids))
+        async with self._sql.connection() as db:
+            physical_workspace = await self._catalog.resolve_id_in_tx(
+                db,
+                tenant_id=tenant_id,
+                kind="workspace",
+                external_id=workspace_id,
+            )
+            unique_datasets = [
+                await self._catalog.resolve_id_in_tx(
+                    db,
+                    tenant_id=tenant_id,
+                    kind="dataset",
+                    external_id=item,
+                )
+                for item in external_datasets
+            ]
+            placeholders = ",".join("?" for _ in unique_datasets)
+            async with db.execute(
+                f"SELECT dataset_id FROM datasets WHERE tenant_id = ? "
+                f"AND workspace_id = ? AND status = 'ACTIVE' "
+                f"AND dataset_id IN ({placeholders})",
+                (tenant_id, physical_workspace, *unique_datasets),
+            ) as cursor:
+                found = {row[0] for row in await cursor.fetchall()}
+            if found != set(unique_datasets):
+                raise ValueError("dataset is outside workspace scope")
 
     async def get_v4_session(
         self,
@@ -1656,7 +2026,8 @@ class MemoryDAO:
                 (document_id,),
             )
             await db.execute(
-                "UPDATE document_revisions SET status = 'PURGED' WHERE document_id = ?",
+                "UPDATE document_revisions SET status = 'PURGED', "
+                "source_locations_json = NULL WHERE document_id = ?",
                 (document_id,),
             )
             await db.execute(
@@ -2122,6 +2493,8 @@ class MemoryDAO:
         idempotency_key: str | None = None,
         payload_hash: str | None = None,
         finalize_revision: bool = True,
+        char_start: int | None = None,
+        char_end: int | None = None,
     ) -> dict[str, Any]:
         """Atomically admit one V4 write and all of its durable records.
 
@@ -2136,7 +2509,6 @@ class MemoryDAO:
                 tenant_id,
                 workspace_id,
                 dataset_id,
-                session_id,
                 document_id,
                 revision_id,
                 chunk_id,
@@ -2144,7 +2516,7 @@ class MemoryDAO:
                 content_payload,
                 source_ref,
             )
-        ):
+        ) or (session_id is None or (not document_chunk and not session_id)):
             raise ValueError("complete V4 admission provenance is required")
         if (idempotency_key is None) != (payload_hash is None):
             raise ValueError(
@@ -2379,10 +2751,16 @@ class MemoryDAO:
                         raise ValueError(
                             "superseded revision is outside document scope"
                         )
+                effective_char_start = 0 if char_start is None else int(char_start)
+                effective_char_end = (
+                    effective_char_start + len(content_payload)
+                    if char_end is None
+                    else int(char_end)
+                )
                 await db.execute(
                     "INSERT OR IGNORE INTO source_chunks "
-                    "(chunk_id, tenant_id, dataset_id, revision_id, ordinal, content_payload, content_hash, source_ref) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "(chunk_id, tenant_id, dataset_id, revision_id, ordinal, content_payload, content_hash, source_ref, char_start, char_end) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         chunk_id,
                         tenant_id,
@@ -2392,6 +2770,8 @@ class MemoryDAO:
                         content_payload,
                         content_hash,
                         source_ref,
+                        effective_char_start,
+                        effective_char_end,
                     ),
                 )
                 async with db.execute(
@@ -2610,7 +2990,15 @@ class MemoryDAO:
             "source_ref",
             "pipeline_run_id",
         }
-        missing = sorted(name for name in required if not candidate.get(name))
+        missing = sorted(
+            name
+            for name in required
+            if (
+                candidate.get(name) is None
+                if name == "session_id"
+                else not candidate.get(name)
+            )
+        )
         if missing:
             raise ValueError(f"canonical candidate is missing: {', '.join(missing)}")
         agent_id = str(candidate["agent_id"])
@@ -6478,6 +6866,7 @@ class MemoryDAO:
         dataset_ids: list[str],
         query: str,
         limit: int = 10,
+        document_ids: list[str] | None = None,
         jurisdiction: str | None = None,
         valid_at: str | None = None,
         valid_from: str | None = None,
@@ -6489,7 +6878,13 @@ class MemoryDAO:
     ) -> list[dict[str, Any]]:
         """Reuse only version-valid authorized scope data, never query results."""
         _assert_valid_agent_id(agent_id)
-        if not tenant_id or not dataset_ids or not query.strip() or not 1 <= limit <= 50:
+        if (
+            not tenant_id
+            or not dataset_ids
+            or not query.strip()
+            or not 1 <= limit <= 50
+            or (document_ids is not None and not 1 <= len(document_ids) <= 64)
+        ):
             raise ValueError("invalid v4 search scope")
         query_vector: list[float] | None = None
         query_error: Exception | None = None
@@ -6506,6 +6901,7 @@ class MemoryDAO:
             dataset_ids=dataset_ids,
             query=query,
             limit=max(limit, self._rerank_depth) if self._reranker is not None else limit,
+            document_ids=document_ids,
             jurisdiction=jurisdiction,
             valid_at=valid_at,
             valid_from=valid_from,
@@ -6562,6 +6958,11 @@ class MemoryDAO:
                             valid_at,
                             valid_from,
                             valid_to,
+                            (
+                                tuple(sorted(set(document_ids)))
+                                if document_ids is not None
+                                else None
+                            ),
                         )
                         scope = self._search_scope_cache.get(key)
                         if scope is None:
@@ -6677,6 +7078,7 @@ class MemoryDAO:
         dataset_ids: list[str],
         query: str,
         limit: int = 10,
+        document_ids: list[str] | None = None,
         jurisdiction: str | None = None,
         valid_at: str | None = None,
         valid_from: str | None = None,
@@ -6698,6 +7100,7 @@ class MemoryDAO:
             or not dataset_ids
             or not query.strip()
             or not 1 <= limit <= 50
+            or (document_ids is not None and not 1 <= len(document_ids) <= 64)
         ):
             raise ValueError("invalid v4 search scope")
 
@@ -6756,6 +7159,36 @@ class MemoryDAO:
                 )
                 scope["datasets"] = datasets
             placeholders = ",".join("?" for _ in datasets)
+            artifact_doc_clause = ""
+            artifact_doc_params: list[Any] = []
+            if document_ids is not None:
+                if "documents" in scope:
+                    resolved_documents: list[str] = scope["documents"]
+                else:
+                    resolved_doc_set: set[str] = set()
+                    for ext_doc_id in sorted(set(document_ids)):
+                        try:
+                            resolved_doc_set.add(
+                                await self._catalog.resolve_id_in_tx(
+                                    db,
+                                    tenant_id=tenant_id,
+                                    kind="document",
+                                    external_id=ext_doc_id,
+                                )
+                            )
+                        except CatalogIdentityNotFoundError:
+                            continue
+                    resolved_documents = sorted(resolved_doc_set)
+                    scope["documents"] = resolved_documents
+                if resolved_documents:
+                    doc_placeholders = ",".join("?" for _ in resolved_documents)
+                    provenance_filters.append(f"a.document_id IN ({doc_placeholders})")
+                    provenance_params.extend(resolved_documents)
+                    artifact_doc_clause = f"AND m.document_id IN ({doc_placeholders}) "
+                    artifact_doc_params.extend(resolved_documents)
+                else:
+                    provenance_filters.append("1 = 0")
+                    artifact_doc_clause = "AND 1 = 0 "
             # Check persistent per-dataset FTS readiness before scope loading
             # or vector search so a missing/stale index rebuild never repeats
             # scope queries or LanceDB scans.
@@ -6766,6 +7199,7 @@ class MemoryDAO:
                 and len(datasets) == 1
                 and not provenance_filters
                 and not historical_query
+                and document_ids is None
             ):
                 async with db.execute(
                     "SELECT 1 FROM v4_assertions a "
@@ -6824,13 +7258,14 @@ class MemoryDAO:
                     "LEFT JOIN v4_entities e ON r.artifact_kind = 'ENTITY' "
                     "AND e.entity_id = r.physical_artifact_id "
                     f"WHERE r.tenant_id = ? AND s.dataset_id IN ({placeholders}) "
+                    f"{artifact_doc_clause}"
                     "AND m.agent_id = ? AND m.state = 'COMMITTED' "
                     "AND (r.artifact_kind != 'ASSERTION_VECTOR' OR r.agent_id = ?) "
                     "AND r.state = 'ACTIVE' AND s.state = 'ACTIVE' "
                     "AND r.artifact_kind IN ('ENTITY', 'ASSERTION_VECTOR') "
                     "AND (r.artifact_kind = 'ASSERTION_VECTOR' OR "
                     "(e.tenant_id = r.tenant_id AND e.status = 'ACTIVE'))",
-                    (tenant_id, *datasets, agent_id, agent_id),
+                    (tenant_id, *datasets, *artifact_doc_params, agent_id, agent_id),
                 ) as cursor:
                     artifact_rows = await cursor.fetchall()
 
@@ -6924,6 +7359,11 @@ class MemoryDAO:
             requested_scope = {
                 "tenant_id": tenant_id,
                 "dataset_ids": sorted(set(dataset_ids)),
+                **(
+                    {"document_ids": sorted(set(document_ids))}
+                    if document_ids is not None
+                    else {}
+                ),
                 "agent_id": agent_id,
                 **(
                     {"principal_id": request_principal_id}
@@ -8397,16 +8837,43 @@ class MemoryDAO:
                 }
             )
             revision_numbers: dict[str, int] = {}
+            locations_by_revision: dict[str, DocumentLocations] = {}
             for offset in range(0, len(physical_revision_ids), 500):
                 rev_batch = physical_revision_ids[offset : offset + 500]
                 rev_placeholders = ",".join("?" for _ in rev_batch)
                 async with db.execute(
-                    "SELECT revision_id, revision_number FROM document_revisions "
+                    "SELECT revision_id, revision_number, source_locations_json "
+                    "FROM document_revisions "
                     f"WHERE tenant_id = ? AND revision_id IN ({rev_placeholders})",
                     (tenant_id, *rev_batch),
                 ) as cursor:
                     for row in await cursor.fetchall():
                         revision_numbers[str(row[0])] = int(row[1])
+                        if row[2]:
+                            locations_by_revision[str(row[0])] = json.loads(row[2])
+            physical_chunk_ids = sorted(
+                {
+                    str(assertion["chunk_id"])
+                    for assertion in all_materialized_assertions
+                    if assertion.get("chunk_id")
+                }
+            )
+            chunk_spans: dict[str, dict[str, int]] = {}
+            for offset in range(0, len(physical_chunk_ids), 500):
+                c_batch = physical_chunk_ids[offset : offset + 500]
+                c_placeholders = ",".join("?" for _ in c_batch)
+                async with db.execute(
+                    "SELECT chunk_id, char_start, char_end, LENGTH(content_payload) "
+                    "FROM source_chunks "
+                    f"WHERE tenant_id = ? AND chunk_id IN ({c_placeholders})",
+                    (tenant_id, *c_batch),
+                ) as cursor:
+                    for row in await cursor.fetchall():
+                        c_start = int(row[1] or 0)
+                        c_end = int(row[2] or 0)
+                        if c_end == 0 and c_start == 0 and row[3]:
+                            c_end = int(row[3])
+                        chunk_spans[str(row[0])] = {"start": c_start, "end": c_end}
             for assertion in all_materialized_assertions:
                 metadata = metadata_by_mutation.get(str(assertion.get("mutation_id")))
                 if metadata:
@@ -8416,6 +8883,21 @@ class MemoryDAO:
                     assertion["revision_number"] = revision_numbers[physical_rev_id]
                 else:
                     assertion.setdefault("revision_number", None)
+                physical_chunk_id = str(assertion.get("chunk_id") or "")
+                span = chunk_spans.get(physical_chunk_id)
+                if span is None:
+                    fallback_text = str(
+                        assertion.get("chunk_text")
+                        or assertion.get("evidence_span")
+                        or ""
+                    )
+                    span = {"start": 0, "end": len(fallback_text)}
+                assertion["span"] = dict(span)
+                locations = locations_by_revision.get(physical_rev_id)
+                if locations:
+                    assertion.update(
+                        document_citation(locations, span["start"], span["end"])
+                    )
                 assertion["valid_from"] = str(assertion.get("valid_from") or "")
                 assertion["valid_to"] = str(assertion.get("valid_to") or "")
                 for field, kind in catalog_fields:
@@ -8493,7 +8975,15 @@ class MemoryDAO:
                 "assertion_id": cand["assertion_id"],
                 "source_chunk_id": cand["source_chunk_id"],
                 "document_id": cand["document_id"],
+                "revision_id": first_prov.get("revision_id"),
                 "revision_number": first_prov.get("revision_number"),
+                "chunk_id": cand["source_chunk_id"],
+                "span": dict(first_prov.get("span") or {"start": 0, "end": 0}),
+                **{
+                    key: first_prov[key]
+                    for key in ("page", "sheet", "row_start", "row_end")
+                    if key in first_prov
+                },
                 "valid_from": str(first_prov.get("valid_from") or ""),
                 "valid_to": str(first_prov.get("valid_to") or ""),
                 "evidence_span": cand["evidence_span"],

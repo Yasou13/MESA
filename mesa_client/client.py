@@ -1,5 +1,5 @@
 """
-MESA v0.9.5 Client SDK
+MESA v0.9.6 Client SDK
 
 A robust, type-safe Python client for the MESA memory system.
 Provides both synchronous and asynchronous implementations utilizing httpx.
@@ -37,8 +37,15 @@ RECOMMENDED_SYSTEM_PROMPT = (
 )
 
 
+class V4CitationSpan(TypedDict):
+    """Character offset span of a chunk inside its revision's full text (D95)."""
+
+    start: int
+    end: int
+
+
 class V4SearchResult(TypedDict, total=False):
-    """Typed shape of a V4 search result item including revision validity (D88)."""
+    """Typed shape of a V4 search result item including revision validity and span (D88, D95)."""
 
     entity: dict[str, Any]
     candidate_id: str
@@ -46,7 +53,14 @@ class V4SearchResult(TypedDict, total=False):
     assertion_id: str
     source_chunk_id: str | None
     document_id: str | None
+    revision_id: str | None
     revision_number: int | None
+    chunk_id: str | None
+    span: V4CitationSpan | None
+    page: int
+    sheet: str
+    row_start: int
+    row_end: int
     valid_from: str
     valid_to: str
     evidence_span: str | None
@@ -61,7 +75,7 @@ class V4SearchResult(TypedDict, total=False):
 
 
 class V4ContextSource(TypedDict, total=False):
-    """Typed shape of a canonical source entry in a V4 context response (D88)."""
+    """Typed shape of a canonical source entry in a V4 context response (D88, D95)."""
 
     entity: dict[str, Any]
     candidate_id: str
@@ -69,7 +83,14 @@ class V4ContextSource(TypedDict, total=False):
     assertion_id: str
     source_chunk_id: str | None
     document_id: str | None
+    revision_id: str | None
     revision_number: int | None
+    chunk_id: str | None
+    span: V4CitationSpan | None
+    page: int
+    sheet: str
+    row_start: int
+    row_end: int
     valid_from: str
     valid_to: str
     provenance: list[dict[str, Any]]
@@ -120,6 +141,35 @@ def _prepare_write_metadata(
         return normalize_temporal_metadata(metadata)
     except ValueError as exc:
         raise MesaValidationError(str(exc)) from exc
+
+
+def _document_upload_fields(
+    *,
+    session_id: str | None,
+    tenant_id: str | None,
+    workspace_id: str | None,
+    agent_id: str | None,
+    dataset_id: str,
+    document_id: str,
+    title: str,
+    source_ref: str,
+    metadata: dict[str, Any] | None,
+) -> dict[str, str]:
+    fields = {
+        "session_id": session_id,
+        "tenant_id": tenant_id,
+        "workspace_id": workspace_id,
+        "agent_id": agent_id,
+        "dataset_id": dataset_id,
+        "document_id": document_id,
+        "title": title,
+        "source_ref": source_ref,
+    }
+    if metadata is not None:
+        fields["metadata"] = json.dumps(
+            _prepare_write_metadata(metadata), ensure_ascii=False, separators=(",", ":")
+        )
+    return {key: value for key, value in fields.items() if value is not None}
 
 
 _RETRYABLE_503_DETAILS = frozenset(
@@ -311,7 +361,7 @@ class MesaClient:
     ):
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
-        headers = {"User-Agent": "mesa-client/v0.9.5"}
+        headers = {"User-Agent": "mesa-client/v0.9.6"}
         if api_key:
             headers["X-API-Key"] = api_key
 
@@ -376,7 +426,7 @@ class AsyncMesaClient:
     ):
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
-        headers = {"User-Agent": "mesa-client/v0.9.5"}
+        headers = {"User-Agent": "mesa-client/v0.9.6"}
         if api_key:
             headers["X-API-Key"] = api_key
 
@@ -694,9 +744,13 @@ class MesaV4Client(MesaClient):
     def search(  # type: ignore[override]
         self,
         *,
-        session_id: str,
+        session_id: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        agent_id: str | None = None,
         query: str,
         dataset_ids: list[str] | None = None,
+        document_ids: list[str] | None = None,
         limit: int = 10,
         jurisdiction: str | None = None,
         valid_at: str | None = None,
@@ -704,20 +758,31 @@ class MesaV4Client(MesaClient):
         valid_to: str | None = None,
         graph_mode: Literal["enabled", "disabled"] = "enabled",
     ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "dataset_ids": dataset_ids,
+            "query": query,
+            "limit": limit,
+            "jurisdiction": jurisdiction,
+            "valid_at": valid_at,
+            "valid_from": valid_from,
+            "valid_to": valid_to,
+        }
+        if document_ids is not None:
+            payload["document_ids"] = document_ids
+        if session_id is not None:
+            payload["session_id"] = session_id
+        if tenant_id is not None:
+            payload["tenant_id"] = tenant_id
+        if workspace_id is not None:
+            payload["workspace_id"] = workspace_id
+        if agent_id is not None:
+            payload["agent_id"] = agent_id
+        if graph_mode != "enabled":
+            payload["graph_mode"] = graph_mode
         return self._request(
             "POST",
             "/v4/memory/search",
-            json={
-                "session_id": session_id,
-                "dataset_ids": dataset_ids,
-                "query": query,
-                "limit": limit,
-                "jurisdiction": jurisdiction,
-                "valid_at": valid_at,
-                "valid_from": valid_from,
-                "valid_to": valid_to,
-                **({"graph_mode": graph_mode} if graph_mode != "enabled" else {}),
-            },
+            json=payload,
         )
 
     def status(self, mutation_id: str) -> dict[str, Any]:
@@ -798,7 +863,10 @@ class MesaV4Client(MesaClient):
     def add_document(
         self,
         *,
-        session_id: str,
+        session_id: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        agent_id: str | None = None,
         dataset_id: str,
         document_id: str,
         title: str,
@@ -808,25 +876,70 @@ class MesaV4Client(MesaClient):
         deadline: float = 600.0,
         timeout: float | None = None,
     ) -> dict[str, Any]:
-        """Ingest a whole document through server-side chunking (D29)."""
+        """Ingest a whole document through server-side chunking (D29, D94)."""
         payload: dict[str, Any] = {
-            "session_id": session_id,
             "dataset_id": dataset_id,
             "document_id": document_id,
             "title": title,
             "source_ref": source_ref,
             "content": content,
         }
+        if session_id is not None:
+            payload["session_id"] = session_id
+        if tenant_id is not None:
+            payload["tenant_id"] = tenant_id
+        if workspace_id is not None:
+            payload["workspace_id"] = workspace_id
+        if agent_id is not None:
+            payload["agent_id"] = agent_id
         if metadata is not None:
             payload["metadata"] = _prepare_write_metadata(metadata)
-        total_deadline = timeout if timeout is not None else deadline
+        return self._admit_document(
+            "/v4/documents", timeout if timeout is not None else deadline, json=payload
+        )
+
+    def add_file(
+        self,
+        path: str | Path,
+        *,
+        session_id: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        agent_id: str | None = None,
+        dataset_id: str,
+        document_id: str,
+        title: str,
+        source_ref: str,
+        metadata: dict[str, Any] | None = None,
+        deadline: float = 600.0,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Upload a PDF, DOCX, UDF, XLSX, TXT, or Markdown file."""
+        fields = _document_upload_fields(
+            session_id=session_id, tenant_id=tenant_id, workspace_id=workspace_id,
+            agent_id=agent_id, dataset_id=dataset_id, document_id=document_id,
+            title=title, source_ref=source_ref, metadata=metadata,
+        )
+        file_path = Path(path)
+        with file_path.open("rb") as file:
+            return self._admit_document(
+                "/v4/documents/upload",
+                timeout if timeout is not None else deadline,
+                data=fields,
+                files={"file": (file_path.name, file)},
+            )
+
+    def _admit_document(
+        self, path: str, total_deadline: float, **kwargs: Any
+    ) -> dict[str, Any]:
         start = time.monotonic()
         backoff = 0.5
         while True:
             try:
                 return self._request(
-                    "POST", "/v4/documents", json=payload,
+                    "POST", path,
                     timeout=max(0.001, total_deadline - (time.monotonic() - start)),
+                    **kwargs,
                 )
             except MesaAPIError as exc:
                 if (
@@ -841,6 +954,50 @@ class MesaV4Client(MesaClient):
                     backoff = min(backoff * 2.0, 5.0)
                     continue
                 raise
+
+    def get_document(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+    ) -> dict[str, Any]:
+        """Return document metadata and per-revision ingest status (D96)."""
+        return self._request(
+            "GET",
+            f"/v4/documents/{quote(document_id, safe='')}",
+            params={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_id": dataset_id,
+            },
+        )
+
+    def get_document_text(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+        revision_id: str | None = None,
+        start: int | None = None,
+        end: int | None = None,
+    ) -> dict[str, Any]:
+        """Return a revision's full text (default: ACTIVE) or character slice (D96)."""
+        return self._request(
+            "GET",
+            f"/v4/documents/{quote(document_id, safe='')}/text",
+            params={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_id": dataset_id,
+                "revision_id": revision_id,
+                "start": start,
+                "end": end,
+            },
+        )
 
     def wait_until_revision_active(
         self,
@@ -1150,9 +1307,13 @@ class AsyncMesaV4Client(AsyncMesaClient):
     async def search(  # type: ignore[override]
         self,
         *,
-        session_id: str,
+        session_id: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        agent_id: str | None = None,
         query: str,
         dataset_ids: list[str] | None = None,
+        document_ids: list[str] | None = None,
         limit: int = 10,
         jurisdiction: str | None = None,
         valid_at: str | None = None,
@@ -1160,20 +1321,31 @@ class AsyncMesaV4Client(AsyncMesaClient):
         valid_to: str | None = None,
         graph_mode: Literal["enabled", "disabled"] = "enabled",
     ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "dataset_ids": dataset_ids,
+            "query": query,
+            "limit": limit,
+            "jurisdiction": jurisdiction,
+            "valid_at": valid_at,
+            "valid_from": valid_from,
+            "valid_to": valid_to,
+        }
+        if document_ids is not None:
+            payload["document_ids"] = document_ids
+        if session_id is not None:
+            payload["session_id"] = session_id
+        if tenant_id is not None:
+            payload["tenant_id"] = tenant_id
+        if workspace_id is not None:
+            payload["workspace_id"] = workspace_id
+        if agent_id is not None:
+            payload["agent_id"] = agent_id
+        if graph_mode != "enabled":
+            payload["graph_mode"] = graph_mode
         return await self._request(
             "POST",
             "/v4/memory/search",
-            json={
-                "session_id": session_id,
-                "dataset_ids": dataset_ids,
-                "query": query,
-                "limit": limit,
-                "jurisdiction": jurisdiction,
-                "valid_at": valid_at,
-                "valid_from": valid_from,
-                "valid_to": valid_to,
-                **({"graph_mode": graph_mode} if graph_mode != "enabled" else {}),
-            },
+            json=payload,
         )
 
     async def status(self, mutation_id: str) -> dict[str, Any]:
@@ -1254,7 +1426,10 @@ class AsyncMesaV4Client(AsyncMesaClient):
     async def add_document(
         self,
         *,
-        session_id: str,
+        session_id: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        agent_id: str | None = None,
         dataset_id: str,
         document_id: str,
         title: str,
@@ -1264,25 +1439,70 @@ class AsyncMesaV4Client(AsyncMesaClient):
         deadline: float = 600.0,
         timeout: float | None = None,
     ) -> dict[str, Any]:
-        """Ingest a whole document through server-side chunking (D29)."""
+        """Ingest a whole document through server-side chunking (D29, D94)."""
         payload: dict[str, Any] = {
-            "session_id": session_id,
             "dataset_id": dataset_id,
             "document_id": document_id,
             "title": title,
             "source_ref": source_ref,
             "content": content,
         }
+        if session_id is not None:
+            payload["session_id"] = session_id
+        if tenant_id is not None:
+            payload["tenant_id"] = tenant_id
+        if workspace_id is not None:
+            payload["workspace_id"] = workspace_id
+        if agent_id is not None:
+            payload["agent_id"] = agent_id
         if metadata is not None:
             payload["metadata"] = _prepare_write_metadata(metadata)
-        total_deadline = timeout if timeout is not None else deadline
+        return await self._admit_document(
+            "/v4/documents", timeout if timeout is not None else deadline, json=payload
+        )
+
+    async def add_file(
+        self,
+        path: str | Path,
+        *,
+        session_id: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        agent_id: str | None = None,
+        dataset_id: str,
+        document_id: str,
+        title: str,
+        source_ref: str,
+        metadata: dict[str, Any] | None = None,
+        deadline: float = 600.0,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Upload a PDF, DOCX, UDF, XLSX, TXT, or Markdown file."""
+        fields = _document_upload_fields(
+            session_id=session_id, tenant_id=tenant_id, workspace_id=workspace_id,
+            agent_id=agent_id, dataset_id=dataset_id, document_id=document_id,
+            title=title, source_ref=source_ref, metadata=metadata,
+        )
+        file_path = Path(path)
+        with file_path.open("rb") as file:
+            return await self._admit_document(
+                "/v4/documents/upload",
+                timeout if timeout is not None else deadline,
+                data=fields,
+                files={"file": (file_path.name, file)},
+            )
+
+    async def _admit_document(
+        self, path: str, total_deadline: float, **kwargs: Any
+    ) -> dict[str, Any]:
         start = time.monotonic()
         backoff = 0.5
         while True:
             try:
                 return await self._request(
-                    "POST", "/v4/documents", json=payload,
+                    "POST", path,
                     timeout=max(0.001, total_deadline - (time.monotonic() - start)),
+                    **kwargs,
                 )
             except MesaAPIError as exc:
                 if (
@@ -1297,6 +1517,50 @@ class AsyncMesaV4Client(AsyncMesaClient):
                     backoff = min(backoff * 2.0, 5.0)
                     continue
                 raise
+
+    async def get_document(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+    ) -> dict[str, Any]:
+        """Return document metadata and per-revision ingest status (D96)."""
+        return await self._request(
+            "GET",
+            f"/v4/documents/{quote(document_id, safe='')}",
+            params={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_id": dataset_id,
+            },
+        )
+
+    async def get_document_text(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+        revision_id: str | None = None,
+        start: int | None = None,
+        end: int | None = None,
+    ) -> dict[str, Any]:
+        """Return a revision's full text (default: ACTIVE) or character slice (D96)."""
+        return await self._request(
+            "GET",
+            f"/v4/documents/{quote(document_id, safe='')}/text",
+            params={
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "dataset_id": dataset_id,
+                "revision_id": revision_id,
+                "start": start,
+                "end": end,
+            },
+        )
 
     async def wait_until_revision_active(
         self,
@@ -1437,10 +1701,11 @@ class Mesa:
 
         self._client = MesaV4Client(base_url=self.base_url, api_key=self.api_key)
         self._session_id: str | None = None
+        self._scope_ready = False
 
-    def _ensure_session(self) -> str:
-        if self._session_id is not None:
-            return self._session_id
+    def _ensure_scope(self) -> None:
+        if self._scope_ready:
+            return
         try:
             self._client.create_workspace(
                 tenant_id=self.tenant_id,
@@ -1458,6 +1723,12 @@ class Mesa:
         except MesaAPIError as exc:
             if exc.status_code != 409:
                 raise
+        self._scope_ready = True
+
+    def _ensure_session(self) -> str:
+        if self._session_id is not None:
+            return self._session_id
+        self._ensure_scope()
         resp = self._client.start_session(
             tenant_id=self.tenant_id,
             workspace_id=self.workspace_id,
@@ -1495,31 +1766,73 @@ class Mesa:
             deadline=total_timeout,
         )
         if wait:
-            rev_id = str(res["revision_id"])
-            raw_mutation_ids = res.get("mutation_ids")
-            mutation_ids = (
+            self._wait_for_document(res, doc_id, metadata, total_timeout)
+        return res
+
+    def add_file(
+        self,
+        path: str | Path,
+        *,
+        source: str | None = None,
+        title: str | None = None,
+        document_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        wait: bool = False,
+        timeout: float = 600.0,
+        deadline: float | None = None,
+    ) -> dict[str, Any]:
+        """Upload a local file directly to this dataset."""
+        file_path = Path(path)
+        source_ref = source if source is not None else file_path.resolve().as_uri()
+        doc_id = document_id or _document_id_from_source(source_ref)
+        self._ensure_scope()
+        total_timeout = deadline if deadline is not None else timeout
+        result = self._client.add_file(
+            file_path,
+            tenant_id=self.tenant_id,
+            workspace_id=self.workspace_id,
+            dataset_id=self.dataset_id,
+            agent_id=self.agent_id,
+            document_id=doc_id,
+            title=title if title is not None else file_path.name,
+            source_ref=source_ref,
+            metadata=metadata,
+            deadline=total_timeout,
+        )
+        if wait:
+            self._wait_for_document(result, doc_id, metadata, total_timeout)
+        return result
+
+    def _wait_for_document(
+        self,
+        result: dict[str, Any],
+        document_id: str,
+        metadata: dict[str, Any] | None,
+        timeout: float,
+    ) -> None:
+        raw_mutation_ids = result.get("mutation_ids")
+        self._client.wait_until_revision_active(
+            tenant_id=self.tenant_id,
+            workspace_id=self.workspace_id,
+            dataset_id=self.dataset_id,
+            document_id=document_id,
+            revision_id=str(result["revision_id"]),
+            mutation_ids=(
                 [str(m) for m in raw_mutation_ids]
                 if isinstance(raw_mutation_ids, list)
                 else None
-            )
-            self._client.wait_until_revision_active(
-                tenant_id=self.tenant_id,
-                workspace_id=self.workspace_id,
-                dataset_id=self.dataset_id,
-                document_id=doc_id,
-                revision_id=rev_id,
-                mutation_ids=mutation_ids,
-                allow_superseded=bool(metadata and metadata.get("valid_from")),
-                timeout_seconds=total_timeout,
-                poll_interval_seconds=1.0,
-            )
-        return res
+            ),
+            allow_superseded=bool(metadata and metadata.get("valid_from")),
+            timeout_seconds=timeout,
+            poll_interval_seconds=1.0,
+        )
 
     def search(
         self,
         query: str,
         limit: int = 10,
         *,
+        document_ids: list[str] | None = None,
         valid_at: str | None = None,
         valid_from: str | None = None,
         valid_to: str | None = None,
@@ -1529,6 +1842,7 @@ class Mesa:
         resp = self._client.search(
             session_id=session_id,
             query=query,
+            document_ids=document_ids,
             limit=limit,
             valid_at=valid_at,
             valid_from=valid_from,
@@ -1558,6 +1872,34 @@ class Mesa:
             valid_to=valid_to,
         )
         return str(resp.get("context", ""))
+
+    def get_document(self, document_id: str) -> dict[str, Any]:
+        """Return document metadata and per-revision ingest status (D96)."""
+        return self._client.get_document(
+            tenant_id=self.tenant_id,
+            workspace_id=self.workspace_id,
+            dataset_id=self.dataset_id,
+            document_id=document_id,
+        )
+
+    def get_document_text(
+        self,
+        document_id: str,
+        *,
+        revision_id: str | None = None,
+        start: int | None = None,
+        end: int | None = None,
+    ) -> dict[str, Any]:
+        """Return the rebuilt text (or slice) for a document revision (D96)."""
+        return self._client.get_document_text(
+            tenant_id=self.tenant_id,
+            workspace_id=self.workspace_id,
+            dataset_id=self.dataset_id,
+            document_id=document_id,
+            revision_id=revision_id,
+            start=start,
+            end=end,
+        )
 
     def delete(
         self,

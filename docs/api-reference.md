@@ -1,6 +1,6 @@
 # API reference
 
-MESA v4 tenant/dataset yetkili versioned API sunar. Paket 0.9.5; yayın sahibinin adımıdır ve production sertifikasyonu içermez.
+MESA v4 tenant/dataset yetkili versioned API sunar. Paket 0.9.6; yayın sahibinin adımıdır ve production sertifikasyonu içermez.
 
 Versioned memory, health ve metrics çağrıları `X-API-Key` ister. `/health/init`, OpenAPI, Swagger ve Redoc public yüzeylerdir; ağ/reverse-proxy politikası gerekir. V4 anahtarı
 `mesa-v4-admin issue-key` ile üretilir; yalnız saltlı scrypt özeti saklanır.
@@ -113,7 +113,48 @@ Raw `/v4/memory/search` remains the single-query primitive.
 
 ## V4 Python SDK
 
-Bu örnek, model-enabled V4 sunucu, provision edilmiş `credential`, mevcut
+For document ingestion and search without a session (recommended for apps and
+document loaders; requires dataset `WRITER` to ingest and `READER` to search):
+
+```python
+from mesa_client import MesaV4Client
+
+with MesaV4Client("http://127.0.0.1:8000", api_key=credential) as client:
+    ingested = client.add_document(
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+        dataset_id="dataset-a",
+        document_id="doc-a",
+        title="Neutral source example",
+        source_ref="demo://source-a",
+        content="Exact source text",
+    )
+    client.wait_until_revision_active(
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+        dataset_id="dataset-a",
+        document_id="doc-a",
+        revision_id=ingested["revision_id"],
+        mutation_ids=ingested["mutation_ids"],
+    )
+    result = client.search(
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+        dataset_ids=["dataset-a"],
+        document_ids=[ingested["document_id"]],
+        query="Exact source",
+    )
+```
+
+For a local file, use `add_file(path, …)` with the same metadata and scope
+arguments in place of `add_document(content=…)`. Both `MesaV4Client` and
+`AsyncMesaV4Client` expose `add_file`, `get_document`, and
+`get_document_text`. When a search result cites a span, pass its
+`revision_id`, `span["start"]`, and `span["end"]` to
+`get_document_text` to fetch the cited passage.
+
+For agent memory sessions (`/v4/memory/insert`, context, and session end), start
+a server-owned session first. Bu örnek, model-enabled V4 sunucu, provision edilmiş `credential`, mevcut
 `tenant-a/workspace-a/dataset-a` kataloğu ve `agent-a` session izni varsayar.
 Bunları da kuran örnek için [Getting started](getting-started.md) kullanılır.
 
@@ -208,7 +249,7 @@ Internal DAO ownership, projection and Graph V2 structure belong in the
 
 ## Health ve metrics
 
-- `/health`: API anahtarıyla `status`, `maintenance`, `rebuild_state` özeti
+- `/health`: API anahtarıyla `status`, `version` (package version), `maintenance`, `rebuild_state` özeti
 - `/health/init`: public readiness; hazırsa `200 {"status":"ready"}`, değilse `503`
 - `/metrics`: API anahtarıyla Prometheus sayaçları ve gauge'ları
 
@@ -229,12 +270,21 @@ V4 HTTP insert ve sync/async SDK insert için `title` zorunludur. `title` 1..512
 HTTP ve sync/async SDK `insert`, opsiyonel `legal_identity` parametresini destekler.
 Public/source ID validator farkları için çalışan OpenAPI kullanılır.
 
-Search request `session_id`, `query` gerektirir; query 1..4096 karakter,
-`limit` default 10 ve 1..50, `dataset_ids` verilirse 1..64 ve session altkümesi,
-`graph_mode` is accepted as a compatibility no-op. ISO timestamp string'leri timezone offset
-içermelidir. `valid_from > valid_to` reddedilir. Response `session_id`,
-`dataset_ids`, `results`, optional `scope_audit`, `vector_lane`
-taşır. Sonuç provenance'ın varlığı source truth garantisi değildir.
+Search requests can run **without a session** by passing `tenant_id`,
+`workspace_id`, `dataset_ids` (1..64 dataset IDs), and `query` (optional
+`agent_id` defaults to `local-agent`, matching CLI-ingested data); access is
+authorized via dataset `READER` role plus the principal's `SESSION_CREATE`
+permission for that `agent_id`, the same agent check as `/v4/sessions/start`.
+Session-based search continues to work by
+passing `session_id` (with optional `dataset_ids` subset). Mixing `session_id`
+with disagreeing explicit scope fields returns HTTP 422. Optional
+`document_ids` (1..64 caller document IDs) restricts every search lane to those
+documents before ranking; unknown document IDs match nothing. `query` is 1..4096
+characters, `limit` defaults to 10 (1..50), and `graph_mode` is accepted as a
+compatibility no-op. ISO timestamp strings must include a timezone offset, and
+`valid_from > valid_to` is rejected. Response carries `session_id` (`null` when
+sessionless), `dataset_ids`, `results`, optional `scope_audit`, and
+`vector_lane`. Sonuç provenance'ın varlığı source truth garantisi değildir.
 
 SDK sync/async client timeout default 10s ve max_retries 3; yalnız güvenli
 network retry boundary geçerlidir. API HTTP hata yanıtları `MesaAPIError`,
@@ -246,9 +296,22 @@ bu sürümde uygulanmamaktadır (per-minute and daily limits are not enforced in
 
 ### Whole documents: `POST /v4/documents`
 
-Send `session_id`, `dataset_id`, `document_id`, `title`, `source_ref`, `content`
-and optional `metadata`. The session requires WRITE access to the dataset and
-the runtime must own the combined consumer, just as for `/v4/memory/insert`.
+A direct HTTP client must create the workspace and dataset through the catalog
+routes before its first sessionless call: `POST /v4/catalog/workspaces`, then
+`POST /v4/catalog/datasets`. Until they exist, sessionless ingest, upload and
+search return HTTP 404 for the unknown workspace or dataset. The SDK's `Mesa`
+client does this on first use, and a `409` from either route means the scope
+already exists.
+
+Sessionless form (recommended for document loaders and apps): send `tenant_id`,
+`workspace_id`, `dataset_id`, `document_id`, `title`, `source_ref`, `content`,
+optional `agent_id` (defaults to `local-agent`), and optional `metadata`. Access
+requires the dataset `WRITER` role and `SESSION_CREATE` for that `agent_id`
+(HTTP 403 otherwise). Session-based form continues to work by
+sending `session_id` instead of `tenant_id`/`workspace_id` (the session requires
+WRITE access to the dataset). Mixing `session_id` with disagreeing explicit
+scope fields returns HTTP 422. The runtime must own the combined consumer, just
+as for `/v4/memory/insert`.
 The server splits content into consecutive slices of at most 512 cl100k tokens,
 preferring blank lines, then sentence ends, then hard cuts. Joining the slices
 reproduces the input exactly, including whitespace.
@@ -273,6 +336,55 @@ Errors: 409 `document is purged`; 413 for content over 5,000,000 UTF-8 bytes;
 validation and errors as `/v4/memory/insert`. Queue and maintenance failures
 use the existing admission errors below. See [Versioned documents](#versioned-documents)
 for validity dates and out-of-order history rules.
+
+### Upload a file with `POST /v4/documents/upload`
+
+Send `multipart/form-data` with one `file` and the same scope, document ID,
+title, and source fields as `POST /v4/documents`. Pass `metadata` as a
+JSON-encoded object. You can also pass `valid_from` and `valid_to` as
+individual form fields. Sessionless uploads require dataset `WRITER` access and
+`SESSION_CREATE` for the `agent_id`.
+The response is the same HTTP 202 admission receipt as for text documents.
+
+Supported extensions are `.pdf`, `.docx`, `.udf`, `.xlsx`, `.txt`, and
+`.md`. PDF uses the existing text layer. DOCX preserves paragraph and table
+order. XLSX uses the first populated row of each sheet as headers and
+renders subsequent cells as `Header: value` lines using stored cell values.
+TXT and Markdown use UTF-8. The file limit is 50 MB and the extracted text
+limit is 5,000,000 UTF-8 bytes. Exceeding either limit returns HTTP 413.
+Unsupported, encrypted, malformed, and textless files return HTTP 422.
+
+### Document status: `GET /v4/documents/{document_id}`
+
+Returns document metadata (`document_id`, `tenant_id`, `dataset_id`, `title`,
+`status`, `created_at`) and every revision with its `status`, validity dates
+(`valid_from`, `valid_to`), chunk counts by state (`total_chunks`,
+`chunks_by_state`), high-level `stage` (one of `admitted`, `processing`,
+`indexed`, `active`, `failed`, `superseded`), and, when failed,
+`error: {"code": ..., "message": ...}` carrying a plain-English message mapped
+from the failure class (never stack traces or internal IDs). Pass query
+parameters `tenant_id`, `workspace_id`, and `dataset_id`. Requires dataset
+`READER` role. To delete/purge a document, use
+`DELETE /v4/catalog/documents/{document_id}` (see [V4 catalog](#v4-catalog)).
+
+### Document text: `GET /v4/documents/{document_id}/text`
+
+Returns a revision's full text (default: `ACTIVE`) or a character slice
+(`start` / `end`), rebuilt from `source_chunks` in ordinal order. Pass query
+parameters `tenant_id`, `workspace_id`, `dataset_id`, optional `revision_id`
+(including historical `SUPERSEDED` revisions), and optional `start` / `end`
+non-negative character offsets (`start <= end`). Requires dataset `READER`
+role. Purged documents return HTTP 409; unknown documents or revisions return
+HTTP 404. To delete/purge a document, use
+`DELETE /v4/catalog/documents/{document_id}` (see [V4 catalog](#v4-catalog)).
+
+Each search result and context source item carries stable citation fields:
+`document_id`, `revision_id`, `revision_number`, `chunk_id`, and
+`span` (`{"start": int, "end": int}` character offsets inside the revision's
+full text so `text[span.start:span.end]` reproduces the passage). Chunks
+written through `/v4/memory/insert` carry `span` `0..len(chunk)`. PDF citations
+include a 1-based `page` number. XLSX citations include `sheet` and the
+inclusive 1-based `row_start` and `row_end` from the original workbook.
 
 ### Versioned documents
 
@@ -383,9 +495,8 @@ The entry points are declared in `pyproject.toml`. Run `.venv/bin/<command>
 | `mesa-recovery` | Trusted-root checksummed backup, validate and new-root restore |
 | `mesa-v4-rebuild` | Offline full-root projection rebuild/adoption; never an online worker |
 | `mesa-mcp` | Direct V4 stdio server; client tool approval and API key grants, no local control-plane database |
-| `mesa-mcp-gateway` | Independently supervised HTTP/Streamable HTTP control gateway |
-| `mesa-antigravity-bridge` | Binding-scoped stdio bridge with encrypted write spool |
-| `mesa` | Codex/Antigravity install, doctor, profiles, credential lifecycle and operations approvals |
+| `mesa-mcp-gateway` | Optional advanced HTTP/Streamable HTTP control gateway (policies, approvals, audit) |
+| `mesa` | Local CLI (`start`, `add`, `search`, `delete`, `status`, `mcp-config`, `mcp config <client>`, `operations`) |
 
 ### Admin bootstrap
 

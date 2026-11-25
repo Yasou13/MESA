@@ -134,16 +134,57 @@ class MesaMCPAdapter:
         if not self._v4_service:
             raise MCPError("UNIMPLEMENTED", "V4 service is not enabled")
         dataset_id = arguments.get("dataset_id")
+        dataset_ids = arguments.get("dataset_ids")
+        if dataset_ids is not None:
+            if (
+                not isinstance(dataset_ids, list)
+                or not 1 <= len(dataset_ids) <= 64
+                or any(
+                    not isinstance(item, str) or not item.strip() or len(item) > 128
+                    for item in dataset_ids
+                )
+            ):
+                raise MCPError(
+                    "INVALID_ARGUMENT",
+                    "dataset_ids must be a list of 1 to 64 dataset identifiers",
+                )
+            if dataset_id is not None and dataset_id not in dataset_ids:
+                raise MCPError(
+                    "INVALID_ARGUMENT", "dataset_id and dataset_ids disagree"
+                )
+        document_ids = arguments.get("document_ids")
+        if document_ids is not None and (
+            not isinstance(document_ids, list)
+            or not 1 <= len(document_ids) <= 64
+            or any(
+                not isinstance(item, str) or not item.strip() or len(item) > 256
+                for item in document_ids
+            )
+        ):
+            raise MCPError(
+                "INVALID_ARGUMENT",
+                "document_ids must be a list of 1 to 64 document identifiers",
+            )
+        use_session = arguments.get("use_session")
+        if use_session is not None and not isinstance(use_session, bool):
+            raise MCPError("INVALID_ARGUMENT", "use_session must be a boolean")
         query = _required_string(arguments, "query", max_length=_MAX_QUERY_LENGTH)
-        raw = await self._v4_service.v4_recall(
-            dataset_id=dataset_id,
-            query=query,
-            limit=arguments.get("limit"),
-            jurisdiction=arguments.get("jurisdiction"),
-            valid_at=arguments.get("valid_at"),
-            valid_from=arguments.get("valid_from"),
-            valid_to=arguments.get("valid_to"),
-        )
+        recall_kwargs: dict[str, Any] = {
+            "dataset_id": dataset_id,
+            "query": query,
+            "limit": arguments.get("limit"),
+            "jurisdiction": arguments.get("jurisdiction"),
+            "valid_at": arguments.get("valid_at"),
+            "valid_from": arguments.get("valid_from"),
+            "valid_to": arguments.get("valid_to"),
+        }
+        if dataset_ids is not None:
+            recall_kwargs["dataset_ids"] = dataset_ids
+        if document_ids is not None:
+            recall_kwargs["document_ids"] = document_ids
+        if use_session is not None:
+            recall_kwargs["use_session"] = use_session
+        raw = await self._v4_service.v4_recall(**recall_kwargs)
         if isinstance(raw, dict):
             raw_results = raw.get("results", [])
             degraded_sources = list(raw.get("degraded_sources", []))
@@ -162,8 +203,10 @@ class MesaMCPAdapter:
                 {
                     "memory_id": item.get("memory_id") or item.get("chunk_id"),
                     "document_id": item.get("document_id"),
+                    "revision_id": item.get("revision_id"),
                     "chunk_id": item.get("chunk_id"),
                     "revision_number": item.get("revision_number"),
+                    "span": item.get("span"),
                     "valid_from": str(item.get("valid_from") or ""),
                     "valid_to": str(item.get("valid_to") or ""),
                     "score": item.get("score", 0.0),

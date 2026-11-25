@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mesa-memory"
-version = "0.9.5"
+version = "0.9.6"
 description = "Enterprise AI agent memory engine"
 readme = "README.md"
 license = "Apache-2.0"
@@ -42,6 +42,10 @@ dependencies = [
     # Data & Storage
     "lancedb>=0.30.0,<0.42",
     "pyarrow>=24.0.0",
+    # Document file extraction
+    "pypdf>=6.14.2,<8",
+    "python-docx>=1.2.0,<2",
+    "openpyxl>=3.1.5,<4",
     # Numerical / Scientific
     "numpy>=2.2.0",
     # Observability & Resilience
@@ -91,8 +95,7 @@ mesa-v4-rebuild = "mesa_memory.rebuild_runner:main"
 mesa-v4-admin = "mesa_memory.security.admin_cli:main"
 mesa-mcp = "mesa_mcp.server:main"
 mesa-mcp-gateway = "mesa_mcp.gateway.app:main"
-mesa-antigravity-bridge = "mesa_mcp.antigravity_bridge:main"
-mesa = "mesa_mcp.codex_cli:main"
+mesa = "mesa_mcp.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/Yasou13/MESA"

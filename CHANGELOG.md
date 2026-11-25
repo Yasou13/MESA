@@ -9,6 +9,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-11-25
+
+[Release notes](docs/release-notes-0.9.6.md)
+
+### Added
+
+- Session-optional document ingestion (`POST /v4/documents`) and search
+  (`POST /v4/memory/search`) across HTTP, sync/async Python SDK, and MCP
+  (`mesa_recall` with `dataset_ids` or `use_session=false`) (D94). Requests
+  without `session_id` authorize against dataset `READER`/`WRITER` roles with
+  `tenant_id`, `workspace_id`, and dataset scope (`agent_id` defaults to
+  `local-agent`) and require the principal's `SESSION_CREATE` permission for
+  that agent, the same check as `/v4/sessions/start` (R25 amendment A1); mixing `session_id` with disagreeing scope fields returns
+  HTTP 422. Session-based calls and agent memory routes remain unchanged.
+- Optional `document_ids` search filter (1..64 caller document IDs) across
+  HTTP (`POST /v4/memory/search`), Python SDK (`MesaV4Client`,
+  `AsyncMesaV4Client`, `Mesa`), and MCP (`mesa_recall`) (D95). Applied in the
+  pre-rank scope query across BM25, vector, and legal lanes, included in the
+  search scope cache key, and bypasses the dataset-wide persistent BM25 index.
+- Citation spans (`char_start`/`char_end` on `source_chunks` via Alembic
+  migration `b1e2f3a4b5c6` with exact cumulative backfill for existing stores)
+  and `revision_id`, `chunk_id`, `span` (`{"start", "end"}`) fields on every
+  search result and context source list across HTTP, SDK, and MCP (D95).
+- Document text read endpoint `GET /v4/documents/{document_id}/text` (and SDK
+  `get_document_text`) returning the full rebuilt text or a `start`/`end` slice
+  for the active or a specified historical revision with dataset `READER`
+  access (D96).
+- Document status endpoint `GET /v4/documents/{document_id}` (and SDK
+  `get_document`) returning per-revision status, validity dates, chunk counts
+  by state, ingest `stage` (`admitted`, `processing`, `indexed`, `active`,
+  `failed`, `superseded`), and plain-English failure `error` messages mapped
+  from failure classes via `mesa_storage/error_messages.py` (D96).
+- Package `version` field in the `GET /health` response body (D96).
+- Multipart document upload (`POST /v4/documents/upload`, SDK `add_file`,
+  and `mesa add <file>`) for text-layer PDF, DOCX, UYAP UDF, XLSX, and UTF-8
+  text and Markdown. PDF citations include the page number. XLSX citations
+  include the sheet and original row range (D95, D99).
+- `mesa mcp config <client>` command printing ready-to-paste MCP configuration
+  snippets (JSON/TOML, no files written) for `claude-code`, `claude-desktop`,
+  `codex`, `cursor`, `gemini`, and `antigravity` pointing to `mesa-mcp` (D97).
+
+### Changed
+
+- Moved the `mesa` CLI entry point from `mesa_mcp.codex_cli:main` to the
+  neutral `mesa_mcp.cli:main` module, keeping `start`, `add`, `search`,
+  `delete`, `status`, `operations`, `mcp-config`, and `mcp config <client>`
+  (D97). `mesa-mcp-gateway` remains available as an optional advanced mode.
+
+### Removed
+
+- Deleted the Antigravity stdio bridge/CLI (`mesa_mcp/antigravity_bridge.py`,
+  `mesa_mcp/antigravity_cli.py`, and the `mesa-antigravity-bridge` console
+  script) and the Codex installer/hooks/CLI (`mesa_mcp/codex_cli.py`,
+  `mesa_mcp/codex_hooks.py`, and the `mesa codex` / `mesa antigravity` command
+  groups) (D97).
+
 ## [0.9.5] - 2026-11-24
 
 [Release notes](docs/release-notes-0.9.5.md)
@@ -875,6 +931,7 @@ for missing run output or a signed-tag verification.
 - **Test Suite**: 159+ tests covering unit, integration, P0 hotfixes, and performance benchmarks.
 - **CI Pipeline**: GitHub Actions workflow with Black, Ruff, mypy, pytest + coverage, and Codecov upload.
 
+[0.9.6]: https://github.com/Yasou13/MESA/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/Yasou13/MESA/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/Yasou13/MESA/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/Yasou13/MESA/compare/v0.9.2...v0.9.3

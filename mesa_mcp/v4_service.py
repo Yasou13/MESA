@@ -293,30 +293,60 @@ class MesaHttpV4Service:
             raise _map_exception(exc) from exc
 
     async def v4_recall(self, **kwargs: Any) -> list[dict[str, Any]]:
+        dataset_ids_arg = kwargs.get("dataset_ids")
         dataset_id = kwargs.get("dataset_id") or self._settings.default_dataset_id
+        effective_datasets = (
+            list(dataset_ids_arg) if dataset_ids_arg is not None else [dataset_id]
+        )
         tenant_id = kwargs.get("tenant_id") or self._settings.default_tenant_id
         workspace_id = kwargs.get("workspace_id") or self._settings.default_workspace_id
-        actor_id = kwargs.get("actor_id") or self._settings.actor_id
+        actor_id = (
+            kwargs.get("agent_id") or kwargs.get("actor_id") or self._settings.actor_id
+        )
+        use_session = kwargs.get("use_session")
+        if use_session is None:
+            use_session = dataset_ids_arg is None
 
         client = self._http_client
+        search_arguments: dict[str, Any] = {
+            "query": kwargs["query"],
+            "dataset_ids": effective_datasets,
+            "limit": kwargs.get("limit") or self._settings.search_default_limit,
+        }
+        search_arguments.update(
+            {
+                key: kwargs[key]
+                for key in (
+                    "document_ids",
+                    "jurisdiction",
+                    "valid_at",
+                    "valid_from",
+                    "valid_to",
+                )
+                if kwargs.get(key) is not None
+            }
+        )
+        if not use_session:
+            try:
+                resp = await client.search(
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                    agent_id=actor_id,
+                    **search_arguments,
+                )
+            except Exception as exc:
+                raise _map_exception(exc) from exc
+            return RecallResults(
+                [_typed_result(item) for item in resp.get("results", [])],
+                degraded_sources=resp.get("degraded_sources", []),
+            )
+
         session_id = await self._get_session_id(
             client,
             dataset_id,
             tenant_id=tenant_id,
             workspace_id=workspace_id,
             actor_id=actor_id,
-        )
-        search_arguments = {
-            "query": kwargs["query"],
-            "dataset_ids": [dataset_id],
-            "limit": kwargs.get("limit") or self._settings.search_default_limit,
-        }
-        search_arguments.update(
-            {
-                key: kwargs[key]
-                for key in ("jurisdiction", "valid_at", "valid_from", "valid_to")
-                if kwargs.get(key) is not None
-            }
         )
         try:
             resp = await client.search(session_id=session_id, **search_arguments)
@@ -542,9 +572,15 @@ def _typed_result(item: dict[str, Any]) -> dict[str, Any]:
         provenance = raw_provenance
     else:
         provenance = {}
+    revision_id = item.get("revision_id")
+    if revision_id is None:
+        revision_id = primary_assertion.get("revision_id")
     revision_number = item.get("revision_number")
     if revision_number is None:
         revision_number = primary_assertion.get("revision_number")
+    span = item.get("span")
+    if span is None:
+        span = primary_assertion.get("span")
     valid_from = item.get("valid_from")
     if valid_from is None:
         valid_from = primary_assertion.get("valid_from")
@@ -557,10 +593,17 @@ def _typed_result(item: dict[str, Any]) -> dict[str, Any]:
         or entity.get("entity_id")
         or item.get("chunk_id"),
         "document_id": item.get("document_id") or primary_assertion.get("document_id"),
+        "revision_id": revision_id,
         "chunk_id": item.get("source_chunk_id")
         or item.get("chunk_id")
         or primary_assertion.get("chunk_id"),
         "revision_number": revision_number,
+        "span": span,
+        **{
+            key: item.get(key, primary_assertion.get(key))
+            for key in ("page", "sheet", "row_start", "row_end")
+            if item.get(key, primary_assertion.get(key)) is not None
+        },
         "valid_from": str(valid_from or ""),
         "valid_to": str(valid_to or ""),
         "content": item.get("chunk_text")

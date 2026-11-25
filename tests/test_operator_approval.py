@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from cryptography.fernet import Fernet
 
-from mesa_mcp.codex_cli import _execute_operation_decision, _parser
+from mesa_mcp.cli import _execute_operation_decision, _parser
 from mesa_mcp.gateway.approval import OperationApprovalService
 from mesa_mcp.gateway.middleware import ControlPlaneMiddleware
 from mesa_mcp.gateway.operations import GatewayOperationService
