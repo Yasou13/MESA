@@ -263,7 +263,7 @@ class AdapterFactory:
             _warn_legacy_spec_once(raw_spec, resolved_model, base_url)
 
         external_enabled = bool(getattr(config, "external_provider_enabled", False))
-        local_target = bool(base_url) and is_local_endpoint(base_url)
+        local_target = base_url is not None and is_local_endpoint(base_url)
 
         if not external_enabled:
             if legacy_prefix in _EXPLICIT_EXTERNAL_ONLY_PREFIXES:
