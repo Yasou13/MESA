@@ -34,7 +34,12 @@ async def _drain_all_work(dao, max_steps: int = 40) -> None:
 @pytest.fixture
 def d106_runtime(tmp_path, monkeypatch):
     @asynccontextmanager
-    async def runtime(*, llm_model: str = "", llm_base_url: str | None = None):
+    async def runtime(
+        *,
+        llm_model: str = "",
+        llm_base_url: str | None = None,
+        extraction_enabled: bool = False,
+    ):
         for key in (
             "MESA_MODEL_ENABLED",
             "MESA_EMBEDDING_ENABLED",
@@ -53,7 +58,7 @@ def d106_runtime(tmp_path, monkeypatch):
             "MESA_EXTERNAL_PROVIDER_ENABLED": "false",
             "MESA_MODEL_ENABLED": "false",
             "MESA_EMBEDDING_ENABLED": "false",
-            "MESA_EXTRACTION_ENABLED": "false",
+            "MESA_EXTRACTION_ENABLED": "true" if extraction_enabled else "false",
             "MESA_API_KEY": "owner-bootstrap-key",
             "MESA_PRINCIPAL_ID": "owner-principal",
             "MESA_PRINCIPAL_STATUS": "active",
@@ -747,7 +752,29 @@ async def test_adaptive_planner_on_ask_and_context_with_d102_adapter(
             assert r_filtered.status_code == 200
             assert r_filtered.json()["not_found"] is True
 
-            # 4. Context route adaptive planner runs on D102 adapter even with extraction off
+            # 4. Context route keeps F-16 fallback when extraction is off
+            session_id = await _start_session(client, rt["owner_headers"])
+            ctx_off = await client.get(
+                f"/v4/sessions/{session_id}/context",
+                headers=rt["owner_headers"],
+                params={
+                    "query": "fine amount",
+                    "retrieval_mode": "adaptive",
+                },
+            )
+            assert ctx_off.status_code == 200
+            assert (
+                ctx_off.json()["context_diagnostics"]["planner_status"]
+                == "planner_unavailable_fallback_single"
+            )
+
+        # 5. Context route adaptive planner runs on D102 adapter when extraction is enabled
+        async with d106_runtime(
+            llm_model="fake-llm",
+            llm_base_url=fake_llm.base_url,
+            extraction_enabled=True,
+        ) as rt:
+            client = rt["client"]
             session_id = await _start_session(client, rt["owner_headers"])
             ctx_adapt = await client.get(
                 f"/v4/sessions/{session_id}/context",

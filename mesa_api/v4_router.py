@@ -2639,7 +2639,7 @@ def create_v4_router(
         adaptive_retriever = None
         if retrieval_mode == "adaptive":
             planner = None
-            if is_extraction_enabled() or AdapterFactory.is_llm_configured():
+            if is_extraction_enabled():
                 try:
                     planner = BoundedQueryPlanner(AdapterFactory.get_adapter())
                 except Exception as exc:
