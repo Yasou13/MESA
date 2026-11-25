@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Unified all chat LLM providers onto a single OpenAI-compatible adapter
+  (`mesa_memory/adapter/openai_compat.py`) configured via `MESA_LLM_MODEL`,
+  optional `MESA_LLM_BASE_URL`, optional `MESA_LLM_API_KEY`, and
+  `MESA_LLM_TIMEOUT_SECONDS` (D102). Legacy `provider:model` values remain
+  accepted with a one-time deprecation warning (`ollama:` without a base URL
+  resolves to `<MESA_OLLAMA_URL>/v1`; other prefixes are stripped).
+- Removed the separate Claude (`anthropic`), native Ollama (`ollama`), and
+  `live.py` adapters along with the `ollama` and `anthropic` package
+  dependencies. `MESA_LLM_PROVIDER` and `LLM_EMBEDDING_MODEL` now warn once at
+  startup and are ignored (D71, D102). Embeddings remain on `MESA_EMBEDDING_*`.
+
 ## [0.9.6] - 2026-11-25
 
 [Release notes](docs/release-notes-0.9.6.md)

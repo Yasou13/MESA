@@ -175,11 +175,14 @@ an explicit rebuild before changing identity. Keep `MESA_API_KEY` (MESA access) 
 from `MESA_LLM_API_KEY` / `MESA_EMBEDDING_API_KEY` (provider access). Enable fact
 extraction separately with `MESA_EXTRACTION_ENABLED=true` when an LLM is configured.
 
-`AdapterFactory` parses `provider:model` (`ollama`, `openai`, `openai_compatible`,
-`anthropic`, `mock`). Embeddings support local sentence-transformers (`ml` extra) or
-OpenAI-compatible endpoints (`adapters` extra); Claude/Ollama extraction does not
-automatically configure embeddings. Native Ollama extraction requires a running
-endpoint and an already available model; MESA does not provision it.
+`AdapterFactory` routes all chat models through one OpenAI-compatible adapter
+configured with `MESA_LLM_MODEL`, optional `MESA_LLM_BASE_URL` (e.g.
+`http://localhost:11434/v1` for Ollama, vLLM, LM Studio, OpenRouter, or unset for
+OpenAI), and optional `MESA_LLM_API_KEY` (only required for remote endpoints).
+Legacy `provider:model` values (such as `ollama:qwen3:8b`) are accepted with a
+one-time deprecation warning. `MESA_LLM_PROVIDER` and `LLM_EMBEDDING_MODEL` are
+ignored with a startup warning. Embeddings stay on `MESA_EMBEDDING_*` only and
+support local sentence-transformers (`ml` extra) or OpenAI-compatible endpoints.
 
 Select embeddings with `MESA_EMBEDDING_MODEL=provider:model`: `local:...`,
 `ollama:qwen3-embedding:4b`, `openai:text-embedding-3-small`, or
@@ -245,7 +248,6 @@ See `mesa_memory/config.py` and `MesaConfig` for field declarations.
 
 | Python field | Environment name | Declared default |
 |---|---|---|
-| `llm_provider` | `LLM_PROVIDER` | `'claude'` |
 | `llm_model` | `MESA_LLM_MODEL` | `''` |
 | `llm_base_url` | `MESA_LLM_BASE_URL` | `None` |
 | `llm_api_key` | `MESA_LLM_API_KEY` | `None` |
@@ -254,7 +256,6 @@ See `mesa_memory/config.py` and `MesaConfig` for field declarations.
 | `embedding_api_key` | `MESA_EMBEDDING_API_KEY` | `None` |
 | `extraction_thinking` | `MESA_EXTRACTION_THINKING` | `False` |
 | `extraction_max_tokens` | `MESA_EXTRACTION_MAX_TOKENS` | `4096` |
-| `llm_embedding_model_name` | `LLM_EMBEDDING_MODEL` | `'sentence-transformers/all-MiniLM-L6-v2'` |
 | `external_provider_enabled` | `MESA_EXTERNAL_PROVIDER_ENABLED` | `False` |
 | `embedding_version` | `MESA_EMBEDDING_VERSION` | `'v1'` |
 | `embedding_model_revision` | `MESA_EMBEDDING_MODEL_REVISION` | `None` |
