@@ -945,8 +945,13 @@ class MesaV4Client(MesaClient):
         valid_from: str | None = None,
         valid_to: str | None = None,
         retrieval_mode: Literal["single", "adaptive"] = "single",
+        expand: Literal["none", "neighbors", "article"] = "none",
     ) -> dict[str, Any]:
         retrieval_mode = _v4_retrieval_mode(retrieval_mode)
+        if expand not in {"none", "neighbors", "article"}:
+            raise MesaValidationError(
+                "expand must be 'none', 'neighbors', or 'article'"
+            )
         params: dict[str, Any] = {
             "query": query,
             "token_budget": token_budget,
@@ -957,6 +962,8 @@ class MesaV4Client(MesaClient):
         }
         if retrieval_mode == "adaptive":
             params["retrieval_mode"] = retrieval_mode
+        if expand != "none":
+            params["expand"] = expand
         return self._request(
             "GET",
             f"/v4/sessions/{session_id}/context",
@@ -1581,8 +1588,13 @@ class AsyncMesaV4Client(AsyncMesaClient):
         valid_from: str | None = None,
         valid_to: str | None = None,
         retrieval_mode: Literal["single", "adaptive"] = "single",
+        expand: Literal["none", "neighbors", "article"] = "none",
     ) -> dict[str, Any]:
         retrieval_mode = _v4_retrieval_mode(retrieval_mode)
+        if expand not in {"none", "neighbors", "article"}:
+            raise MesaValidationError(
+                "expand must be 'none', 'neighbors', or 'article'"
+            )
         params: dict[str, Any] = {
             "query": query,
             "token_budget": token_budget,
@@ -1593,6 +1605,8 @@ class AsyncMesaV4Client(AsyncMesaClient):
         }
         if retrieval_mode == "adaptive":
             params["retrieval_mode"] = retrieval_mode
+        if expand != "none":
+            params["expand"] = expand
         return await self._request(
             "GET",
             f"/v4/sessions/{session_id}/context",
@@ -2088,6 +2102,8 @@ class Mesa:
         valid_at: str | None = None,
         valid_from: str | None = None,
         valid_to: str | None = None,
+        retrieval_mode: Literal["single", "adaptive"] = "single",
+        expand: Literal["none", "neighbors", "article"] = "none",
     ) -> str:
         """Return the wrapped context evidence for the given query."""
         session_id = self._ensure_session()
@@ -2098,6 +2114,8 @@ class Mesa:
             valid_at=valid_at,
             valid_from=valid_from,
             valid_to=valid_to,
+            retrieval_mode=retrieval_mode,
+            expand=expand,
         )
         return str(resp.get("context", ""))
 

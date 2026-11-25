@@ -194,6 +194,11 @@ def _tools() -> list[types.Tool]:
                         "enum": ["single", "adaptive"],
                         "default": "single",
                     },
+                    "expand": {
+                        "type": "string",
+                        "enum": ["none", "neighbors", "article"],
+                        "default": "none",
+                    },
                 },
                 "required": ["query"],
             },

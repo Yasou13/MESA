@@ -487,6 +487,7 @@ class MesaHttpV4Service:
                     "valid_from",
                     "valid_to",
                     "retrieval_mode",
+                    "expand",
                 )
                 if kwargs.get(key) is not None
             }

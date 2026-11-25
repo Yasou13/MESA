@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Opt-in post-rank context expansion (`expand`: `none` | `neighbors` | `article`,
+  default `none`) and opt-in adaptive query planning (`retrieval_mode`: `single`
+  | `adaptive`, default `single`) on `POST /v4/ask` and
+  `GET /v4/sessions/{session_id}/context` across HTTP, SDK, CLI, and MCP (D106).
+  Expansion enforces the exact search scope (`tenant_id`, `dataset_ids`,
+  `agent_id`, `document_ids`, temporal validity, committed state), never adds
+  unreadable chunks, and keeps citations anchored to the original passage spans.
+  Adaptive planning runs on the unified OpenAI-compatible adapter (D102) whenever
+  an LLM is configured.
 - Single-document summarization (`POST /v4/documents/{document_id}/summary`,
   sync/async SDK `summarize_document`, `Mesa.summarize`, CLI `mesa summarize`,
   and MCP tool `mesa_summarize`) (D105). Uses the offline tokenizer against

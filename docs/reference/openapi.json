@@ -1867,6 +1867,21 @@
               "default": "single",
               "title": "Retrieval Mode"
             }
+          },
+          {
+            "name": "expand",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "none",
+                "neighbors",
+                "article"
+              ],
+              "type": "string",
+              "default": "none",
+              "title": "Expand"
+            }
           }
         ],
         "responses": {

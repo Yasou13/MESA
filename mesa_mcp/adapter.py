@@ -85,6 +85,13 @@ class MesaMCPAdapter:
         }
         if retrieval_mode == "adaptive":
             context_arguments["retrieval_mode"] = retrieval_mode
+        expand = arguments.get("expand", "none")
+        if not isinstance(expand, str) or expand not in {"none", "neighbors", "article"}:
+            raise MCPError(
+                "INVALID_ARGUMENT", "expand must be 'none', 'neighbors', or 'article'"
+            )
+        if expand != "none":
+            context_arguments["expand"] = expand
         raw = await self._v4_service.v4_context(**context_arguments)
         return {
             key: raw[key]

@@ -109,10 +109,14 @@ Search responses include `degraded_sources`: `vector` when embedding is off or a
 
 Search and context both accept `jurisdiction`, `valid_at`, `valid_from` and
 `valid_to`. Context uses query parameters and defaults to `token_budget=2048`,
-`retrieval_mode=single`. Opt-in `adaptive` permits at most one planner call and
-two additional scoped searches. Scores, graph provenance, proof packing and
-offline token counting are defined in [retrieval and graph](retrieval-and-graph.md).
-Raw `/v4/memory/search` remains the single-query primitive.
+`retrieval_mode=single`, and `expand=none`. Both `/v4/ask` and
+`/v4/sessions/{session_id}/context` accept opt-in `expand` (`none` | `neighbors`
+| `article`, applied after ranking to LLM context only without changing citation
+spans) and `retrieval_mode=adaptive` (at most one planner call and two additional
+scoped searches using the configured OpenAI-compatible LLM). Scores, proof
+packing and offline token counting are defined in
+[retrieval and graph](retrieval-and-graph.md). Raw `/v4/memory/search` remains
+the single-query primitive and is unaffected by expansion.
 
 ## V4 Python SDK
 
