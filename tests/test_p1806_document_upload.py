@@ -226,3 +226,24 @@ async def test_async_sdk_add_file_and_pending_retry_via_text_route(span_runtime)
             )
             assert duplicate["duplicate"] is True
             assert duplicate["mutation_ids"] == result["mutation_ids"]
+
+
+@pytest.mark.parametrize("suffix", [".docx", ".xlsx", ".udf"])
+def test_archive_that_expands_past_file_limit_is_rejected_before_parsing(suffix):
+    import io
+    import zipfile
+
+    from mesa_api import document_files
+
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as out:
+        out.writestr("content.xml", b" " * (document_files.MAX_FILE_BYTES + 1))
+    assert archive.tell() < 1_000_000
+    archive.seek(0)
+    with (
+        patch.object(document_files, "Document", side_effect=AssertionError),
+        patch.object(document_files, "load_workbook", side_effect=AssertionError),
+        patch.object(document_files, "_udf", side_effect=AssertionError),
+        pytest.raises(document_files.DocumentFileError, match="expands"),
+    ):
+        document_files.extract_document_file(archive, f"bomb{suffix}")

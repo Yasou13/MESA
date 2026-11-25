@@ -136,8 +136,12 @@ def extract_document_file(
             if signature == bytes.fromhex("D0 CF 11 E0 A1 B1 1A E1"):
                 raise DocumentFileError("Encrypted Office files are not supported.")
             with ZipFile(file) as archive:
-                if any(entry.flag_bits & 1 for entry in archive.infolist()):
+                entries = archive.infolist()
+                if any(entry.flag_bits & 1 for entry in entries):
                     raise DocumentFileError("Encrypted files are not supported.")
+                # Parsers load decompressed XML into memory; bound it before parsing.
+                if sum(entry.file_size for entry in entries) > MAX_FILE_BYTES:
+                    raise DocumentFileError("The file expands to more than 50 MB.")
         if extension == ".pdf":
             text, locations = _extract_segments(_pdf(file))
             if not text:
