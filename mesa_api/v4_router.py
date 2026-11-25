@@ -42,7 +42,9 @@ from mesa_api.document_files import (
     extract_document_file,
 )
 from mesa_api.identifier_validation import PublicIdentifier, SourceIdentifier
+from mesa_memory.adapter.base import LLMNotConfiguredError, LLMResponseError
 from mesa_memory.adapter.factory import AdapterFactory
+from mesa_memory.answering import answer_from_results
 from mesa_memory.config import config, configured_embedding_identity
 from mesa_memory.context_builder import ContextBuilder
 from mesa_memory.document_chunking import (
@@ -560,6 +562,101 @@ class V4SearchResponse(BaseModel):
     vector_lane: V4VectorLaneDiagnostics | None = None
 
 
+class V4AskRequest(BaseModel):
+    """Grounded question-answering request (D103)."""
+
+    model_config = ConfigDict(strict=True, frozen=True)
+
+    question: str = Field(min_length=1, max_length=4096)
+    session_id: PublicIdentifier | None = None
+    tenant_id: PublicIdentifier | None = None
+    workspace_id: PublicIdentifier | None = None
+    agent_id: PublicIdentifier | None = None
+    dataset_ids: list[PublicIdentifier] | None = Field(
+        default=None, min_length=1, max_length=64
+    )
+    document_ids: list[SourceIdentifier] | None = Field(
+        default=None, min_length=1, max_length=64
+    )
+    jurisdiction: str | None = Field(default=None, max_length=256)
+    valid_at: datetime | None = None
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
+    limit: int = Field(default=8, ge=1, le=50)
+    expand: Literal["none", "neighbors", "article"] = "none"
+    retrieval_mode: Literal["single", "adaptive"] = "single"
+
+    @field_validator("valid_at", "valid_from", "valid_to", mode="before")
+    @classmethod
+    def parse_iso8601_temporal(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        return _parse_iso8601_temporal(value)
+
+    @model_validator(mode="after")
+    def validate_scope_and_temporal(self) -> "V4AskRequest":
+        if not self.question.strip():
+            raise ValueError("question must not be empty")
+        if self.session_id is None:
+            if self.tenant_id is None or self.workspace_id is None:
+                raise ValueError(
+                    "tenant_id and workspace_id are required when session_id is omitted"
+                )
+            if self.dataset_ids is None:
+                raise ValueError("dataset_ids is required when session_id is omitted")
+        if self.valid_from and self.valid_to and self.valid_from > self.valid_to:
+            raise ValueError("valid_from must not be after valid_to")
+        return self
+
+
+class V4AskCitation(BaseModel):
+    """Exact source citation verified to come from the prompt context (D103)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    source_number: int = Field(ge=1)
+    document_id: str | None = None
+    revision_id: str | None = None
+    revision_number: int | None = None
+    chunk_id: str | None = None
+    span: V4CitationSpan | None = None
+    page: int | None = Field(default=None, ge=1, exclude_if=lambda value: value is None)
+    sheet: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    row_start: int | None = Field(
+        default=None, ge=1, exclude_if=lambda value: value is None
+    )
+    row_end: int | None = Field(
+        default=None, ge=1, exclude_if=lambda value: value is None
+    )
+    valid_from: str = ""
+    valid_to: str = ""
+
+
+class V4AskUsage(BaseModel):
+    """Token usage reported by the answering LLM (D103)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    prompt_tokens: int = Field(default=0, ge=0)
+    completion_tokens: int = Field(default=0, ge=0)
+    total_tokens: int = Field(default=0, ge=0)
+
+
+class V4AskResponse(BaseModel):
+    """Grounded answer with verified citations or explicit not_found (D103)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    answer: str
+    citations: list[V4AskCitation]
+    not_found: bool
+    not_found_reason: str | None = None
+    usage: V4AskUsage
+    latency_ms: float = Field(ge=0.0)
+    model: str = ""
+    degraded_sources: list[str] = Field(default_factory=list)
+
+
 class V4ContextResponse(BaseModel):
     """Context bundle response carrying validity metadata on source items (D88)."""
 
@@ -791,6 +888,101 @@ async def _resolve_v4_scope(
     except ValueError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     return (tenant_id, workspace_id, effective_agent, datasets, "")
+
+
+async def execute_v4_ask(
+    *,
+    request: Request,
+    payload: V4AskRequest,
+    dao: MemoryDAO,
+    access_control: AccessControl,
+) -> dict[str, Any]:
+    """Shared D103 ask pipeline used by POST /v4/ask and POST /v1/chat/completions."""
+    tenant_id, _workspace_id, agent_id, datasets, _effective_session_id = (
+        await _resolve_v4_scope(
+            request,
+            dao,
+            access_control,
+            session_id=payload.session_id,
+            tenant_id=payload.tenant_id,
+            workspace_id=payload.workspace_id,
+            agent_id=payload.agent_id,
+            dataset_ids=payload.dataset_ids,
+            level="READ",
+        )
+    )
+    try:
+        adapter = AdapterFactory.get_adapter()
+    except LLMNotConfiguredError as exc:
+        raise HTTPException(status_code=409, detail="no LLM configured") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    try:
+        certification_metadata: dict[str, Any] = {}
+        principal = _active_principal(request)
+        search_kwargs: dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "agent_id": agent_id,
+            "dataset_ids": datasets,
+            "query": payload.question,
+            "limit": payload.limit,
+            "jurisdiction": payload.jurisdiction,
+            "valid_at": (
+                payload.valid_at.astimezone(timezone.utc).isoformat()
+                if payload.valid_at
+                else None
+            ),
+            "valid_from": (
+                payload.valid_from.astimezone(timezone.utc).isoformat()
+                if payload.valid_from
+                else None
+            ),
+            "valid_to": (
+                payload.valid_to.astimezone(timezone.utc).isoformat()
+                if payload.valid_to
+                else None
+            ),
+            "request_principal_id": str(principal.principal_id),
+            "certification_metadata": certification_metadata,
+        }
+        if payload.document_ids is not None:
+            search_kwargs["document_ids"] = payload.document_ids
+        results = await dao.search_v4_memory(**search_kwargs)
+    except EmbeddingMigrationRequiredError:
+        raise HTTPException(
+            status_code=409,
+            detail="embedding_migration_required",
+        )
+    except (
+        VectorSearchError,
+        EmbeddingUnavailableError,
+        EmbeddingGenerationError,
+        ExternalProviderForbiddenError,
+        EmbeddingIdentityMismatchError,
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="vector_backend_unavailable",
+        )
+
+    degraded = list(certification_metadata.get("degraded_sources", []))
+    try:
+        return await answer_from_results(
+            question=payload.question,
+            results=results,
+            adapter=adapter,
+            degraded_sources=degraded,
+        )
+    except LLMResponseError as exc:
+        raise HTTPException(
+            status_code=503, detail=f"LLM provider returned malformed response: {exc}"
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"LLM provider unavailable: {type(exc).__name__}",
+        ) from exc
 
 
 async def _authorize_mutation_access(
@@ -2138,6 +2330,20 @@ def create_v4_router(
             "results": results,
             **certification_metadata,
         }
+
+    @router.post("/ask", response_model=V4AskResponse)
+    async def ask_memory(
+        request: Request,
+        payload: V4AskRequest,
+        dao: MemoryDAO = Depends(get_dao),
+        access_control: AccessControl = Depends(get_access_control),
+    ) -> dict[str, Any]:
+        return await execute_v4_ask(
+            request=request,
+            payload=payload,
+            dao=dao,
+            access_control=access_control,
+        )
 
     @router.get("/mutations/{mutation_id}", response_model=V4MutationStatusResponse)
     async def mutation_status(
