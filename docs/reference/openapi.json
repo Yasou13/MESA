@@ -1441,6 +1441,65 @@
         }
       }
     },
+    "/v4/documents/{document_id}/summary": {
+      "post": {
+        "tags": [
+          "v4-full-cognitive"
+        ],
+        "summary": "Summarize Document",
+        "operationId": "summarize_document_v4_documents__document_id__summary_post",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "title": "Document Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V4DocumentSummaryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V4DocumentSummaryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v4/memory/search": {
       "post": {
         "tags": [
@@ -4093,6 +4152,110 @@
         ],
         "title": "V4DocumentStatusResponse",
         "description": "Document metadata and per-revision ingest status for viewers (D96)."
+      },
+      "V4DocumentSummaryRequest": {
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Tenant Id"
+          },
+          "workspace_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Workspace Id"
+          },
+          "dataset_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Dataset Id"
+          },
+          "revision_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "workspace_id",
+          "dataset_id"
+        ],
+        "title": "V4DocumentSummaryRequest",
+        "description": "Single-document summary request (D105)."
+      },
+      "V4DocumentSummaryResponse": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "revision_id": {
+            "type": "string",
+            "title": "Revision Id"
+          },
+          "revision_number": {
+            "type": "integer",
+            "title": "Revision Number"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "parts": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Parts"
+          },
+          "llm_calls": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Llm Calls"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/V4AskUsage"
+          },
+          "latency_ms": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Latency Ms"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id",
+          "revision_id",
+          "revision_number",
+          "status",
+          "summary",
+          "parts",
+          "llm_calls",
+          "usage",
+          "latency_ms"
+        ],
+        "title": "V4DocumentSummaryResponse",
+        "description": "Single-document summary response (D105)."
       },
       "V4DocumentTextResponse": {
         "properties": {

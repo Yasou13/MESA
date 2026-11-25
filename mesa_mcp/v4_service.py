@@ -442,6 +442,22 @@ class MesaHttpV4Service:
         except Exception as exc:
             raise _map_exception(exc) from exc
 
+    async def v4_summarize(self, **kwargs: Any) -> dict[str, Any]:
+        """Summarize one document revision through POST /v4/documents/{id}/summary (D105)."""
+        dataset_id = kwargs.get("dataset_id") or self._settings.default_dataset_id
+        tenant_id = kwargs.get("tenant_id") or self._settings.default_tenant_id
+        workspace_id = kwargs.get("workspace_id") or self._settings.default_workspace_id
+        try:
+            return await self._http_client.summarize_document(
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                dataset_id=dataset_id,
+                document_id=kwargs["document_id"],
+                revision_id=kwargs.get("revision_id"),
+            )
+        except Exception as exc:
+            raise _map_exception(exc) from exc
+
     async def v4_context(self, **kwargs: Any) -> dict[str, Any]:
         """Build context through the canonical V4 ContextBuilder endpoint."""
         dataset_id = kwargs.get("dataset_id") or self._settings.default_dataset_id

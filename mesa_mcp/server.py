@@ -107,6 +107,7 @@ def create_mcp_server(
             "mesa_remember": adapter.mesa_remember,
             "mesa_recall": adapter.mesa_recall,
             "mesa_ask": adapter.mesa_ask,
+            "mesa_summarize": adapter.mesa_summarize,
             "mesa_improve": adapter.mesa_improve,
             "mesa_forget": adapter.mesa_forget,
         }
@@ -315,6 +316,32 @@ def _tools() -> list[types.Tool]:
                     },
                 },
                 "required": ["question"],
+            },
+        ),
+        types.Tool(
+            name="mesa_summarize",
+            description="Summarize a single V4 document revision (active or specified revision_id) naming articles or pages relied on (D105)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "document_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256,
+                    },
+                    "dataset_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[a-zA-Z0-9._-]+$",
+                    },
+                    "revision_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256,
+                    },
+                },
+                "required": ["document_id"],
             },
         ),
         types.Tool(

@@ -290,6 +290,25 @@ class MesaMCPAdapter:
             ask_kwargs["use_session"] = use_session
         return await self._v4_service.v4_ask(**ask_kwargs)
 
+    async def mesa_summarize(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if not self._v4_service:
+            raise MCPError("UNIMPLEMENTED", "V4 service is not enabled")
+        document_id = _required_string(arguments, "document_id", max_length=256)
+        revision_id = arguments.get("revision_id")
+        if revision_id is not None and (
+            not isinstance(revision_id, str)
+            or not revision_id.strip()
+            or len(revision_id) > 256
+        ):
+            raise MCPError(
+                "INVALID_ARGUMENT", "revision_id must be a non-empty string"
+            )
+        return await self._v4_service.v4_summarize(
+            dataset_id=arguments.get("dataset_id"),
+            document_id=document_id,
+            revision_id=revision_id,
+        )
+
     async def mesa_improve(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if not self._v4_service:
             raise MCPError("UNIMPLEMENTED", "V4 service is not enabled")

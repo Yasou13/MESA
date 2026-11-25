@@ -135,6 +135,21 @@ class V4AskResponse(TypedDict):
     degraded_sources: list[str]
 
 
+class V4DocumentSummaryResponse(TypedDict):
+    """Typed response returned by POST /v4/documents/{document_id}/summary (D105)."""
+
+    document_id: str
+    revision_id: str
+    revision_number: int
+    status: str
+    summary: str
+    parts: int
+    llm_calls: int
+    usage: V4AskUsage
+    latency_ms: float
+    model: str
+
+
 class MesaClientError(Exception):
     """Base exception for MESA client errors."""
 
@@ -1087,6 +1102,29 @@ class MesaV4Client(MesaClient):
             },
         )
 
+    def summarize_document(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+        revision_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Summarize one document revision (default: ACTIVE) using the configured LLM (D105)."""
+        payload: dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "workspace_id": workspace_id,
+            "dataset_id": dataset_id,
+        }
+        if revision_id is not None:
+            payload["revision_id"] = revision_id
+        return self._request(
+            "POST",
+            f"/v4/documents/{quote(document_id, safe='')}/summary",
+            json=payload,
+        )
+
     def wait_until_revision_active(
         self,
         *,
@@ -1700,6 +1738,29 @@ class AsyncMesaV4Client(AsyncMesaClient):
             },
         )
 
+    async def summarize_document(
+        self,
+        *,
+        tenant_id: str,
+        workspace_id: str,
+        dataset_id: str,
+        document_id: str,
+        revision_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Summarize one document revision (default: ACTIVE) using the configured LLM (D105)."""
+        payload: dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "workspace_id": workspace_id,
+            "dataset_id": dataset_id,
+        }
+        if revision_id is not None:
+            payload["revision_id"] = revision_id
+        return await self._request(
+            "POST",
+            f"/v4/documents/{quote(document_id, safe='')}/summary",
+            json=payload,
+        )
+
     async def wait_until_revision_active(
         self,
         *,
@@ -2066,6 +2127,21 @@ class Mesa:
             revision_id=revision_id,
             start=start,
             end=end,
+        )
+
+    def summarize(
+        self,
+        document_id: str,
+        *,
+        revision_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Summarize one document revision (default: ACTIVE) using the configured LLM (D105)."""
+        return self._client.summarize_document(
+            tenant_id=self.tenant_id,
+            workspace_id=self.workspace_id,
+            dataset_id=self.dataset_id,
+            document_id=document_id,
+            revision_id=revision_id,
         )
 
     def delete(

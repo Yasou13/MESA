@@ -81,6 +81,7 @@ aliases. Revision/chunk identity, finalization and the distinction between
 | `POST` | `/v4/memory/insert` | Exact source’u kabul edip mutation ve pipeline run oluşturur |
 | `POST` | `/v4/memory/search` | Yetkili datasetlerde vector/BM25/assertion/graph RRF araması yapar |
 | `POST` | `/v4/ask` | Yetkili kapsamda arama yapıp LLM ile kaynaklı yanıt (veya `not_found`) üretir (D103) |
+| `POST` | `/v4/documents/{document_id}/summary` | Tek bir belgenin (varsayılan: ACTIVE veya verilen `revision_id`) kaynak maddeleri/sayfaları belirten özetini üretir (D105) |
 | `POST` | `/v1/chat/completions` | OpenAI uyumlu sohbet ucu; son kullanıcı mesajını `/v4/ask` ile yanıtlar, numaralı kaynak listesi ve `mesa_citations` döndürür (`stream: true` tek SSE chunk + `[DONE]`) (D104) |
 | `GET` | `/v4/mutations/{mutation_id}` | State, pipeline, artifact ve projection durumunu verir |
 | `POST` | `/v4/mutations/{mutation_id}/replay` | Yetkili DLQ/retry işini yeniden kuyruğa alır |

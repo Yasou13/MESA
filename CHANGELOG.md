@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Single-document summarization (`POST /v4/documents/{document_id}/summary`,
+  sync/async SDK `summarize_document`, `Mesa.summarize`, CLI `mesa summarize`,
+  and MCP tool `mesa_summarize`) (D105). Uses the offline tokenizer against
+  `context_window_limit`: one LLM call when the revision fits, ordered
+  map-reduce combine when it splits into 2–8 parts, and HTTP 422 `"document too
+  long to summarize"` above 8 parts. Supports historical revisions via
+  `revision_id` and returns HTTP 409 `"no LLM configured"` when no LLM is set.
 - OpenAI-compatible chat endpoint (`POST /v1/chat/completions`) backed by
   `/v4/ask` with numbered citations in message text, extra `mesa_citations`
   field, non-streaming and single-chunk SSE + `[DONE]` streaming, Bearer /

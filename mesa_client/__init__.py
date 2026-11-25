@@ -16,6 +16,7 @@ from .client import (
     V4AskUsage,
     V4CitationSpan,
     V4ContextSource,
+    V4DocumentSummaryResponse,
     V4SearchResult,
 )
 from .tools import (
@@ -38,6 +39,7 @@ __all__ = [
     "V4AskCitation",
     "V4AskUsage",
     "V4AskResponse",
+    "V4DocumentSummaryResponse",
     "V4CitationSpan",
     "V4SearchResult",
     "V4ContextSource",

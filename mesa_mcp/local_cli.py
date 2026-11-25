@@ -259,6 +259,30 @@ def ask_command(args: argparse.Namespace) -> None:
             print(f"  [{num}] {doc_id}{rev_str}{span_str}{loc_str}")
 
 
+def summarize_command(args: argparse.Namespace) -> None:
+    from mesa_client import Mesa
+
+    mesa = Mesa()
+    try:
+        resp = mesa.summarize(
+            args.document_id,
+            revision_id=args.revision_id,
+        )
+    finally:
+        mesa.close()
+
+    if getattr(args, "json", False):
+        print(json.dumps(resp, indent=2, ensure_ascii=False))
+        return
+
+    print(resp.get("summary", ""))
+    doc_id = resp.get("document_id", args.document_id)
+    rev_num = resp.get("revision_number")
+    parts = resp.get("parts", 1)
+    rev_str = f" rev {rev_num}" if rev_num is not None else ""
+    print(f"\n[{doc_id}{rev_str}, {parts} part(s)]")
+
+
 def delete_command(args: argparse.Namespace) -> None:
     from mesa_client import Mesa
 
@@ -483,6 +507,17 @@ def register_local_commands(subparsers: argparse._SubParsersAction) -> None:
     )
     ask_parser.add_argument("--json", action="store_true", help="output JSON")
 
+    summarize_parser = subparsers.add_parser(
+        "summarize", help="summarize a single document revision"
+    )
+    summarize_parser.add_argument("document_id", help="document ID to summarize")
+    summarize_parser.add_argument(
+        "--revision-id",
+        default=None,
+        help="optional revision ID (defaults to ACTIVE revision)",
+    )
+    summarize_parser.add_argument("--json", action="store_true", help="output JSON")
+
     delete_parser = subparsers.add_parser(
         "delete", help="purge a document from MESA"
     )
@@ -528,6 +563,7 @@ def handle_local_command(args: argparse.Namespace) -> None:
         "add": add_command,
         "search": search_command,
         "ask": ask_command,
+        "summarize": summarize_command,
         "delete": delete_command,
         "status": status_command,
         "mcp-config": mcp_config_command,
