@@ -7,7 +7,7 @@ import pytest
 
 os.environ["MESA_API_KEY"] = "test_key"
 
-from mesa_memory.adapter.live import OpenAICompatibleAdapter
+from mesa_memory.adapter.openai_compat import OpenAICompatibleAdapter
 from mesa_memory.api.server import app, get_embedder
 
 

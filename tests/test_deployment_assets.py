@@ -206,17 +206,17 @@ def test_documented_install_lines_use_published_pypi_package() -> None:
     assert "git+https://github.com/Yasou13/MESA" not in colab
 
 
-def test_openai_and_ollama_in_core_dependencies() -> None:
+def test_openai_in_core_dependencies_and_legacy_sdks_removed() -> None:
     import tomllib
     data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     core_deps = data["project"]["dependencies"]
     optional_adapters = data["project"]["optional-dependencies"]["adapters"]
 
     assert any(dep.startswith("openai>=") for dep in core_deps)
-    assert any(dep.startswith("ollama>=") for dep in core_deps)
+    assert not any(dep.startswith("ollama") for dep in core_deps)
     assert not any(dep.startswith("openai") for dep in optional_adapters)
     assert not any(dep.startswith("ollama") for dep in optional_adapters)
-    assert any(dep.startswith("anthropic>=") for dep in optional_adapters)
+    assert not any(dep.startswith("anthropic") for dep in optional_adapters)
 
 
 
