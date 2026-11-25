@@ -845,7 +845,7 @@ def configured_embedding_identity(
         version=config.embedding_version,
         dimension=config.embedding_dimension,
         normalized=config.embedding_normalized,
-        model_revision=config.embedding_model_revision,
+        model_revision=config.embedding_model_revision or None,
     )
 
 

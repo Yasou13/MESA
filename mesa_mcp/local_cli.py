@@ -1,6 +1,6 @@
 """Local CLI tools for MESA (D27, D30).
 
-Provides subcommands `start`, `add`, `search`, `delete`, `status`, `mcp-config`.
+Provides the local server, model setup, and document commands.
 """
 
 from __future__ import annotations
@@ -447,6 +447,9 @@ def mcp_config_command(args: argparse.Namespace) -> None:
 
 
 def register_local_commands(subparsers: argparse._SubParsersAction) -> None:
+    from .setup import register_setup_command
+
+    register_setup_command(subparsers)
     start_parser = subparsers.add_parser(
         "start", help="start the local MESA server"
     )
@@ -558,7 +561,10 @@ def register_local_commands(subparsers: argparse._SubParsersAction) -> None:
 
 
 def handle_local_command(args: argparse.Namespace) -> None:
+    from .setup import setup_command
+
     handlers = {
+        "setup": setup_command,
         "start": start_command,
         "add": add_command,
         "search": search_command,

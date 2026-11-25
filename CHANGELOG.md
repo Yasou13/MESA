@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `mesa setup` configures and verifies embeddings and chat, saves settings for
+  `mesa start`, and offers the offline rebuild when an existing vector store
+  needs a new embedding space (D107).
 - Opt-in post-rank context expansion (`expand`: `none` | `neighbors` | `article`,
   default `none`) and opt-in adaptive query planning (`retrieval_mode`: `single`
   | `adaptive`, default `single`) on `POST /v4/ask` and

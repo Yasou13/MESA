@@ -1,5 +1,30 @@
 # Configuration reference
 
+## Local model setup
+
+Run `mesa setup` to configure embeddings and chat for `mesa start`. You can
+choose `none` for either. Embedding choices are local `BAAI/bge-m3`, Ollama,
+and an OpenAI-compatible API. Chat uses an OpenAI-compatible endpoint. Setup
+checks each enabled model once, then saves the settings in `$MESA_HOME/.env`
+(`~/.mesa/.env` by default) with owner-only permissions. For local BGE-M3,
+install `mesa-memory[ml]` and cache `BAAI/bge-m3` before running setup.
+
+For scripts, add `--non-interactive` and select modes with `--embedding` and
+`--llm`. Omitted modes default to `none`. Use `--embedding-model` and
+`--embedding-base-url` for an embedding API, and `--llm-model` and
+`--llm-base-url` for chat. Supply API keys privately through
+`MESA_EMBEDDING_API_KEY` and `MESA_LLM_API_KEY`. Local endpoints can accept
+requests without a configured key. Run `mesa setup --help` for the command
+options.
+
+For an existing vector store, use the same home and storage root as `mesa start`.
+Changing the embedding space requires an offline rebuild. Submit and drain an
+operation under the current configuration, then stop the server as described in
+the [rebuild runbook](v4-rebuild-runbook.md). Setup can run the offline command
+after you confirm and supply the operation ID and work root. Automated runs use
+`--yes-rebuild`, `--rebuild-operation-id`, and `--rebuild-work-root`. Setup
+saves the new settings after a successful rebuild.
+
 ## Common
 
 | Setting | Default and usage |
