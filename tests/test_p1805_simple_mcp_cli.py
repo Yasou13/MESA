@@ -32,6 +32,7 @@ def test_mesa_help_lists_only_kept_commands() -> None:
         "add",
         "search",
         "ask",
+        "summarize",
         "delete",
         "status",
         "mcp-config",
@@ -123,6 +124,7 @@ async def test_mesa_mcp_stdio_starts_and_lists_tools(tmp_path: Path) -> None:
                 "mesa_remember",
                 "mesa_recall",
                 "mesa_ask",
+                "mesa_summarize",
                 "mesa_improve",
                 "mesa_forget",
             }
