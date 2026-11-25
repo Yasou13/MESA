@@ -219,6 +219,77 @@ class MesaMCPAdapter:
             "degraded_sources": degraded_sources,
         }
 
+    async def mesa_ask(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if not self._v4_service:
+            raise MCPError("UNIMPLEMENTED", "V4 service is not enabled")
+        question = _required_string(arguments, "question", max_length=_MAX_QUERY_LENGTH)
+        dataset_id = arguments.get("dataset_id")
+        dataset_ids = arguments.get("dataset_ids")
+        if dataset_ids is not None:
+            if (
+                not isinstance(dataset_ids, list)
+                or not 1 <= len(dataset_ids) <= 64
+                or any(
+                    not isinstance(item, str) or not item.strip() or len(item) > 128
+                    for item in dataset_ids
+                )
+            ):
+                raise MCPError(
+                    "INVALID_ARGUMENT",
+                    "dataset_ids must be a list of 1 to 64 dataset identifiers",
+                )
+            if dataset_id is not None and dataset_id not in dataset_ids:
+                raise MCPError(
+                    "INVALID_ARGUMENT", "dataset_id and dataset_ids disagree"
+                )
+        document_ids = arguments.get("document_ids")
+        if document_ids is not None and (
+            not isinstance(document_ids, list)
+            or not 1 <= len(document_ids) <= 64
+            or any(
+                not isinstance(item, str) or not item.strip() or len(item) > 256
+                for item in document_ids
+            )
+        ):
+            raise MCPError(
+                "INVALID_ARGUMENT",
+                "document_ids must be a list of 1 to 64 document identifiers",
+            )
+        expand = arguments.get("expand", "none")
+        if not isinstance(expand, str) or expand not in {"none", "neighbors", "article"}:
+            raise MCPError(
+                "INVALID_ARGUMENT", "expand must be 'none', 'neighbors', or 'article'"
+            )
+        retrieval_mode = arguments.get("retrieval_mode", "single")
+        if not isinstance(retrieval_mode, str) or retrieval_mode not in {
+            "single",
+            "adaptive",
+        }:
+            raise MCPError(
+                "INVALID_ARGUMENT", "retrieval_mode must be 'single' or 'adaptive'"
+            )
+        use_session = arguments.get("use_session")
+        if use_session is not None and not isinstance(use_session, bool):
+            raise MCPError("INVALID_ARGUMENT", "use_session must be a boolean")
+        ask_kwargs: dict[str, Any] = {
+            "question": question,
+            "dataset_id": dataset_id,
+            "limit": arguments.get("limit"),
+            "jurisdiction": arguments.get("jurisdiction"),
+            "valid_at": arguments.get("valid_at"),
+            "valid_from": arguments.get("valid_from"),
+            "valid_to": arguments.get("valid_to"),
+            "expand": expand,
+            "retrieval_mode": retrieval_mode,
+        }
+        if dataset_ids is not None:
+            ask_kwargs["dataset_ids"] = dataset_ids
+        if document_ids is not None:
+            ask_kwargs["document_ids"] = document_ids
+        if use_session is not None:
+            ask_kwargs["use_session"] = use_session
+        return await self._v4_service.v4_ask(**ask_kwargs)
+
     async def mesa_improve(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if not self._v4_service:
             raise MCPError("UNIMPLEMENTED", "V4 service is not enabled")

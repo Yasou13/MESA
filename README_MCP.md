@@ -68,7 +68,7 @@ MESA_ACTOR_ID = "local-agent"
 
 ## Tools
 
-`mesa-mcp` exposes six stdio tools using the MCP client's own tool approval and
+`mesa-mcp` exposes seven stdio tools using the MCP client's own tool approval and
 the MESA API key's server-side grants (it creates no local control-plane
 database and works from any working directory):
 
@@ -83,6 +83,10 @@ database and works from any working directory):
   `revision_id`, `revision_number`, `chunk_id`, `span` (`{"start", "end"}`),
   `valid_from`, and `valid_to`. PDF results carry `page`. XLSX results
   carry `sheet`, `row_start`, and `row_end`.
+- `mesa_ask`: answers a question strictly from retrieved MESA evidence with
+  verified citations (`document_id`, `revision_id`, `revision_number`, `span`,
+  validity dates, and PDF/XLSX locations) or returns `not_found: true`. Returns
+  an error when no LLM is configured.
 - `mesa_get_context`: builds a token-bounded context bundle through the V4
   `ContextBuilder` endpoint.
 - `mesa_remember`: stores new V4 document memory.

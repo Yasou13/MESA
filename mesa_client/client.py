@@ -97,6 +97,44 @@ class V4ContextSource(TypedDict, total=False):
     retrieval_provenance: dict[str, Any]
 
 
+class V4AskCitation(TypedDict, total=False):
+    """Typed citation returned by POST /v4/ask (D103)."""
+
+    source_number: int
+    document_id: str | None
+    revision_id: str | None
+    revision_number: int | None
+    chunk_id: str | None
+    span: V4CitationSpan | None
+    page: int
+    sheet: str
+    row_start: int
+    row_end: int
+    valid_from: str
+    valid_to: str
+
+
+class V4AskUsage(TypedDict):
+    """Token counts returned by POST /v4/ask (D103)."""
+
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+class V4AskResponse(TypedDict):
+    """Typed response returned by POST /v4/ask (D103)."""
+
+    answer: str
+    citations: list[V4AskCitation]
+    not_found: bool
+    not_found_reason: str | None
+    usage: V4AskUsage
+    latency_ms: float
+    model: str
+    degraded_sources: list[str]
+
+
 class MesaClientError(Exception):
     """Base exception for MESA client errors."""
 
@@ -785,6 +823,56 @@ class MesaV4Client(MesaClient):
             json=payload,
         )
 
+    def ask(
+        self,
+        *,
+        question: str,
+        session_id: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        agent_id: str | None = None,
+        dataset_ids: list[str] | None = None,
+        document_ids: list[str] | None = None,
+        jurisdiction: str | None = None,
+        valid_at: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
+        limit: int = 8,
+        expand: Literal["none", "neighbors", "article"] = "none",
+        retrieval_mode: Literal["single", "adaptive"] = "single",
+    ) -> dict[str, Any]:
+        """Ask a grounded question over MESA evidence with exact citations (D103)."""
+        retrieval_mode = _v4_retrieval_mode(retrieval_mode)
+        if expand not in {"none", "neighbors", "article"}:
+            raise MesaValidationError(
+                "expand must be 'none', 'neighbors', or 'article'"
+            )
+        payload: dict[str, Any] = {
+            "question": question,
+            "limit": limit,
+            "jurisdiction": jurisdiction,
+            "valid_at": valid_at,
+            "valid_from": valid_from,
+            "valid_to": valid_to,
+        }
+        if dataset_ids is not None:
+            payload["dataset_ids"] = dataset_ids
+        if document_ids is not None:
+            payload["document_ids"] = document_ids
+        if session_id is not None:
+            payload["session_id"] = session_id
+        if tenant_id is not None:
+            payload["tenant_id"] = tenant_id
+        if workspace_id is not None:
+            payload["workspace_id"] = workspace_id
+        if agent_id is not None:
+            payload["agent_id"] = agent_id
+        if expand != "none":
+            payload["expand"] = expand
+        if retrieval_mode != "single":
+            payload["retrieval_mode"] = retrieval_mode
+        return self._request("POST", "/v4/ask", json=payload)
+
     def status(self, mutation_id: str) -> dict[str, Any]:
         return self._request("GET", f"/v4/mutations/{mutation_id}")
 
@@ -1348,6 +1436,56 @@ class AsyncMesaV4Client(AsyncMesaClient):
             json=payload,
         )
 
+    async def ask(
+        self,
+        *,
+        question: str,
+        session_id: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
+        agent_id: str | None = None,
+        dataset_ids: list[str] | None = None,
+        document_ids: list[str] | None = None,
+        jurisdiction: str | None = None,
+        valid_at: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
+        limit: int = 8,
+        expand: Literal["none", "neighbors", "article"] = "none",
+        retrieval_mode: Literal["single", "adaptive"] = "single",
+    ) -> dict[str, Any]:
+        """Ask a grounded question over MESA evidence with exact citations (D103)."""
+        retrieval_mode = _v4_retrieval_mode(retrieval_mode)
+        if expand not in {"none", "neighbors", "article"}:
+            raise MesaValidationError(
+                "expand must be 'none', 'neighbors', or 'article'"
+            )
+        payload: dict[str, Any] = {
+            "question": question,
+            "limit": limit,
+            "jurisdiction": jurisdiction,
+            "valid_at": valid_at,
+            "valid_from": valid_from,
+            "valid_to": valid_to,
+        }
+        if dataset_ids is not None:
+            payload["dataset_ids"] = dataset_ids
+        if document_ids is not None:
+            payload["document_ids"] = document_ids
+        if session_id is not None:
+            payload["session_id"] = session_id
+        if tenant_id is not None:
+            payload["tenant_id"] = tenant_id
+        if workspace_id is not None:
+            payload["workspace_id"] = workspace_id
+        if agent_id is not None:
+            payload["agent_id"] = agent_id
+        if expand != "none":
+            payload["expand"] = expand
+        if retrieval_mode != "single":
+            payload["retrieval_mode"] = retrieval_mode
+        return await self._request("POST", "/v4/ask", json=payload)
+
     async def status(self, mutation_id: str) -> dict[str, Any]:
         return await self._request("GET", f"/v4/mutations/{mutation_id}")
 
@@ -1851,6 +1989,35 @@ class Mesa:
         if isinstance(resp, dict):
             return list(resp.get("results", []))
         return list(resp)
+
+    def ask(
+        self,
+        question: str,
+        *,
+        document_ids: list[str] | None = None,
+        valid_at: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
+        limit: int = 8,
+        expand: Literal["none", "neighbors", "article"] = "none",
+        retrieval_mode: Literal["single", "adaptive"] = "single",
+    ) -> dict[str, Any]:
+        """Ask a grounded question over the active local dataset (D103)."""
+        self._ensure_scope()
+        return self._client.ask(
+            question=question,
+            tenant_id=self.tenant_id,
+            workspace_id=self.workspace_id,
+            agent_id=self.agent_id,
+            dataset_ids=[self.dataset_id],
+            document_ids=document_ids,
+            valid_at=valid_at,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            limit=limit,
+            expand=expand,
+            retrieval_mode=retrieval_mode,
+        )
 
     def context(
         self,

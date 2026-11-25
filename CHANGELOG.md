@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Grounded answering (`POST /v4/ask`, sync/async SDK `ask`, `Mesa.ask`, CLI
+  `mesa ask`, and MCP tool `mesa_ask`) (D103). Searches authorized scope
+  (sessionless or session-based, with optional `document_ids`, `valid_at`,
+  `limit=8`, `expand`, and `retrieval_mode`), wraps evidence as untrusted data
+  with `RECOMMENDED_SYSTEM_PROMPT`, enforces strict JSON parsing with one retry
+  on malformed output, drops and logs any out-of-context citations, returns
+  `not_found: true` whenever no valid citation remains, and returns HTTP 409
+  `"no LLM configured"` when no LLM is configured (D101).
+
 ### Changed
 
 - Unified all chat LLM providers onto a single OpenAI-compatible adapter

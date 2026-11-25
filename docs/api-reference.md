@@ -80,6 +80,7 @@ aliases. Revision/chunk identity, finalization and the distinction between
 | `POST` | `/v4/sessions/start` | Sunucu üretimli, dataset kapsamı değişmez session başlatır |
 | `POST` | `/v4/memory/insert` | Exact source’u kabul edip mutation ve pipeline run oluşturur |
 | `POST` | `/v4/memory/search` | Yetkili datasetlerde vector/BM25/assertion/graph RRF araması yapar |
+| `POST` | `/v4/ask` | Yetkili kapsamda arama yapıp LLM ile kaynaklı yanıt (veya `not_found`) üretir (D103) |
 | `GET` | `/v4/mutations/{mutation_id}` | State, pipeline, artifact ve projection durumunu verir |
 | `POST` | `/v4/mutations/{mutation_id}/replay` | Yetkili DLQ/retry işini yeniden kuyruğa alır |
 | `POST` | `/v4/mutations/{mutation_id}/rollback` | Kaynak sahipli rollback başlatır |

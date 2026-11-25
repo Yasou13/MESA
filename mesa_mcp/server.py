@@ -106,6 +106,7 @@ def create_mcp_server(
             "mesa_get_context": adapter.get_context,
             "mesa_remember": adapter.mesa_remember,
             "mesa_recall": adapter.mesa_recall,
+            "mesa_ask": adapter.mesa_ask,
             "mesa_improve": adapter.mesa_improve,
             "mesa_forget": adapter.mesa_forget,
         }
@@ -260,6 +261,60 @@ def _tools() -> list[types.Tool]:
                     "valid_to": {"type": "string"},
                 },
                 "required": ["query"],
+            },
+        ),
+        types.Tool(
+            name="mesa_ask",
+            description="Answer a question strictly from MESA evidence with verified citations (D103)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "maxLength": 2000},
+                    "dataset_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[a-zA-Z0-9._-]+$",
+                    },
+                    "dataset_ids": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 64,
+                        "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "pattern": "^[a-zA-Z0-9._-]+$",
+                        },
+                    },
+                    "document_ids": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 64,
+                        "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                        },
+                    },
+                    "use_session": {"type": "boolean"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+                    "jurisdiction": {"type": "string", "maxLength": 256},
+                    "valid_at": {"type": "string"},
+                    "valid_from": {"type": "string"},
+                    "valid_to": {"type": "string"},
+                    "expand": {
+                        "type": "string",
+                        "enum": ["none", "neighbors", "article"],
+                        "default": "none",
+                    },
+                    "retrieval_mode": {
+                        "type": "string",
+                        "enum": ["single", "adaptive"],
+                        "default": "single",
+                    },
+                },
+                "required": ["question"],
             },
         ),
         types.Tool(
