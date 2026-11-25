@@ -44,7 +44,11 @@ from mesa_api.document_files import (
 from mesa_api.identifier_validation import PublicIdentifier, SourceIdentifier
 from mesa_memory.adapter.base import LLMNotConfiguredError, LLMResponseError
 from mesa_memory.adapter.factory import AdapterFactory
-from mesa_memory.answering import answer_from_results
+from mesa_memory.answering import (
+    DocumentTooLongToSummarizeError,
+    answer_from_results,
+    summarize_document_text,
+)
 from mesa_memory.config import config, configured_embedding_identity
 from mesa_memory.context_builder import ContextBuilder
 from mesa_memory.document_chunking import (
@@ -655,6 +659,34 @@ class V4AskResponse(BaseModel):
     latency_ms: float = Field(ge=0.0)
     model: str = ""
     degraded_sources: list[str] = Field(default_factory=list)
+
+
+class V4DocumentSummaryRequest(BaseModel):
+    """Single-document summary request (D105)."""
+
+    model_config = ConfigDict(strict=True, frozen=True)
+
+    tenant_id: PublicIdentifier
+    workspace_id: PublicIdentifier
+    dataset_id: PublicIdentifier
+    revision_id: SourceIdentifier | None = None
+
+
+class V4DocumentSummaryResponse(BaseModel):
+    """Single-document summary response (D105)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    document_id: str
+    revision_id: str
+    revision_number: int
+    status: str
+    summary: str
+    parts: int = Field(ge=1)
+    llm_calls: int = Field(ge=1)
+    usage: V4AskUsage
+    latency_ms: float = Field(ge=0.0)
+    model: str = ""
 
 
 class V4ContextResponse(BaseModel):
@@ -2256,6 +2288,80 @@ def create_v4_router(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @router.post(
+        "/documents/{document_id}/summary",
+        response_model=V4DocumentSummaryResponse,
+    )
+    async def summarize_document(
+        document_id: SourceIdentifier,
+        payload: V4DocumentSummaryRequest,
+        request: Request,
+        dao: MemoryDAO = Depends(get_dao),
+        access_control: AccessControl = Depends(get_access_control),
+    ) -> dict[str, Any]:
+        await _require_dataset_roles(
+            request,
+            access_control,
+            tenant_id=payload.tenant_id,
+            workspace_id=payload.workspace_id,
+            dataset_ids=[payload.dataset_id],
+            required_role="READER",
+        )
+        try:
+            await dao.verify_v4_workspace_datasets(
+                tenant_id=payload.tenant_id,
+                workspace_id=payload.workspace_id,
+                dataset_ids=[payload.dataset_id],
+            )
+        except CatalogIdentityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+        try:
+            adapter = AdapterFactory.get_adapter()
+        except LLMNotConfiguredError as exc:
+            raise HTTPException(status_code=409, detail="no LLM configured") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        try:
+            doc_text = await dao.get_v4_document_text(
+                tenant_id=payload.tenant_id,
+                dataset_id=payload.dataset_id,
+                document_id=document_id,
+                revision_id=payload.revision_id,
+            )
+        except CatalogIdentityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        try:
+            return await summarize_document_text(
+                document_id=str(doc_text["document_id"]),
+                revision_id=str(doc_text["revision_id"]),
+                revision_number=int(doc_text["revision_number"]),
+                status=str(doc_text["status"]),
+                text=str(doc_text["text"]),
+                adapter=adapter,
+                context_token_budget=int(config.context_window_limit),
+            )
+        except DocumentTooLongToSummarizeError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except LLMResponseError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"LLM provider returned malformed response: {exc}",
+            ) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"LLM provider unavailable: {type(exc).__name__}",
+            ) from exc
 
     @router.post("/memory/search", response_model=V4SearchResponse)
     async def search_memory(
