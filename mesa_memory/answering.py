@@ -7,7 +7,7 @@ import logging
 import time
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mesa_memory.adapter.base import BaseUniversalLLMAdapter, ChatCompletionResult
 from mesa_memory.adapter.openai_compat import OpenAICompatibleAdapter
@@ -42,37 +42,11 @@ _ASK_JSON_INSTRUCTIONS = (
 class AskLLMOutput(BaseModel):
     """Strict JSON structure expected from the answering LLM (D103)."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
 
     answer: str = ""
     citations: list[int] = Field(default_factory=list)
     not_found: bool = False
-
-    @field_validator("citations", mode="before")
-    @classmethod
-    def validate_strict_int_citations(cls, value: Any) -> list[int]:
-        if not isinstance(value, list):
-            raise ValueError("citations must be a list of integers")
-        out: list[int] = []
-        for item in value:
-            if isinstance(item, bool) or not isinstance(item, int):
-                raise ValueError("each citation must be an integer source_number")
-            out.append(item)
-        return out
-
-    @field_validator("not_found", mode="before")
-    @classmethod
-    def validate_strict_bool(cls, value: Any) -> bool:
-        if not isinstance(value, bool):
-            raise ValueError("not_found must be a boolean")
-        return value
-
-    @field_validator("answer", mode="before")
-    @classmethod
-    def validate_strict_str(cls, value: Any) -> str:
-        if not isinstance(value, str):
-            raise ValueError("answer must be a string")
-        return value
 
 
 def extract_passage_text(item: dict[str, Any]) -> str:
@@ -200,7 +174,9 @@ def _parse_ask_output(raw_text: str) -> AskLLMOutput:
     parsed = json.loads(sanitized)
     if not isinstance(parsed, dict):
         raise ValueError("LLM output must be a JSON object")
-    return AskLLMOutput.model_validate(parsed)
+    validated = AskLLMOutput.model_validate(parsed)
+    assert isinstance(validated, AskLLMOutput)
+    return validated
 
 
 async def _call_chat_json(
