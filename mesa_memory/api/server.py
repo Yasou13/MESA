@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.security import APIKeyHeader
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from mesa_api.chat_router import create_chat_router
 from mesa_api.routers.control.router import create_control_router
 from mesa_api.v4_router import create_v4_router
 from mesa_mcp.gateway.middleware import ControlPlaneMiddleware
@@ -144,6 +145,23 @@ async def get_api_key(request: Request, api_key: str = Depends(_API_KEY_HEADER))
         status=_MESA_PRINCIPAL_STATUS,
     )
     return api_key
+
+
+async def get_openai_compat_api_key(
+    request: Request, api_key: str = Depends(_API_KEY_HEADER)
+) -> str:
+    """Authenticate /v1 OpenAI-compatible calls via Bearer token or X-API-Key (D104)."""
+    auth_header = request.headers.get("authorization") or ""
+    bearer_key: str | None = None
+    if auth_header:
+        scheme, _, token = auth_header.partition(" ")
+        if scheme.lower() != "bearer" or not token.strip():
+            raise HTTPException(status_code=401, detail="Invalid or missing API Key")
+        bearer_key = token.strip()
+    if bearer_key and api_key and not secrets.compare_digest(bearer_key, api_key):
+        raise HTTPException(status_code=401, detail="Conflicting API key headers")
+    resolved = bearer_key or api_key or ""
+    return await get_api_key(request, api_key=resolved)
 
 
 class AppState:
@@ -662,6 +680,14 @@ v4_router = create_v4_router(
     ),
 )
 app.include_router(v4_router, dependencies=router_dependencies)
+chat_router = create_chat_router(
+    get_dao=get_dao,
+    get_access_control=get_access_control,
+)
+app.include_router(
+    chat_router,
+    dependencies=[Depends(get_openai_compat_api_key), Depends(check_daily_limit)],
+)
 app.include_router(
     create_control_router(
         lambda: get_mcp_control().client_repo,

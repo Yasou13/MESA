@@ -1885,6 +1885,50 @@
         }
       }
     },
+    "/v1/chat/completions": {
+      "post": {
+        "tags": [
+          "openai-compatible"
+        ],
+        "summary": "Chat Completions",
+        "operationId": "chat_completions_v1_chat_completions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenAIChatCompletionsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
     "/control/mcp/clients": {
       "get": {
         "tags": [
@@ -2854,6 +2898,113 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "OpenAIChatCompletionsRequest": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Model",
+            "default": "mesa"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/OpenAIChatMessage"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Messages"
+          },
+          "stream": {
+            "type": "boolean",
+            "title": "Stream",
+            "default": false
+          },
+          "document_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "array",
+                "maxItems": 64,
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Ids"
+          },
+          "valid_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid At"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 8
+          },
+          "expand": {
+            "type": "string",
+            "enum": [
+              "none",
+              "neighbors",
+              "article"
+            ],
+            "title": "Expand",
+            "default": "none"
+          },
+          "retrieval_mode": {
+            "type": "string",
+            "enum": [
+              "single",
+              "adaptive"
+            ],
+            "title": "Retrieval Mode",
+            "default": "single"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "messages"
+        ],
+        "title": "OpenAIChatCompletionsRequest",
+        "description": "OpenAI-compatible chat completions request body (D104)."
+      },
+      "OpenAIChatMessage": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Role"
+          },
+          "content": {
+            "title": "Content",
+            "default": ""
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "title": "OpenAIChatMessage"
       },
       "PolicyCreateReq": {
         "properties": {

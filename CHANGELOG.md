@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- OpenAI-compatible chat endpoint (`POST /v1/chat/completions`) backed by
+  `/v4/ask` with numbered citations in message text, extra `mesa_citations`
+  field, non-streaming and single-chunk SSE + `[DONE]` streaming, Bearer /
+  `X-API-Key` auth, and `model` scope (`mesa` or
+  `mesa:<tenant>/<workspace>/<dataset>`) (D104).
+- OpenAI-format SDK tool definitions (`MESA_OPENAI_TOOLS`, `get_openai_tools`)
+  for `search`, `read_text`, and `list_documents`, plus `execute_tool_call` /
+  `aexecute_tool_call` helpers in `mesa_client` (D104).
 - Grounded answering (`POST /v4/ask`, sync/async SDK `ask`, `Mesa.ask`, CLI
   `mesa ask`, and MCP tool `mesa_ask`) (D103). Searches authorized scope
   (sessionless or session-based, with optional `document_ids`, `valid_at`,
