@@ -1,5 +1,22 @@
 # Configuration reference
 
+## Run without models
+
+| Setting | Default and usage |
+|---|---|
+| `MESA_STORAGE_ROOT` | `mesa start` uses `<MESA_HOME>/data`. Set a dedicated writable directory for the direct runtime launcher. |
+| `MESA_API_KEY`, `MESA_PRINCIPAL_ID` | `mesa start` and Docker provision local credentials. Supply both for direct-launch bootstrap when the registry has no active key. |
+| `MESA_MODEL_ENABLED` | `false`. Enables embeddings by default when set to `true`. |
+| `MESA_EMBEDDING_ENABLED`, `MESA_EXTRACTION_ENABLED` | Embedding follows `MESA_MODEL_ENABLED` when unset. Extraction defaults to `false`. |
+| `MESA_EMBEDDING_MODEL`, `MESA_EMBEDDING_DIMENSION` | `local:BAAI/bge-m3`. Dimension is detected at startup when embeddings are enabled and defaults to `1024` when disabled. |
+| `MESA_RERANK_ENABLED` | `false`. Set `true` to rerank search results with the configured model. |
+| `MESA_LEGAL_RULES_ENABLED` | `true`. Enables Turkish legal rule processing during ingestion and search. |
+| `MESA_LOG_LEVEL` | `INFO`. |
+
+On a fresh local setup, `mesa start` provisions a MESA API key and stores
+documents for BM25 search. An empty `MESA_LLM_MODEL` leaves the chat adapter
+unconfigured. Embeddings and fact extraction are independent switches.
+
 ## Local model setup
 
 Run `mesa setup` to configure embeddings and chat for `mesa start`. You can
@@ -15,7 +32,7 @@ For scripts, add `--non-interactive` and select modes with `--embedding` and
 `--llm-base-url` for chat. Supply API keys privately through
 `MESA_EMBEDDING_API_KEY` and `MESA_LLM_API_KEY`. Local endpoints can accept
 requests without a configured key. Run `mesa setup --help` for the command
-options.
+options and restart `mesa start` to apply the saved configuration.
 
 For an existing vector store, use the same home and storage root as `mesa start`.
 Changing the embedding space requires an offline rebuild. Submit and drain an
@@ -24,19 +41,6 @@ the [rebuild runbook](v4-rebuild-runbook.md). Setup can run the offline command
 after you confirm and supply the operation ID and work root. Automated runs use
 `--yes-rebuild`, `--rebuild-operation-id`, and `--rebuild-work-root`. Setup
 saves the new settings after a successful rebuild.
-
-## Common
-
-| Setting | Default and usage |
-|---|---|
-| `MESA_STORAGE_ROOT` | `mesa start` uses `<MESA_HOME>/data`. Set a dedicated writable directory for the direct runtime launcher. |
-| `MESA_API_KEY`, `MESA_PRINCIPAL_ID` | `mesa start` and Docker provision local credentials. Supply both for direct-launch bootstrap when the registry has no active key. |
-| `MESA_MODEL_ENABLED` | `false`. Enables embeddings by default when set to `true`. |
-| `MESA_EMBEDDING_ENABLED`, `MESA_EXTRACTION_ENABLED` | Embedding follows `MESA_MODEL_ENABLED` when unset. Extraction defaults to `false`. |
-| `MESA_EMBEDDING_MODEL`, `MESA_EMBEDDING_DIMENSION` | `local:BAAI/bge-m3`. Dimension is detected at startup when embeddings are enabled and defaults to `1024` when disabled. |
-| `MESA_RERANK_ENABLED` | `false`. Set `true` to rerank search results with the configured model. |
-| `MESA_LEGAL_RULES_ENABLED` | `true`. Enables Turkish legal rule processing during ingestion and search. |
-| `MESA_LOG_LEVEL` | `INFO`. |
 
 ## Advanced
 
@@ -157,99 +161,69 @@ unrelated dimension. Nemotron-3 profile requires 2048 and `nemotron-qpass-v1`,
 with query/passage input types. Provider/model/revision/dimension/normalization
 define a fenced embedding space; switch through reindex/rebuild, not live fallback.
 
-Install optional ML/provider SDK extras for the selected backend. With models
-disabled semantic generation is intentionally unavailable. `MESA_ZERO_COST_MODE`
-selects local Ollama configuration. RAM budget precedence is explicit MAX_RAM_MB/MAX_MEMORY_BYTES,
+Local sentence-transformer embeddings and reranking require the `ml` extra. Cache the selected model before startup. RAM budget precedence is explicit MAX_RAM_MB/MAX_MEMORY_BYTES,
 cgroups, psutil, then 1 GiB safe fallback; this is not an RSS guarantee.
 Queue per-tenant bounds must fit within global bounds. `.env.example` deliberately
 uses smaller sample global and per-tenant bounds than code defaults.
 
-### Minimal V4 provider setup
+### Chat models
 
-Start with the disposable root, key and grants from the
-[quickstart](getting-started.md#provision-before-startup-manual), with the server stopped.
-For an external OpenAI-compatible extraction + embedding setup, install
-`uv sync --locked --python 3.11 --extra adapters` (no local ML extra is needed).
-Select models supported by your endpoint. The following is an example pairing,
-not evidence of a real-provider run:
+For a direct runtime or a manually edited dotenv file, use these settings.
+`mesa setup` writes the equivalent values for `mesa start`.
 
-```bash
-mkdir -p "$HOME/mesa-doc-demos"
-export MESA_STORAGE_ROOT="$(mktemp -d "$HOME/mesa-doc-demos/v4-XXXXXX")"
-export MESA_PRINCIPAL_ID=docs-principal
-export MESA_API_KEY="$(.venv/bin/mesa-v4-admin issue-key --principal docs-principal)"
-.venv/bin/mesa-v4-admin grant-role --principal docs-principal --tenant docs-tenant --role OWNER
-.venv/bin/mesa-v4-admin grant-agent --principal docs-principal --agent docs-agent --permission SESSION_CREATE
-export MESA_RUNTIME_PROFILE=combined
-export MESA_LOAD_DOTENV=false
-export MESA_MODEL_ENABLED=true
-export MESA_EXTERNAL_PROVIDER_ENABLED=true
-export MESA_LLM_MODEL=openai:gpt-4o-mini
-export MESA_LLM_API_KEY="${OPENAI_API_KEY:?Supply the provider key privately first}"
-export MESA_EMBEDDING_MODEL=openai:text-embedding-3-small
-export MESA_EMBEDDING_BASE_URL=https://api.openai.com/v1
-export MESA_EMBEDDING_API_KEY="$MESA_LLM_API_KEY"
-export MESA_EMBEDDING_DIMENSION=1536
-export MESA_EMBEDDING_NORMALIZED=true
-export MESA_EMBEDDING_VERSION=v1
-```
+| Setting | Usage |
+|---|---|
+| `MESA_LLM_MODEL` | Model name served by the endpoint, such as `qwen3:8b`. Leave empty to disable built-in answering. |
+| `MESA_LLM_BASE_URL` | OpenAI-compatible API base URL, such as `http://127.0.0.1:11434/v1` for Ollama. An unset URL uses the OpenAI endpoint. |
+| `MESA_LLM_API_KEY` | Provider key. Required for remote chat endpoints. A local endpoint can accept the adapter's placeholder key. |
+| `MESA_LLM_TIMEOUT_SECONDS` | Timeout per provider request. Defaults to 60 seconds. |
+| `MESA_EXTERNAL_PROVIDER_ENABLED` | Defaults to `false`. Set `true` to allow remote providers. Setup enables it when a selected endpoint is remote. |
 
-A root without active vector artifacts adopts a changed embedding identity at
-startup and backfills skipped VECTOR lanes. A root with active vectors requires
-an explicit rebuild before changing identity. Keep `MESA_API_KEY` (MESA access) separate
-from `MESA_LLM_API_KEY` / `MESA_EMBEDDING_API_KEY` (provider access). Enable fact
-extraction separately with `MESA_EXTRACTION_ENABLED=true` when an LLM is configured.
+The same chat adapter serves grounded answers, summaries, optional query
+planning and optional fact extraction. Set `MESA_EXTRACTION_ENABLED=true`
+separately when you want extraction. Authorized passages and questions go to
+the selected chat server for answering. Summary calls send the selected
+revision's text to that server.
 
-`AdapterFactory` routes all chat models through one OpenAI-compatible adapter
-configured with `MESA_LLM_MODEL`, optional `MESA_LLM_BASE_URL` (e.g.
-`http://localhost:11434/v1` for Ollama, vLLM, LM Studio, OpenRouter, or unset for
-OpenAI), and optional `MESA_LLM_API_KEY` (only required for remote endpoints).
-Legacy `provider:model` values (such as `ollama:qwen3:8b`) are accepted with a
-one-time deprecation warning. `MESA_LLM_PROVIDER` and `LLM_EMBEDDING_MODEL` are
-ignored with a startup warning. Embeddings stay on `MESA_EMBEDDING_*` only and
-support local sentence-transformers (`ml` extra) or OpenAI-compatible endpoints.
+A local endpoint uses HTTP or HTTPS with a host of `localhost`, `127.0.0.1`,
+`::1`, or `host.docker.internal`. Local Ollama, vLLM and LM Studio can use
+the OpenAI-compatible adapter without enabling remote provider access.
+With remote access enabled, a hosted service such as OpenAI or OpenRouter
+can use the same adapter. Keep provider API keys separate from `MESA_API_KEY`,
+which authorizes access to MESA.
 
-Select embeddings with `MESA_EMBEDDING_MODEL=provider:model`: `local:...`,
-`ollama:qwen3-embedding:4b`, `openai:text-embedding-3-small`, or
-`openai_compatible:nvidia/nemotron-3-embed-1b`. The second colon stays in the
-model name. `MESA_EMBEDDING_BASE_URL` overrides the endpoint; Ollama otherwise
-uses `<MESA_OLLAMA_URL>/v1` and needs no key for a local server.
+Legacy chat model values with a provider prefix, such as `ollama:qwen3:8b`,
+emit a one-time warning. For a legacy Ollama spec without a chat base URL,
+MESA uses the local Ollama endpoint. `MESA_LLM_PROVIDER` and
+`LLM_EMBEDDING_MODEL` emit startup warnings and are ignored.
+`MESA_ZERO_COST_MODE=true` selects the `qwen3:8b` Ollama preset and uses the
+Ollama URL if the chat base URL is unset. Setup disables the preset so the
+selected model takes effect.
 
-#### Local model servers and external providers (D31)
+### Embedding providers
 
-An endpoint is considered **local** when its scheme is `http` or `https` and its host is `localhost`, `127.0.0.1`, `::1`, or `host.docker.internal`.
+Set `MESA_EMBEDDING_ENABLED=true` for semantic search. The
+`MESA_EMBEDDING_MODEL` format is `provider:model`. Supported examples are
+`local:BAAI/bge-m3`, `ollama:bge-m3`, `openai:text-embedding-3-small`, and
+`openai_compatible:nvidia/nemotron-3-embed-1b`.
 
-- With `MESA_EXTERNAL_PROVIDER_ENABLED=false` (default):
-  - `ollama` and `openai_compatible` (for both LLM extraction and embedding) are allowed on local endpoints (e.g. Ollama on `127.0.0.1:11434`, or vLLM on `127.0.0.1:8001/v1`; MESA itself uses port 8000) and forbidden on non-local/remote endpoints.
-  - `openai_compatible` on a local endpoint requires no API key (the client sends `local` automatically).
-  - External cloud providers (`openai`, `claude`, `anthropic`, `hosted`) remain strictly forbidden regardless of endpoint URL.
-- With `MESA_EXTERNAL_PROVIDER_ENABLED=true`:
-  - Remote and cloud provider endpoints are allowed. Cloud providers and remote
-    `openai_compatible` endpoints require configured API keys (`MESA_LLM_API_KEY`,
-    `MESA_EMBEDDING_API_KEY`); local `openai_compatible` endpoints still default
-    to `local`, and Ollama keeps its existing key-free behavior.
+Set `MESA_EMBEDDING_BASE_URL` and `MESA_EMBEDDING_API_KEY` for an API
+provider. Ollama defaults to `<MESA_OLLAMA_URL>/v1`. The
+`openai_compatible` and `openai` backends can use the chat base URL and key
+as fallbacks. Use explicit embedding credentials when the services differ.
+A remote endpoint requires remote provider access. For local embedding APIs,
+use the `ollama` or `openai_compatible` provider name. The core install
+includes the OpenAI transport. Use `pip install "mesa-memory[ml]"` for
+local sentence-transformers.
 
-#### Missing optional packages (P5-01)
-
-If an optional provider or model extra is selected but not installed, server startup halts with a clear one-line installation command:
-- Ollama LLM, Ollama embedding, or OpenAI-compatible embedding:
-  `pip install mesa-memory`
-- Local transformer embedding (`sentence-transformers`):
-  `pip install "mesa-memory[ml]"`
-
-Endpoint/key settings retain the `MESA_LLM_BASE_URL` / `MESA_LLM_API_KEY` fallbacks for those providers.
-
-With embedding enabled and `MESA_EMBEDDING_DIMENSION` unset, the server and
-rebuild runner embed one probe at startup and use its length for storage and
-admission. Probe failure stops startup and names the model and URL. Setting the
-dimension explicitly skips the probe; embedding disabled with no dimension
-keeps 1024 and makes no embedding requests. The removed embedding provider,
-external-model and local-model variables stop runtime startup with the
-replacement setting. Nemotron still requires `MESA_EMBEDDING_VERSION=nemotron-qpass-v1`
-and 2048 dimensions (explicit or detected).
-
-The built-in `mock` adapter returns no extracted facts. Contract tests inject
-deterministic fact and embedding providers explicitly.
+When embeddings are enabled and `MESA_EMBEDDING_DIMENSION` is unset,
+startup and the rebuild runner probe the model for its dimension. Setup
+saves the detected dimension. An explicit dimension skips the startup
+probe. With embeddings off in a fresh store, the default is 1024.
+Nemotron uses dimension 2048 and
+`MESA_EMBEDDING_VERSION=nemotron-qpass-v1`. See the
+[rebuild procedure](v4-rebuild-runbook.md) before changing a populated
+store's embedding identity.
 
 ### Environment file and first startup
 
@@ -258,8 +232,7 @@ disabled. Copy it only if needed, replace the storage path with an absolute,
 writable dedicated directory, and supply issued credentials privately. To load
 it explicitly, set `MESA_LOAD_DOTENV=true` and `MESA_DOTENV_PATH` to its absolute
 path **in the launching shell**; setting them only inside the file cannot enable
-loading. Do not load dotenv in `test-isolated`. The quickstart's exported settings
-work without creating any `.env` file.
+loading. The `test-isolated` profile forbids dotenv. `mesa start` automatically uses the file created by `mesa setup`.
 
 Fresh combined startup creates or migrates SQLite and initializes LanceDB. For
 older stores, follow the
@@ -301,8 +274,6 @@ See `mesa_memory/config.py` and `MesaConfig` for field declarations.
 | `extraction_lang` | `MESA_EXTRACTION_LANG` | `'tr'` |
 | `zero_cost_mode` | `MESA_ZERO_COST_MODE` | `False` |
 | `ollama_url` | `MESA_OLLAMA_URL` | `'http://localhost:11434'` |
-| `ollama_timeout_seconds` | `MESA_OLLAMA_TIMEOUT_SECONDS` | `300.0` |
-| `ollama_num_ctx` | `MESA_OLLAMA_NUM_CTX` | `8192` |
 | `storage_path` | `MESA_STORAGE_PATH` | `derived from cwd; runtime requires explicit storage root` |
 | `queue_max_pending_records` | `MESA_QUEUE_MAX_PENDING_RECORDS` | `50000` |
 | `queue_max_pending_bytes` | `MESA_QUEUE_MAX_PENDING_BYTES` | `2147483648` |
@@ -324,10 +295,7 @@ See `mesa_memory/config.py` and `MesaConfig` for field declarations.
 ### MCP and operator variables
 
 `mesa_mcp/configuration.py` owns separate `MCPSettings`; see [MCP](../README_MCP.md).
-MCP stdio uses V4; direct V4 requires explicit tenant,
-workspace and dataset settings plus workspace root and binding authorization.
-MCP general context defaults to 2500 tokens/max8000; Core HTTP context defaults
-to 2048; Codex binding profile caps are separate (8 memories/2500 tokens).
+The direct stdio client uses the MESA API key and configured tenant, workspace and dataset. `mesa mcp config <client>` emits those settings for a local server. The optional gateway has its own binding and policy controls. The Core HTTP context default is 2048 tokens.
 `MESA_GATEWAY_ENCRYPTION_KEY` and `MESA_GATEWAY_CONTROL_DB` are operator inputs.
 
 Rebuild uses reviewed trusted/storage/work roots and full-root offline scope;

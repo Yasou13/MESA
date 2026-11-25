@@ -1,10 +1,12 @@
 # API reference
 
-MESA v4 tenant/dataset yetkili versioned API sunar. Paket 0.9.6; yayın sahibinin adımıdır ve production sertifikasyonu içermez.
+V4 provides tenant- and dataset-scoped routes for document ingestion, search
+and agent memory. The optional chat adapter serves grounded answers and
+summaries. Package version 0.9.6 is subject to the release gates.
 
 Versioned memory, health ve metrics çağrıları `X-API-Key` ister. `/health/init`, OpenAPI, Swagger ve Redoc public yüzeylerdir; ağ/reverse-proxy politikası gerekir. V4 anahtarı
 `mesa-v4-admin issue-key` ile üretilir; yalnız saltlı scrypt özeti saklanır.
-OpenAPI sözleşmesinin çalışan kaynağı `mesa_api/v4_router.py` dosyasıdır.
+The running server publishes its request and response schemas at `/openapi.json`.
 
 ## V4 capability
 
@@ -17,15 +19,14 @@ response must not be used as a fixed feature promise.
 |---|---|
 | `canonical_ledger`, `projection_outbox`, `idempotent_ingestion` | Durable canonical work and projection contracts |
 | `vector_retrieval` | Operational embedding generation, not merely configured identity |
-| `lexical_retrieval`, `assertion_relational_lane` | SQLite lexical/assertion retrieval; not graph traversal |
+| `lexical_retrieval`, `assertion_relational_lane` | SQLite lexical and assertion retrieval |
 | `graph_projection`, `graph_neighbor_retrieval` | Always `false`; kept for client compatibility after the graph store was removed |
 | `validity_interval_filtering` | Validity filtering, not bitemporal semantics |
 | `durable_rebuild` | Enabled by `MESA_V4_REBUILD_ENABLED`; still offline and full-root |
 | `associative_ppr`, `bitemporal_query`, `human_review` | Not advertised as implemented Core capabilities |
 
 Rebuild limits are `rebuild_kind=projection`, `rebuild_scope=storage_root`, and
-`requires_offline_runner=true`. A projection-only graph adapter does not supply
-neighbor retrieval. Custom embedding providers are non-operational until a
+`requires_offline_runner=true`. Custom embedding providers are non-operational until a
 successful embedding call. Configured backend failure is surfaced explicitly;
 see [retrieval behavior](retrieval-and-graph.md) and [troubleshooting](RUNBOOK.md#troubleshooting).
 
@@ -73,16 +74,13 @@ aliases. Revision/chunk identity, finalization and the distinction between
 `declared_content_hash`, `manifest_hash` and chunk `content_hash` are defined in
 [concepts and ingestion](concepts-and-ingestion.md).
 
-## V4 session ve memory
+## V4 sessions and agent memory
 
 | Method | Path | İşlev |
 |---|---|---|
 | `POST` | `/v4/sessions/start` | Sunucu üretimli, dataset kapsamı değişmez session başlatır |
 | `POST` | `/v4/memory/insert` | Exact source’u kabul edip mutation ve pipeline run oluşturur |
-| `POST` | `/v4/memory/search` | Yetkili datasetlerde vector/BM25/assertion/graph RRF araması yapar |
-| `POST` | `/v4/ask` | Yetkili kapsamda arama yapıp LLM ile kaynaklı yanıt (veya `not_found`) üretir (D103) |
-| `POST` | `/v4/documents/{document_id}/summary` | Tek bir belgenin (varsayılan: ACTIVE veya verilen `revision_id`) kaynak maddeleri/sayfaları belirten özetini üretir (D105) |
-| `POST` | `/v1/chat/completions` | OpenAI uyumlu sohbet ucu; son kullanıcı mesajını `/v4/ask` ile yanıtlar, numaralı kaynak listesi ve `mesa_citations` döndürür (`stream: true` tek SSE chunk + `[DONE]`) (D104) |
+| `POST` | `/v4/memory/search` | Ranks authorized passages with BM25 and configured vector or assertion lanes |
 | `GET` | `/v4/mutations/{mutation_id}` | State, pipeline, artifact ve projection durumunu verir |
 | `POST` | `/v4/mutations/{mutation_id}/replay` | Yetkili DLQ/retry işini yeniden kuyruğa alır |
 | `POST` | `/v4/mutations/{mutation_id}/rollback` | Kaynak sahipli rollback başlatır |
@@ -107,16 +105,82 @@ through the bounded legal aliases. Caller metadata cannot supply trusted
 
 Search responses include `degraded_sources`: `vector` when embedding is off or any in-scope committed record has an incomplete VECTOR lane; otherwise `[]`.
 
-Search and context both accept `jurisdiction`, `valid_at`, `valid_from` and
+Search and context accept `jurisdiction`, `valid_at`, `valid_from` and
 `valid_to`. Context uses query parameters and defaults to `token_budget=2048`,
-`retrieval_mode=single`, and `expand=none`. Both `/v4/ask` and
-`/v4/sessions/{session_id}/context` accept opt-in `expand` (`none` | `neighbors`
-| `article`, applied after ranking to LLM context only without changing citation
-spans) and `retrieval_mode=adaptive` (at most one planner call and two additional
-scoped searches using the configured OpenAI-compatible LLM). Scores, proof
-packing and offline token counting are defined in
-[retrieval and graph](retrieval-and-graph.md). Raw `/v4/memory/search` remains
-the single-query primitive and is unaffected by expansion.
+`retrieval_mode=single` and `expand=none`. The context route uses the adaptive
+planner when extraction is enabled and retrieval needs reformulation.
+[Retrieval and context packing](retrieval-and-graph.md)
+
+## LLM answers and summaries
+
+Ingestion, search and context work with the chat model unset. Authorized calls
+to ask, summarize or chat return HTTP `409` with `detail: "no LLM configured"`
+when the server has no chat model. Run `mesa setup` or configure the server's
+OpenAI-compatible adapter to enable these routes. [Configuration](configuration.md#local-model-setup)
+
+### Ask with citations
+
+Send `POST /v4/ask` with a `question` and either an authorized `session_id`
+or `tenant_id`, `workspace_id` and `dataset_ids`. Sessionless calls use the
+dataset read grant and the actor's `SESSION_CREATE` permission. You can supply
+`agent_id` in the sessionless request. Optional filters include `document_ids`,
+`jurisdiction`, `valid_at`, `valid_from` and `valid_to`. Date values use ISO 8601
+with a time zone offset. `limit` sets the number of passages, from 1 to 50
+with a default of 8.
+
+The response includes `answer`, `citations`, `not_found`, `not_found_reason`,
+`usage`, `latency_ms`, `model` and `degraded_sources`. MESA treats the retrieved
+text as untrusted data in the model prompt and only accepts citations from the
+supplied context. An abstention returns `not_found: true` with an empty answer
+and citations. Usage and latency describe answer generation. Citations carry
+a document ID, revision ID and revision number,
+character span and available validity bounds or PDF/XLSX location. Reopen the
+original passage through the document text endpoint using `revision_id`,
+`span.start` and `span.end`. [Document text API](#document-text-get-v4documentsdocument_idtext)
+
+Both ask and session context accept `expand=none` (default), `neighbors` or
+`article`. Expansion supplies the adjacent chunks or, when available, the
+legal article after ranking. The original passage span remains the citation
+target. `retrieval_mode=single` is the default. `adaptive` can make one planner
+call on weak retrieval and run up to two additional scoped searches. Search
+at `/v4/memory/search` uses single-query retrieval. [Retrieval details](retrieval-and-graph.md)
+
+Use `Mesa.ask`, `MesaV4Client.ask`, `AsyncMesaV4Client.ask`, `mesa ask`, or
+`mesa_ask` over MCP. [Runnable example](getting-started.md#set-up-a-model-and-ask-a-question)
+
+### Summarize a document
+
+Send `POST /v4/documents/{document_id}/summary` with `tenant_id`,
+`workspace_id` and `dataset_id`. Use `revision_id` to select a specific
+revision. The active revision is the default. The request needs read access
+to the dataset. MESA prompts the model to name relevant articles, sections or
+pages in the summary text.
+
+MESA makes one call when the text fits the configured token budget. For
+longer text, it summarizes up to eight ordered parts and combines them in
+one final call. A document that needs more than eight parts returns HTTP
+`422` with `detail: "document too long to summarize"`. The response includes
+the selected revision, `summary`, `parts`, `llm_calls`, token `usage`,
+`latency_ms` and `model`.
+
+Use `Mesa.summarize`, `MesaV4Client.summarize_document`,
+`AsyncMesaV4Client.summarize_document`, `mesa summarize`, or `mesa_summarize`
+over MCP. [Runnable example](getting-started.md#summarize-a-document)
+
+### OpenAI-compatible chat
+
+Send `POST /v1/chat/completions` with the MESA API key as a Bearer token or
+in `X-API-Key`. Set `model` to `mesa` for the server's default scope or
+`mesa:<tenant>/<workspace>/<dataset>` for one named dataset. MESA answers the
+last user message that contains text through the same authorized ask path.
+Optional MESA fields are `document_ids`, `valid_at`, `limit`, `expand` and
+`retrieval_mode`.
+
+The response includes an assistant message with a numbered source list,
+top-level `mesa_citations` and `mesa_not_found`, and token `usage`. With
+`stream: true`, the server sends one SSE chunk containing the assembled answer
+and the same metadata, followed by `[DONE]`.
+[Runnable example](getting-started.md#use-the-chat-endpoint)
 
 ## V4 Python SDK
 
@@ -161,9 +225,9 @@ arguments in place of `add_document(content=…)`. Both `MesaV4Client` and
 `get_document_text` to fetch the cited passage.
 
 For agent memory sessions (`/v4/memory/insert`, context, and session end), start
-a server-owned session first. Bu örnek, model-enabled V4 sunucu, provision edilmiş `credential`, mevcut
-`tenant-a/workspace-a/dataset-a` kataloğu ve `agent-a` session izni varsayar.
-Bunları da kuran örnek için [Getting started](getting-started.md) kullanılır.
+a server-owned session first. The example uses an authorized `credential`, an
+existing `tenant-a/workspace-a/dataset-a` catalog and `SESSION_CREATE` for
+`agent-a`. It also works with models off. [Getting started](getting-started.md)
 
 ```python
 from mesa_client import MesaV4Client
@@ -228,6 +292,20 @@ yanında `submit_rebuild`, `operation_status`, `cancel_operation` ve
 `retry_operation` control-plane metotlarını sunar. Dataset-bound MCP yüzeyi
 mutating global rebuild aracı sunmaz.
 
+### OpenAI-format retrieval tools
+
+`mesa_client.get_openai_tools()` returns a copy of the definitions in
+`MESA_OPENAI_TOOLS`. Pass them to your application's model as its `tools`.
+The functions are `search`, `read_text` and `list_documents`.
+
+Call `execute_tool_call(client, tool_call)` for a model's tool call and pass
+the returned JSON-compatible result back to your application. A `Mesa`
+client supplies its configured scope. With `MesaV4Client` or
+`aexecute_tool_call` and `AsyncMesaV4Client`, explicitly pass `tenant_id`,
+`workspace_id` and `dataset_id`. The configured MESA API key and its read
+permissions govern all three tools. The MESA runtime can serve them without
+a chat model. [Runnable example](getting-started.md#give-your-application-llm-retrieval-tools)
+
 ## V4 authorization
 
 Route katmanı şu bağlamı sunucu tarafında çözer:
@@ -251,8 +329,8 @@ own schema version in the policy database, independently of Alembic migrations
 for canonical storage. Lost grants from an old database cannot be inferred or
 recreated automatically.
 
-Internal DAO ownership, projection and Graph V2 structure belong in the
-[architecture](architecture-v4.md); they are not separate public HTTP methods.
+The architecture guide covers internal DAO ownership and vector projections.
+[Architecture](architecture-v4.md)
 
 ## Health ve metrics
 
@@ -462,7 +540,7 @@ errors. For example, a non-string search query returns HTTP 422:
 | 409, detail `document is purged` | Re-using a purged document ID is not supported; use a new document ID |
 | 422 `VALIDATION_ERROR` | Correct the named field/format; timestamps need a timezone |
 | 503 `BACKEND_UNAVAILABLE`, detail `canonical_processing_unavailable` | Run one combined owner; non-combined profiles cannot ingest V4 |
-| 503, detail `vector_backend_unavailable` / `graph_backend_unavailable` | Check provider credentials, embedding identity and backend readiness; an empty result is not a substitute |
+| 503, detail `vector_backend_unavailable` | Check provider credentials, embedding identity and backend readiness |
 | 503, detail `queue_over_capacity` / `maintenance_pending` | Respect `Retry-After` when present and wait for capacity/maintenance |
 
 Failed background processing is reported by mutation status even when the insert
@@ -503,7 +581,7 @@ The entry points are declared in `pyproject.toml`. Run `.venv/bin/<command>
 | `mesa-v4-rebuild` | Offline full-root projection rebuild/adoption; never an online worker |
 | `mesa-mcp` | Direct V4 stdio server; client tool approval and API key grants, no local control-plane database |
 | `mesa-mcp-gateway` | Optional advanced HTTP/Streamable HTTP control gateway (policies, approvals, audit) |
-| `mesa` | Local CLI (`start`, `add`, `search`, `delete`, `status`, `mcp-config`, `mcp config <client>`, `operations`) |
+| `mesa` | Local CLI (`start`, `setup`, `add`, `search`, `ask`, `summarize`, `delete`, `status`, `mcp-config`, `mcp config <client>`, `operations`) |
 
 ### Admin bootstrap
 

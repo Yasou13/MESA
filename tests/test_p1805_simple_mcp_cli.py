@@ -29,6 +29,7 @@ def test_mesa_help_lists_only_kept_commands() -> None:
     choices = set(subparsers_action.choices.keys())
     assert choices == {
         "start",
+        "setup",
         "add",
         "search",
         "ask",

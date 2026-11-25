@@ -1,481 +1,259 @@
 # Installation and first run
 
-This guide covers getting started with MESA as a new user, from installation to querying evidence, followed by advanced operator provisioning and production runtime profiles. Production qualification remains at the release candidate stage: **NO-GO** until the [release gates](release.md) pass for the intended commit.
-
-<a id="installation"></a>
+Start with document ingestion and BM25 search. You can add embeddings for
+semantic search and a chat model for answers and summaries whenever you need
+them. The V4 runtime is a release candidate. Production qualification remains
+**NO-GO** until the release gates pass. [Release policy](release.md)
 
 ## Installation
 
-Install MESA:
-
-```bash
-pip install mesa-memory
-```
-
-Supported natively on Linux and macOS. On Windows, use Docker or WSL.
-
-The development version can be installed directly from git: `pip install "mesa-memory @ git+https://github.com/Yasou13/MESA"`.
-
-Or install from source with [uv](https://docs.astral.sh/uv/getting-started/installation/):
-
-```bash
-git clone https://github.com/Yasou13/MESA.git
-cd MESA
-uv sync --locked --python 3.11
-uv pip check
-```
+On Linux or macOS, use a Python 3.11+ environment and run
+`pip install mesa-memory` for the published package. On Windows, use WSL or
+Docker. The model setup and built-in answering examples below use this
+checkout. From the checkout, install it in your environment with
+`pip install -e .`, or run `uv sync --locked` and activate `.venv`.
 
 ## Quickstart
 
-### 1. Start the server
-
-For standard local usage, `mesa start` automatically provisions local storage (`~/.mesa/data`), writes credentials (`~/.mesa/credentials.json`), sets model-disabled defaults, and starts the loopback server on `http://127.0.0.1:8000`:
-
-```bash
-mesa start
-```
-
-### 2. Add and search documents
-
-In another terminal, add and search documents immediately without manual credential configuration:
+Run these examples in a fresh Bash shell without existing MESA overrides.
+Keep using that shell throughout. The first block creates a fresh
+MESA home and starts a loopback server using port 8000 by default. If that
+port is in use, set `MESA_PORT` to a free port first. The server writes its
+local API credentials to `$MESA_HOME/credentials.json`.
 
 ```bash
-mesa add document.pdf
-mesa search "your query"
-mesa status
-```
-
-You can add PDFs with a text layer, DOCX, UYAP UDF, XLSX, TXT, or Markdown.
-`mesa add` uses the local file URI as the source by default. Use `--source`
-to provide your own reference. The command waits for the revision to become
-active and prints `searchable`. Pass `--no-wait` to return the admission
-receipt immediately. To delete a document, run `mesa delete <document_id>`
-or `mesa delete --source <ref>`.
-
-### 3. Python SDK
-
-Use `Mesa.add_file` to upload into the local dataset. To search directly
-with dataset credentials, pass the scope to `MesaV4Client.search` and omit
-`session_id`.
-
-```python
-from mesa_client import Mesa, MesaV4Client
-
-with Mesa() as mesa:
-    document = mesa.add_file("document.pdf", wait=True)
-    with MesaV4Client(base_url=mesa.base_url, api_key=mesa.api_key) as client:
-        response = client.search(
-            tenant_id=mesa.tenant_id,
-            workspace_id=mesa.workspace_id,
-            agent_id=mesa.agent_id,
-            dataset_ids=[mesa.dataset_id],
-            document_ids=[document["document_id"]],
-            query="your query",
-        )
-    for hit in response["results"]:
-        print(hit["span"], hit.get("page"))
-```
-
-`Mesa()` uses `MESA_API_KEY` and `MESA_BASE_URL` when they are set, otherwise the local credentials in `~/.mesa/credentials.json`.
-
-An application can poll document status and read the cited revision's text
-or a character slice. See the [upload API](api-reference.md#upload-a-file-with-post-v4documentsupload)
-and [document text API](api-reference.md#document-text-get-v4documentsdocument_idtext).
-
-#### Law versions
-
-Use the same `document_id` for each version and give each version a
-timezone-aware `metadata.valid_from`. This example loads two versions of a
-fictional rule into a fresh local store, newest first, then searches the
-older wording.
-
-```python
-from mesa_client import Mesa
-
-mesa = Mesa()
-for start, days in [("2025-06-01T00:00:00+03:00", 30), ("2024-01-01T00:00:00+03:00", 15)]:
-    mesa.add(
-        f"MADDE 1 - Arşiv başvuru süresi {days} gündür.",
-        source=f"file://arsiv-{start[:10]}.txt",
-        document_id="ornek-arsiv-yonetmeligi",
-        title="Örnek Arşiv Yönetmeliği",
-        metadata={"valid_from": start},
-        wait=True,
-    )
-
-hit = mesa.search("Arşiv başvuru süresi", valid_at="2025-05-31T23:59:59+03:00")[0]
-print(hit["evidence_span"])  # MADDE 1 - Arşiv başvuru süresi 15 gündür.
-```
-
-At `2025-06-01T00:00:00+03:00`, the dated search returns the 30-day
-version. Omit `valid_at` to search active versions. See
-[versioned documents](api-reference.md#versioned-documents) for validity bounds.
-
-### 4. Connect MCP clients
-
-Connect Claude Desktop or any MCP client by generating a ready-to-paste configuration block:
-
-```bash
-mesa mcp config claude-desktop
-```
-
-Use your client's name in place of `claude-desktop`. See the
-[supported MCP clients](../README_MCP.md).
-
-### 5. Internal models (optional)
-
-Models stay off by default. Documents are stored and found through BM25 lexical search without any model running.
-
-To enable semantic vector search and fact extraction with local Ollama, add to `~/.mesa/.env`:
-
-```bash
-MESA_MODEL_ENABLED=true
-MESA_LLM_MODEL=ollama:qwen2.5:7b
-MESA_EMBEDDING_MODEL=ollama:bge-m3
-```
-
-Under decision D31, local `openai_compatible` servers (e.g. vLLM started with `--port 8001`, at `http://127.0.0.1:8001/v1`, since MESA itself uses port 8000) are also permitted with `MESA_EXTERNAL_PROVIDER_ENABLED=false` on a local endpoint and require no API key. For external cloud APIs (OpenAI, Anthropic), set `MESA_EXTERNAL_PROVIDER_ENABLED=true` and supply the required API keys.
-
-Missing extras raise clear, actionable installation messages:
-- Anthropic LLM requires the adapters extra: `pip install "mesa-memory[adapters]"`
-- Local embedding (`sentence-transformers`) → `pip install "mesa-memory[ml]"`
-
-### 6. Docker
-
-Run MESA in a single-user local container (D32):
-
-```bash
-docker compose -f docker-compose.v4.yml up --build -d
-```
-
-Credentials are written to `/var/lib/mesa/credentials.json` in the container volume:
-
-```bash
-docker compose -f docker-compose.v4.yml exec mesa-v4 cat /var/lib/mesa/credentials.json
-docker compose -f docker-compose.v4.yml exec -T mesa-v4 mesa add - --source file://document.txt < document.txt
-docker compose -f docker-compose.v4.yml exec mesa-v4 mesa search "your query"
-```
-
-No environment variables are required: models and external providers default
-off. The image runs `mesa start --host 0.0.0.0` as a non-root user; Compose
-publishes only `127.0.0.1:8000`. Credentials retain a loopback base URL for CLI
-use inside the container. The named volume keeps data and credentials on
-restart. `MESA_API_KEY` and `MESA_PRINCIPAL_ID` are optional for existing
-bootstrap setups; when set, the `mesa` commands inside the container use that
-key first, so add `-e MESA_API_KEY=` after `exec` to use the local credentials. Ollama defaults to `http://host.docker.internal:11434`,
-which reaches the Docker host. The default image includes `adapters`; add
-sentence-transformers with
-`docker compose -f docker-compose.v4.yml build --build-arg MESA_EXTRAS=ml,adapters`.
-
-### 8. Google Colab
-
-Run MESA with GPU-accelerated Ollama in Google Colab:
-[Colab Quickstart](../examples/colab_quickstart.ipynb)
-
-<a id="using-mesa-with-your-llm"></a>
-
-## Using MESA with your LLM
-
-When connecting an external language model to answer questions from MESA memory, supply a system prompt that enforces untrusted data boundaries and precise source citations. `mesa_client` exports `RECOMMENDED_SYSTEM_PROMPT` for this purpose:
-
-```python
-from mesa_client import AsyncMesaV4Client, RECOMMENDED_SYSTEM_PROMPT
-
-# System prompt for answering LLMs:
-system_prompt = RECOMMENDED_SYSTEM_PROMPT
-
-# Retrieved memory context goes into the prompt/message:
-async with AsyncMesaV4Client(base_url="http://127.0.0.1:8000", api_key=api_key) as client:
-    bundle = await client.get_context(session_id=session_id, query="What is the policy?")
-    user_message = f"{bundle['context']}\n\nQuestion: What is the policy?"
-```
-
-The context returned in `bundle["context"]` is deterministically wrapped in `<UNTRUSTED_MEMORY_EVIDENCE>...</UNTRUSTED_MEMORY_EVIDENCE>`. The prompt instructs the model to treat everything within those tags strictly as data, never follow instructions contained within them, cite document and revision IDs for every claim, and decline to answer if the evidence is insufficient.
-
----
-
-## Advanced Operator & Production Profiles
-
-Use Python 3.11–3.13 (the CI matrix) and
-[uv](https://docs.astral.sh/uv/getting-started/installation/).
-Docker with Compose is needed only for containers. Run from the repository:
-
-```bash
-uv sync --locked --python 3.11
-uv pip check
-```
-
-[pyproject.toml](../pyproject.toml) declares supported dependency ranges and
-[uv.lock](../uv.lock) fixes the graph used by CI/Docker. CI pins its installer
-version in the workflow; an installed dependency range is not a model download.
-Choose `--python 3.11`, `3.12` or `3.13` if appropriate. Leaving the interpreter
-unspecified can select a newer Python outside the tested matrix. Use
-`uv sync --locked --python 3.11 --extra dev` when running developer tests.
-
-SQLite (with FTS5) comes from the Python interpreter; LanceDB and PyArrow
-are installed as core Python dependencies. No separate database server, Docker
-container, manual SQL import or ML extra is needed for models-disabled startup.
-Native wheels depend on Python/platform availability. The isolated installation
-verified for this guide is Linux x86_64 / Python 3.11; other platforms were not
-verified in this developer-experience pass.
-
-| Extra | When needed |
-|---|---|
-| `dev` | Local checks and development |
-| `adapters` | Provider SDK integrations |
-| `ml` | Local transformer/embedding dependencies |
-| `loadtest` | Explicit load-test work |
-| `mcp` | Compatibility extra; MCP itself is already a core dependency |
-
-For a provider setup that needs both SDKs and local models:
-
-```bash
-uv sync --locked --python 3.11 --extra adapters --extra ml
-uv pip check
-```
-
-Install only the extras needed by the selected runtime. Model downloads,
-credentials and operational provider endpoints are separate prerequisites.
-
-### Choose topology and storage
-
-| Use | Profile / Compose file | Storage rule |
-|---|---|---|
-| Canonical V4 | `combined` / `docker-compose.v4.yml` | One process owns API, consumers and stores |
-| Local model-disabled startup | `combined`, models/providers false | V4 storage and BM25 search without model calls |
-
-Choose a dedicated absolute writable storage root. Do not use the repository,
-home directory or filesystem root.
-Fresh combined startup initializes the databases automatically; keep SQLite,
-LanceDB and the policy database together under that root. The runtime has
-one owner: stop it before running offline admin or migration commands.
-The runtime does not load `.env` implicitly; the explicit dotenv precedence is
-explained in [configuration](configuration.md).
-
-### Native V4 startup
-
-Before startup:
-
-1. Select a new or compatible V4 storage root and provision credentials/ACL using
-   [runbook section 2](RUNBOOK.md#credential-bootstrap).
-2. Install the selected extraction and embedding dependencies; configure their
-   provider/model identity. External `text-embedding-3-small` requires dimension
-   1536; the local `BAAI/bge-m3` default is 1024. Equal dimensions alone are insufficient.
-3. Supply the issued API key and provider secrets privately to the process.
-
-Example profile after those prerequisites (the storage path is an operator
-example, not an automatically provisioned directory):
-
-```bash
-export MESA_STORAGE_ROOT=/srv/mesa/v4-data
-export MESA_RUNTIME_PROFILE=combined
-export MESA_LOAD_DOTENV=false
-export MESA_MODEL_ENABLED=true
-export MESA_PRINCIPAL_ID=service-api
-# Set MESA_EXTERNAL_PROVIDER_ENABLED to match the reviewed providers.
-.venv/bin/python -m mesa_memory.runtime_entrypoint
-```
-
-The launcher binds `0.0.0.0`; use the explicit loopback command from the
-quickstart for local use. Readiness is `/health/init`; `/health` requires a key.
-The [V4 example](../examples/v4_quickstart.py) creates the catalog and session,
-inserts a source, polls its mutation and checks evidence. Its `docs-*` identities
-require the grants shown in the quickstart.
-
-### Compose
-
-V4 provisions local credentials automatically, with models and external
-providers off. Existing deployments may supply `MESA_API_KEY` and
-`MESA_PRINCIPAL_ID` privately. For model-enabled operation, set the model flags
-and provider configuration above. Run these commands from the repository root:
-
-```bash
-export COMPOSE_FILE=docker-compose.v4.yml
-docker compose config --quiet
-docker compose up --build -d
-docker compose ps
-```
-
-Compose publishes the API on loopback. V4 mounts its named volume under
-`/var/lib/mesa`, with storage at `/var/lib/mesa/data`. Host provisioning against
-`/srv/mesa/v4-data` does not provision that named volume: run admin commands
-against the actual deployment's policy database, with the same credential and
-ACL scope. Do not add a second writer to the volume. Rendering Compose with
-models disabled supports V4 storage and BM25 search.
-
-### Upgrade and verification
-
-Use [migration](RUNBOOK.md#upgrade-v080) for schema/representation upgrades,
-[backup and restore](RUNBOOK.md#6-backup-restore-ve-v4-rebuild) for recovery, and
-[projection rebuild](v4-rebuild-runbook.md) for the offline runner, which
-rebuilds derived stores from an existing V4 ledger.
-
-Run [developer checks](testing.md) for the affected contracts. Passing these
-checks does not replace real-provider, migration/restore or soak release evidence.
-
-## Local quickstart
-
-Run from the repository after `uv sync --locked --python 3.11`. This uses one
-combined process, no model loading and no external provider access. It checks
-installation, credentials and readiness. This profile stores V4 records and finds them through BM25
-without embedding or extraction calls. VECTOR lanes end `SKIPPED`; enable
-embedding later to backfill vectors at startup with the same identity.
-
-### Automatic local bootstrap (`mesa start`)
-
-For standard local usage, `mesa start` provisions local storage (`~/.mesa/data`), initializes credentials (`~/.mesa/credentials.json`), sets model-disabled defaults, and starts the loopback server:
-
-```bash
-mesa start
-```
-
-In another terminal, add and search documents immediately without manually exporting credentials:
-
-```bash
-mesa add notes.txt --source file://notes.txt
-mesa search "notes"
-mesa status
-```
-
-### Provision before startup (manual)
-
-Choose a disposable location on a disk with sufficient free space. The example
-uses a unique child under `~/mesa-doc-demos`; do not reuse user storage.
-`/tmp` may be memory-backed on some hosts.
-
-```bash
-mkdir -p "$HOME/mesa-doc-demos"
-export MESA_STORAGE_ROOT="$(mktemp -d "$HOME/mesa-doc-demos/run-XXXXXX")"
-export MESA_RUNTIME_PROFILE=combined
-export MESA_LOAD_DOTENV=false
+export MESA_HOME="$(mktemp -d)"
+export MESA_PORT="${MESA_PORT:-8000}"
 export MESA_MODEL_ENABLED=false
 export MESA_EXTERNAL_PROVIDER_ENABLED=false
-export MESA_PRINCIPAL_ID=docs-principal
-export MESA_PORT=18080
-export MESA_API_KEY="$(.venv/bin/mesa-v4-admin issue-key --principal docs-principal)"
-.venv/bin/mesa-v4-admin grant-role --principal docs-principal --tenant docs-tenant --role OWNER
-.venv/bin/mesa-v4-admin grant-agent --principal docs-principal --agent docs-agent --permission SESSION_CREATE
+unset MESA_STORAGE_ROOT MESA_API_KEY MESA_BASE_URL
+
+stop_mesa() {
+  if [ -n "${mesa_pid:-}" ]; then
+    kill "$mesa_pid" 2>/dev/null || true
+    wait "$mesa_pid" 2>/dev/null || true
+    unset mesa_pid
+  fi
+}
+
+start_mesa() {
+  mesa start >"$MESA_HOME/server.log" 2>&1 &
+  mesa_pid=$!
+  trap stop_mesa EXIT
+  curl --fail --silent --retry 20 --retry-connrefused \
+    --retry-delay 1 --max-time 3 "http://127.0.0.1:$MESA_PORT/health/init" >/dev/null || {
+    printf 'MESA did not become ready. See %s/server.log\n' "$MESA_HOME" >&2
+    return 1
+  }
+}
+
+start_mesa
+printf '%s\n' 'Section 1. The reading room opens at nine.' >"$MESA_HOME/guide.txt"
+mesa add "$MESA_HOME/guide.txt"
+mesa search "reading room opens"
+mesa status
 ```
 
-Keep the issued key out of logs and shared terminal output. The commands write
-only the new sample policy database. Start the following server in this terminal after provisioning. For client
-commands, use another terminal with the same exported settings and key supplied
-privately; a newly opened terminal does not automatically inherit these exports:
-
-```bash
-.venv/bin/python -m uvicorn mesa_memory.api.server:app --host 127.0.0.1 --port 18080
-```
-
-Wait for readiness:
-
-```bash
-curl --fail http://127.0.0.1:18080/health/init
-curl --fail -H "X-API-Key: $MESA_API_KEY" http://127.0.0.1:18080/health
-```
-
-Readiness returns `{"status":"ready"}` on success; health reports store/queue
-state. The normal launcher binds all interfaces internally; this explicit
-uvicorn command limits the local example to loopback.
-
-With `MESA_API_KEY` already exported, the same checks are available through:
-
-```bash
-MESA_BASE_URL=http://127.0.0.1:18080 make health
-```
-
-This checks `/health/init` and authenticated `/health` with a five-second timeout
-per request. It exits nonzero for missing/invalid credentials, connection errors,
-invalid responses or unhealthy status. It does not open local databases, print
-credentials or follow redirects. The default base URL is `http://127.0.0.1:8000`.
-
-### V4 canonical example (provider prerequisites)
-
-`examples/v4_quickstart.py` supplies required title/source/catalog IDs, freezes
-one chunk, polls the mutation and checks source-linked evidence. It works with
-the model-disabled combined environment above through BM25. For vector search
-and fact extraction, set `MESA_MODEL_ENABLED=true` (or enable each model flag
-separately), install the needed `ml`/`adapters` extras and provision reviewed
-provider/model/dimension settings. Retain the same ACL and one-owner rules.
-A concrete provider environment is in [minimal V4 provider setup](configuration.md#minimal-v4-provider-setup).
-Follow [configuration](configuration.md)
-and [installation](getting-started.md#installation). The exact command after those prerequisites is:
-
-```bash
-.venv/bin/python -m examples.v4_quickstart
-```
-
-The example prints assertion IDs and source/dataset/chunk references after
-checking `COMMITTED` and provenance, then ends the session. The client's `with`
-block closes HTTP resources; ending a session is a separate server operation.
-`wait_until_committed()` can return failed terminal states; always check
-`state == "COMMITTED"`. A timeout does not cancel the mutation: inspect
-`client.status(mutation_id)` before deciding what to retry.
-
-Developer-experience verification on Linux/Python 3.11 used an isolated,
-non-editable locked Core install, models-disabled startup/health checks,
-and this V4 example with explicitly injected deterministic extraction/embedding.
-SQLite, LanceDB and background processing were real. No real
-model was called. Real-provider V4 and Docker were **not verified** in this pass.
-
-### Restart and cleanup
-
-Stop this example's server with Ctrl-C and restart it with the same environment.
-Query the saved session/mutation while the session is active. Do not run two
-writers. End the session only after retrieval. Reads after end depend on retained
-permissions; new writes require an active session. `end_session` can return
-`status=pending` with a `finalization_id`: finalization is durable background
-work, not an HTTP client close operation.
-
-After stopping the server, retain or remove only this newly created sample root
-using your file manager. No generic database/volume removal command is provided.
-If the port is occupied choose another loopback port and set `MESA_BASE_URL`
-for the example accordingly.
-
-<a id="python-sdk"></a>
+`mesa add` waits for the document revision to become searchable. The runtime
+stores V4 records and finds them through BM25 with models off. It accepts
+PDF, DOCX, UDF, XLSX, TXT and Markdown uploads, and text on stdin with a source
+reference. [File upload API](api-reference.md#upload-a-file-with-post-v4documentsupload)
 
 ## Python SDK
 
-For local scripting, rapid prototyping, and agent applications, the high-level `Mesa` client provides a clean interface with automatic credential discovery and catalog session handling:
+`Mesa()` reads the local credentials created by `mesa start`. Use
+`document_ids` to restrict a search to specific documents and
+`get_document_text` to reopen an exact cited span. Offsets are zero-based,
+with an exclusive end.
 
-```python
-from pathlib import Path
-
+```bash
+python - <<'PY'
 from mesa_client import Mesa
 
-mesa = Mesa()
-mesa.add(Path("kira.txt").read_text(), source="file://kira.txt", wait=True)
-print(mesa.context("kira ne zaman ödenir?"))
+with Mesa() as mesa:
+    doc = mesa.add(
+        "Section 2. Borrowed books are due in fourteen days.",
+        source="demo://library/loan-rules",
+        title="Loan rules",
+        wait=True,
+    )
+    hits = mesa.search("borrowed books are due", document_ids=[doc["document_id"]])
+    citation = hits[0]
+    span = citation["span"]
+    source = mesa.get_document_text(
+        citation["document_id"],
+        revision_id=citation["revision_id"],
+        start=span["start"],
+        end=span["end"],
+    )
+    print(source["text"])
+PY
 ```
 
-`Mesa()` automatically discovers connection settings and API keys from environment variables (`MESA_BASE_URL`, `MESA_API_KEY`) or from `<MESA_HOME or ~/.mesa>/credentials.json` provisioned by `mesa start`. On first use, it ensures the configured workspace and dataset exist, starts a session, and reuses it for subsequent additions, searches, and context retrieval.
+See [scope and SDK methods](api-reference.md#v4-python-sdk) for explicit
+tenant, workspace, dataset and session calls.
 
-### Waiting for documents
+### Law versions
 
-Ingesting documents is durable and chunked. By default, `mesa add` waits until all chunks of the document's revision are committed and the revision becomes `ACTIVE` (printing "searchable" on completion); use `--no-wait` to submit without waiting. In Python, `mesa.add(..., wait=True)` polls the catalog revision status once per second until it becomes active or raises on failure/timeout, guaranteeing the entire document is searchable before subsequent queries execute.
+Give each version the same source reference. MESA orders revisions by
+`metadata.valid_from` and uses `valid_at` to select the wording in force on
+the requested date.
 
-<a id="using-mesa-with-your-llm"></a>
+```bash
+python - <<'PY'
+from mesa_client import Mesa
 
-## Using MESA with your LLM
-
-When connecting an external language model to answer questions from MESA memory,
-supply a system prompt that enforces untrusted data boundaries and precise source citations.
-`mesa_client` exports `RECOMMENDED_SYSTEM_PROMPT` for this purpose:
-
-```python
-from mesa_client import AsyncMesaV4Client, RECOMMENDED_SYSTEM_PROMPT
-
-# System prompt for answering LLMs:
-system_prompt = RECOMMENDED_SYSTEM_PROMPT
-
-# Retrieved memory context goes into the prompt/message:
-async with AsyncMesaV4Client(base_url="http://127.0.0.1:8000", api_key=api_key) as client:
-    bundle = await client.get_context(session_id=session_id, query="What is the policy?")
-    user_message = f"{bundle['context']}\n\nQuestion: What is the policy?"
+with Mesa() as mesa:
+    source = "demo://library/article-1"
+    first = mesa.add(
+        "Article 1. The reading room closes at five.",
+        source=source,
+        metadata={"valid_from": "2024-01-01T00:00:00Z"},
+        wait=True,
+    )
+    mesa.add(
+        "Article 1. The reading room closes at six.",
+        source=source,
+        metadata={"valid_from": "2025-01-01T00:00:00Z"},
+        wait=True,
+    )
+    hits = mesa.search(
+        "reading room closes",
+        document_ids=[first["document_id"]],
+        valid_at="2024-06-01T00:00:00Z",
+    )
+    print(hits[0]["evidence_span"])
+PY
 ```
 
-The context returned in `bundle["context"]` is deterministically wrapped in
-`<UNTRUSTED_MEMORY_EVIDENCE>...</UNTRUSTED_MEMORY_EVIDENCE>`. The prompt instructs
-the model to treat everything within those tags strictly as data, never follow
-instructions contained within them, cite document and revision IDs for every claim,
-and decline to answer if the evidence is insufficient.
+See [versioned documents](api-reference.md#versioned-documents) for supported
+validity intervals and revision behavior.
 
+## Set up a model and ask a question
+
+Run `mesa setup` for the interactive prompts. The example below uses the
+non-interactive form and keeps embeddings off. Before running it, set
+`CHAT_BASE_URL` to your OpenAI-compatible model server's API base URL, such
+as `http://127.0.0.1:11434/v1`, and `CHAT_MODEL` to a model it serves. Set
+`MESA_LLM_API_KEY` privately if the endpoint requires a key. Setup verifies
+the selected model and writes the configuration to `$MESA_HOME/.env`. The
+server reads it on the next start.
+
+```bash
+stop_mesa
+mesa setup --non-interactive --embedding none --llm openai-compatible \
+  --llm-base-url "${CHAT_BASE_URL:?Set CHAT_BASE_URL to the model API base URL}" \
+  --llm-model "${CHAT_MODEL:?Set CHAT_MODEL to a model served by that endpoint}"
+start_mesa
+
+mesa ask "When does the reading room open?"
+mesa ask "What is the library's annual budget?"
+```
+
+A grounded answer includes citations. When the retrieved evidence cannot
+answer the question, MESA returns `not_found`. The library documents in this
+example contain opening hours and loan rules.
+
+## Summarize a document
+
+Pass the document ID reported by `mesa add`. Here, adding the same file again
+returns the existing document ID.
+
+```bash
+document_id="$(mesa add "$MESA_HOME/guide.txt" --json | python -c 'import json, sys; print(json.load(sys.stdin)["document_id"])')"
+mesa summarize "$document_id"
+```
+
+Use `--revision-id` to summarize a specific revision. The default is the
+active revision. [Summary API](api-reference.md#summarize-a-document)
+
+## Use the chat endpoint
+
+Point an OpenAI-compatible client at the MESA server's `/v1` base URL with
+the **MESA API key**. The model value `mesa` selects the server's default
+dataset scope. The configured chat model supplies the answer.
+
+```bash
+python - <<'PY'
+import json
+import os
+from pathlib import Path
+
+from openai import OpenAI
+
+credentials = json.loads((Path(os.environ["MESA_HOME"]) / "credentials.json").read_text())
+with OpenAI(base_url=credentials["base_url"] + "/v1", api_key=credentials["api_key"]) as client:
+    reply = client.chat.completions.create(
+        model="mesa",
+        messages=[{"role": "user", "content": "When does the reading room open?"}],
+    )
+    print(reply.choices[0].message.content)
+    print(reply.model_dump()["mesa_citations"])
+PY
+```
+
+[Chat request and response fields](api-reference.md#openai-compatible-chat)
+
+## Give your application LLM retrieval tools
+
+Pass `get_openai_tools()` to your application's own tool-calling model.
+Execute an approved tool call with the SDK and return its result to your
+application. The tools work with the no-model MESA server as well.
+
+```bash
+python - <<'PY'
+from mesa_client import Mesa, execute_tool_call, get_openai_tools
+
+tools = get_openai_tools()
+print([tool["function"]["name"] for tool in tools])
+
+with Mesa() as mesa:
+    result = execute_tool_call(
+        mesa,
+        {"function": {"name": "search", "arguments": '{"query":"reading room opens"}'}},
+    )
+    print(result["results"][0]["evidence_span"])
+PY
+```
+
+[MESA tool schemas](api-reference.md#openai-format-retrieval-tools)
+
+## Connect an MCP client
+
+Generate the configuration snippet for Codex in an owner-only file.
+
+```bash
+(umask 077; mesa mcp config codex > "$MESA_HOME/mesa-mcp.toml")
+```
+
+Paste the snippet into your MCP configuration and keep the embedded MESA
+API key private. Recall works without an LLM. `mesa_ask` and
+`mesa_summarize` use the server's configured chat model. [MCP guide](../README_MCP.md)
+
+To finish the example, run `stop_mesa` in the same shell. The demo store and
+server log remain in `$MESA_HOME`.
+
+## Deployment and operations
+
+The local `mesa start` command provisions credentials for you. For a direct
+combined runtime, use a dedicated writable storage root and follow credential
+bootstrap for an existing key or for `MESA_API_KEY` and `MESA_PRINCIPAL_ID`.
+The authenticated health check and the repository's
+`python -m examples.v4_quickstart` are covered in the operational guides.
+[Credential bootstrap](RUNBOOK.md#credential-bootstrap) ·
+[Configuration precedence](configuration.md#startup-and-precedence) ·
+[Scoped V4 example](../examples/v4_quickstart.py)
+
+Run `docker compose up --build -d` with
+`COMPOSE_FILE=docker-compose.v4.yml` from the checkout. The supplied service
+binds the published port on loopback, provisions local credentials and keeps
+`MESA_MODEL_ENABLED=false` and `MESA_EXTERNAL_PROVIDER_ENABLED=false` by
+default. Use `MESA_MODEL_ENABLED=true` to enable embeddings through the
+combined model flag, or set `MESA_EMBEDDING_ENABLED=true` directly.
+[Docker configuration](../docker-compose.v4.yml) ·
+[Model configuration](configuration.md)
+
+[Backup and migration](RUNBOOK.md) ·
+[Offline projection rebuild](v4-rebuild-runbook.md) ·
+[Developer checks](testing.md) ·
+[Colab notebook](../examples/colab_quickstart.ipynb)

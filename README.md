@@ -5,7 +5,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](https://github.com/Yasou13/MESA/blob/main/LICENSE)
 [![Python: 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://github.com/Yasou13/MESA/blob/main/pyproject.toml)
 
-MESA is an LLM-independent, source-linked memory engine for AI applications. It stores documents with exact provenance (document, revision, passage) and returns verifiable, scoped evidence over HTTP, Python SDK, and MCP. MESA returns evidence; it never writes the final answer or hallucinates sources.
+MESA stores source documents and finds passages an application is authorized to read. Every search hit links to its document, revision and location. Ingestion and BM25 search work without models. Add an embedding model for semantic search or a chat model for answers with citations and document summaries.
 
 Package version: **0.9.6**. V4 is the current API. Production qualification remains at the release candidate stage: **NO-GO** until the [release gates](https://github.com/Yasou13/MESA/blob/main/docs/release.md) pass.
 
@@ -15,7 +15,7 @@ Package version: **0.9.6**. V4 is the current API. Production qualification rema
 pip install mesa-memory
 ```
 
-Supported on Linux and macOS natively. On Windows, run via Docker or WSL.
+Supported on Linux and macOS natively. On Windows, run via Docker or WSL. Install this checkout with `pip install -e .` to try the Round 26 model features.
 
 ## Start the server
 
@@ -48,29 +48,29 @@ with Mesa() as mesa:
 
 See [Law versions](docs/getting-started.md#law-versions) to store revisions of a law and search the wording in force on a date.
 
+## Optional models and answers
+
+Run `mesa setup` to choose embeddings and a chat model. Restart `mesa start`
+to apply the saved settings. With a chat model configured, run
+`mesa ask "your question"` for a cited answer or `mesa summarize <document-id>`
+for a single-document summary. Applications can call `POST /v1/chat/completions`
+with a MESA API key and model `mesa`.
+
+The SDK also exports OpenAI-format `search`, `read_text` and `list_documents`
+tools for applications that handle their own model calls.
+[Model configuration](docs/configuration.md) ·
+[Answering and tools](docs/api-reference.md#llm-answers-and-summaries)
+
 ## Connect MCP clients
 
-Generate a ready-to-paste configuration block for Claude Desktop or any MCP client:
+Run `mesa mcp config codex` or select a supported client to print its
+configuration. MCP supports agent memory insert and recall, plus model-backed
+`mesa_ask` and `mesa_summarize`.
+[MCP guide](README_MCP.md)
 
-```bash
-mesa mcp config claude-desktop
-```
-
-## Internal models (optional)
-
-Models stay off by default. Documents are stored and found through BM25 lexical search without any model running. `FactExtractionService` owns canonical V4 extraction when explicitly enabled (`MESA_EXTRACTION_ENABLED=true`).
-
-Before setting `MESA_MODEL_ENABLED=true`, pull or download the configured embedding model (for example `ollama pull bge-m3` for Ollama). To enable semantic vector search with local Ollama, add to `~/.mesa/.env`:
-
-```bash
-MESA_MODEL_ENABLED=true
-MESA_EMBEDDING_MODEL=ollama:bge-m3
-# To also enable open-ended fact extraction (defaults to false):
-# MESA_EXTRACTION_ENABLED=true
-# MESA_LLM_MODEL=ollama:qwen2.5:7b
-```
-
-Local `openai_compatible` servers (such as vLLM started with `--port 8001`, at `MESA_LLM_BASE_URL=http://127.0.0.1:8001/v1`; MESA itself uses port 8000) are also allowed with `MESA_EXTERNAL_PROVIDER_ENABLED=false` on a local endpoint (`localhost`, `127.0.0.1`, `::1`, `host.docker.internal`) and require no API key (D31). For cloud model providers (OpenAI, Anthropic), set `MESA_EXTERNAL_PROVIDER_ENABLED=true` and provide the required API keys.
+Canonical V4 fact extraction is owned by `FactExtractionService` and can be
+enabled separately with `MESA_EXTRACTION_ENABLED=true` and a configured chat
+model.
 
 ## Docker
 
@@ -88,7 +88,7 @@ docker compose -f docker-compose.v4.yml exec -T mesa-v4 mesa add - --source file
 docker compose -f docker-compose.v4.yml exec mesa-v4 mesa search "your query"
 ```
 
-No variables are required; models and external providers default off. If you set `MESA_API_KEY` and `MESA_PRINCIPAL_ID` for existing HTTP clients, the server accepts that key too, and the `mesa` commands inside the container use it first; add `-e MESA_API_KEY=` after `exec` to use the local credentials instead. The image includes `adapters`; build with `--build-arg MESA_EXTRAS=ml,adapters` to add local sentence-transformers. Ollama defaults to `http://host.docker.internal:11434` (the Docker host).
+No variables are required; models and external providers default off. If you set `MESA_API_KEY` and `MESA_PRINCIPAL_ID` for existing HTTP clients, the server accepts that key too, and the `mesa` commands inside the container use it first; add `-e MESA_API_KEY=` after `exec` to use the local credentials instead. Build with `--build-arg MESA_EXTRAS=ml` to add local sentence-transformers. Ollama defaults to `http://host.docker.internal:11434` (the Docker host).
 
 ## Google Colab
 
@@ -105,12 +105,12 @@ See [testing](https://github.com/Yasou13/MESA/blob/main/docs/testing.md) for loc
 
 ## Documentation
 
-- [Getting Started Guide](https://github.com/Yasou13/MESA/blob/main/docs/getting-started.md)
-- [Configuration Reference](https://github.com/Yasou13/MESA/blob/main/docs/configuration.md)
-- [API Reference](https://github.com/Yasou13/MESA/blob/main/docs/api-reference.md)
-- [MCP Integration Guide](https://github.com/Yasou13/MESA/blob/main/README_MCP.md)
-- [Architecture](https://github.com/Yasou13/MESA/blob/main/ARCHITECTURE.md)
-- [Documentation Index](https://github.com/Yasou13/MESA/blob/main/docs/README.md)
+- [Getting Started Guide](docs/getting-started.md)
+- [Configuration Reference](docs/configuration.md)
+- [API Reference](docs/api-reference.md)
+- [MCP Integration Guide](README_MCP.md)
+- [Architecture](ARCHITECTURE.md)
+- [Documentation Index](docs/README.md)
 
 ## License
 

@@ -1,20 +1,19 @@
 # MESA MCP
 
-MESA exposes its V4 API to MCP clients through the `mesa-mcp` stdio server
-(`mesa_mcp/server.py` + `mesa_mcp/v4_service.py`). Every MCP client connects to
-the same `mesa-mcp` binary with one command and one config snippet.
+The `mesa-mcp` stdio server gives MCP clients access to the V4 API. Ingestion,
+recall and context work with models off. `mesa_ask` and `mesa_summarize` use
+the chat model configured on the MESA server.
 
-## Quick start: `mesa mcp config <client>`
+## Connect a local server
 
-1. Start a local MESA instance (creates `~/.mesa/credentials.json`):
+1. Start a local MESA instance. It creates `~/.mesa/credentials.json`.
 
 ```bash
 mesa start
 ```
 
-2. Print a ready-to-paste configuration snippet for your MCP client (prints to
-   stdout without modifying any files; a plaintext-key warning is written to
-   stderr):
+2. Run the command for your client and paste its stdout into your MCP
+   configuration. Keep the snippet private because it contains the MESA API key.
 
 ```bash
 mesa mcp config claude-code
@@ -66,6 +65,9 @@ MESA_DATASET_ID = "default"
 MESA_ACTOR_ID = "local-agent"
 ```
 
+For answering or summaries, run `mesa setup` and restart `mesa start`.
+[Model setup](docs/configuration.md#local-model-setup)
+
 ## Tools
 
 `mesa-mcp` exposes eight stdio tools using the MCP client's own tool approval and
@@ -74,7 +76,7 @@ database and works from any working directory):
 
 - `mesa_health`: checks MESA API health and V4 capability without returning
   credentials.
-- `mesa_recall`: searches V4 dataset memory and wraps every returned passage as
+- `mesa_recall`: searches authorized passages and wraps every returned passage as
   untrusted data. Supports sessionless search when `dataset_ids` is passed or
   `use_session: false` is set (allowing keys with dataset `READER` and
   `SESSION_CREATE` for the actor agent to search without starting a write
@@ -83,10 +85,10 @@ database and works from any working directory):
   `revision_id`, `revision_number`, `chunk_id`, `span` (`{"start", "end"}`),
   `valid_from`, and `valid_to`. PDF results carry `page`. XLSX results
   carry `sheet`, `row_start`, and `row_end`.
-- `mesa_ask`: answers a question strictly from retrieved MESA evidence with
-  verified citations (`document_id`, `revision_id`, `revision_number`, `span`,
-  validity dates, and PDF/XLSX locations) or returns `not_found: true`. Returns
-  an error when no LLM is configured.
+- `mesa_ask`: takes a `question` and returns a cited answer or `not_found: true`.
+  Accepts document and date filters. The defaults are `expand: none` and
+  `retrieval_mode: single`. Use a citation's `revision_id` and `span` to reopen
+  the exact text. PDF and XLSX citations also include the available location.
 - `mesa_summarize`: summarizes a single document revision (default: ACTIVE or
   an explicit `revision_id`), naming the articles, sections, or pages relied on.
 - `mesa_get_context`: builds a token-bounded context bundle through the V4
@@ -95,9 +97,10 @@ database and works from any working directory):
 - `mesa_improve`: creates a new revision of an existing V4 document.
 - `mesa_forget`: purges a document from the catalog.
 
-Add a source file using `mesa add <file>`, then recall it using its document
-ID. The upload and citation text endpoints are documented in the
-[HTTP API reference](docs/api-reference.md#upload-a-file-with-post-v4documentsupload).
+Add a file using `mesa add <file>`, then use its document ID to restrict recall
+or to request a summary. Ask and summarize surface the server's `no LLM configured`
+error when there is no chat model. [Answer and summary API](docs/api-reference.md#llm-answers-and-summaries) ·
+[Document text API](docs/api-reference.md#document-text-get-v4documentsdocument_idtext)
 
 ## Smoke check
 

@@ -11,6 +11,7 @@ Paket sürümü 0.9.6; V4 güncel API'dir.
 | MESA'yı kurup ilk örneği çalıştırmak | [Kurulum ve ilk çalıştırma](getting-started.md) |
 | Model, provider, port veya kapasite ayarlamak | [Yapılandırma](configuration.md) |
 | HTTP, Python SDK veya terminal komutlarıyla kullanmak | [API, SDK ve CLI](api-reference.md) |
+| Kaynaklı yanıt, belge özeti veya sohbet uç noktasını kullanmak | [Yanıt ve özet API'si](api-reference.md#llm-answers-and-summaries) |
 | Codex/Antigravity bağlamak | [MCP rehberi](../README_MCP.md) |
 | Tenant, dataset, revision ve mutation kavramlarını anlamak | [Kavramlar ve veri ekleme](concepts-and-ingestion.md) |
 | Sistemin nasıl çalıştığını ve sınırlarını anlamak | [Tek sayfalık mimari özeti](../ARCHITECTURE.md), [ayrıntılı modül rehberi](architecture-v4.md#module-ownership) |
@@ -23,7 +24,7 @@ Paket sürümü 0.9.6; V4 güncel API'dir.
 
 ## Birleştirilen konular nerede?
 
-- Docker ve çalışma profilleri: [kurulum](getting-started.md#installation).
+- Docker ve çalışma profilleri: [dağıtım ve operasyon](getting-started.md#deployment-and-operations).
 - Terminal komutları: [CLI](api-reference.md#cli).
 - MCP yönetim endpoint'leri ve onay kimlikleri: [control API](api-reference.md#mcp-control-api).
 - Hata tablosu: [troubleshooting](RUNBOOK.md#troubleshooting).

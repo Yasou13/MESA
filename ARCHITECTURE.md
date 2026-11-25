@@ -48,16 +48,24 @@ recognized statute and article matches. Operators can enable a reranker.
 Applications integrate through the HTTP API, the Python SDK or the MCP
 tools. Data producers acquire source files. MESA extracts text from supported
 uploads and exposes revision status, text and citation spans so a viewer
-can display the evidence. Applications handle answer generation and the user
-interface. [HTTP API](docs/api-reference.md) ·
+can display the evidence. Applications own their user interface. They can
+build answers from the retrieved passages or use MESA's optional chat
+adapter. [HTTP API](docs/api-reference.md) ·
 [Python SDK](docs/api-reference.md#v4-python-sdk) · [MCP tools](README_MCP.md#tools) ·
 [Ecosystem responsibilities](docs/architecture-v4.md#ecosystem-and-ownership)
 
-## What MESA does not do yet
+## Optional answering and summaries
 
-- MESA does not generate answers with an LLM. Built-in answering is planned
-  for Round 26; until then, applications write answers from the passages MESA
-  returns.
+The OpenAI-compatible adapter can generate a grounded answer from authorized
+passages or summarize one document revision. Ask wraps passages as untrusted
+data, checks returned citations against the supplied passages and can abstain
+with `not_found`. The chat completions endpoint uses the same ask path.
+Applications can also use the SDK's retrieval tools with their own model.
+Ingestion and search remain available without the chat model.
+[Answering and tools](docs/api-reference.md#llm-answers-and-summaries)
+
+## Scope
+
 - MESA has no graph database. Legal citations and article identities are
   stored and looked up in SQLite.
 - LLM fact extraction is off by default and is not covered by the MVP
