@@ -145,7 +145,7 @@ def create_chat_router(
 ) -> APIRouter:
     router = APIRouter(prefix="/v1", tags=["openai-compatible"])
 
-    @router.post("/chat/completions", response_model=None)
+    @router.post("/chat/completions", response_model=None)  # type: ignore[untyped-decorator]
     async def chat_completions(
         request: Request,
         payload: OpenAIChatCompletionsRequest,

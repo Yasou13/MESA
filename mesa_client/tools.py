@@ -168,6 +168,7 @@ def execute_tool_call(
     """Execute one OpenAI tool call ('search', 'read_text', 'list_documents') against MESA."""
     name, args = _unpack_tool_call(tool_call)
 
+    resolved_agent: str | None
     if isinstance(client, Mesa):
         resolved_tenant = tenant_id or client.tenant_id
         resolved_workspace = workspace_id or client.workspace_id
