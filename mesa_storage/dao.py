@@ -1420,11 +1420,11 @@ class MemoryDAO:
 
                 if expand == "neighbors":
                     async with db.execute(
-                        "SELECT c.content_payload FROM source_chunks c "
+                        "SELECT c.content_payload, c.char_start, c.char_end FROM source_chunks c "
                         "WHERE c.tenant_id = ? AND c.dataset_id = ? AND c.revision_id = ? "
                         "AND c.ordinal BETWEEN ? AND ? "
                         f"AND {authorized_chunk_exists} "
-                        "ORDER BY c.ordinal ASC, c.chunk_id ASC",
+                        "ORDER BY c.char_start, c.ordinal, c.chunk_id",
                         (
                             tenant_id,
                             phys_ds_id,
@@ -1463,7 +1463,7 @@ class MemoryDAO:
                     seed_law_id = str(legal_row[0])
                     seed_article_id = str(legal_row[1])
                     async with db.execute(
-                        "SELECT c.content_payload FROM source_chunks c "
+                        "SELECT c.content_payload, c.char_start, c.char_end FROM source_chunks c "
                         "WHERE c.tenant_id = ? AND c.dataset_id = ? AND c.revision_id = ? "
                         "AND EXISTS ("
                         "SELECT 1 FROM v4_assertions a "
@@ -1475,7 +1475,7 @@ class MemoryDAO:
                         "AND a.law_id = ? AND a.article_id = ?"
                         f"{extra_prov_sql}"
                         ") "
-                        "ORDER BY c.ordinal ASC, c.chunk_id ASC",
+                        "ORDER BY c.char_start, c.ordinal, c.chunk_id",
                         (
                             tenant_id,
                             phys_ds_id,
@@ -1488,7 +1488,34 @@ class MemoryDAO:
                     ) as cursor:
                         rows = await cursor.fetchall()
 
-                joined = "".join(str(r[0] or "") for r in rows).strip()
+                pieces: list[str] = []
+                previous_text = ""
+                previous_start = previous_end = 0
+                for content, start, end in rows:
+                    text = str(content or "")
+                    if not text:
+                        continue
+                    if start < 0 or end - start != len(text):
+                        pieces.append(text)
+                        previous_text = ""
+                        previous_end = 0
+                        continue
+
+                    overlap = min(previous_end, end) - start
+                    offset = start - previous_start
+                    # Direct inserts can share the default start of zero. Only
+                    # clip overlapping offsets when their source text agrees.
+                    if overlap > 0 and text[:overlap] == previous_text[
+                        offset : offset + overlap
+                    ]:
+                        if end <= previous_end:
+                            continue
+                        pieces.append(text[overlap:])
+                    else:
+                        pieces.append(text)
+                    previous_text, previous_start, previous_end = text, start, end
+
+                joined = "".join(pieces).strip()
                 if joined:
                     expanded[idx] = joined
 

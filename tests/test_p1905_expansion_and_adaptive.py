@@ -306,6 +306,47 @@ async def test_expand_neighbors_on_ask_and_context_keeps_original_span(
 
 
 @pytest.mark.asyncio
+async def test_expansion_merges_contained_and_overlapping_source_spans(d106_runtime):
+    source = "Önce ortak bölüm ve sonuç."
+    spans = [(0, 17), (5, 10), (11, len(source))]
+    chunks = [
+        (f"overlap-c{ordinal}", source[start:end], {"law_id": "5237", "article_id": "1"})
+        for ordinal, (start, end) in enumerate(spans)
+    ]
+    async with d106_runtime() as rt:
+        session_id = await _start_session(rt["client"], rt["owner_headers"])
+        await _insert_chunks(
+            rt["client"],
+            rt["owner_headers"],
+            session_id,
+            document_id="doc-overlap",
+            revision_id="rev-overlap",
+            chunks=chunks,
+        )
+        dao = rt["dao"]
+        await _drain_all_work(dao)
+
+        # The direct chunk insert route does not accept document-relative offsets.
+        async with dao._sql.connection() as db:
+            await db.executemany(
+                "UPDATE source_chunks SET char_start = ?, char_end = ? "
+                "WHERE tenant_id = 't1' AND content_payload = ?",
+                [(start, end, text) for (start, end), (_, text, _) in zip(spans, chunks)],
+            )
+            await db.commit()
+
+        for mode in ("neighbors", "article"):
+            expanded = await dao.expand_v4_passages(
+                tenant_id="t1",
+                agent_id="local-agent",
+                dataset_ids=["ds1"],
+                results=[{"revision_id": "rev-overlap", "chunk_id": "overlap-c1"}],
+                expand=mode,
+            )
+            assert expanded == {0: source}
+
+
+@pytest.mark.asyncio
 async def test_expand_article_fetches_whole_article_without_bleeding_next_article(
     d106_runtime,
 ) -> None:
