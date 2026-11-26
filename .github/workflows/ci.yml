@@ -716,7 +716,14 @@ jobs:
                       mcp_proc.terminate()
                       mcp_proc.wait(timeout=10)
               finally:
-                  server.terminate()
+                  if sys.platform == "win32":
+                      subprocess.run(
+                          ["taskkill", "/F", "/T", "/PID", str(server.pid)],
+                          capture_output=True,
+                          check=False,
+                      )
+                  else:
+                      server.terminate()
                   try:
                       server.wait(timeout=15)
                   except subprocess.TimeoutExpired:
@@ -880,7 +887,14 @@ jobs:
                       mcp_proc.terminate()
                       mcp_proc.wait(timeout=10)
               finally:
-                  server.terminate()
+                  if sys.platform == "win32":
+                      subprocess.run(
+                          ["taskkill", "/F", "/T", "/PID", str(server.pid)],
+                          capture_output=True,
+                          check=False,
+                      )
+                  else:
+                      server.terminate()
                   try:
                       server.wait(timeout=15)
                   except subprocess.TimeoutExpired:
