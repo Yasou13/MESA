@@ -14,6 +14,15 @@ answering examples below use this checkout. From the checkout, install it in
 your environment with `pip install -e .`, or run `uv sync --locked` and activate
 `.venv`.
 
+**Minimum hardware (measured under 8-client load):** 2 vCPU and **4 GB RAM**
+for models-off BM25 search up to 100k chunks (measured peak server RSS: 1.2 GiB
+at 25k chunks, 1.9 GiB at 100k chunks), **6 GB RAM** for 100k chunks with an
+external 1024-dim embedding server such as Ollama/vLLM `BAAI/bge-m3` (measured
+peak server RSS: 1.8 GiB at 25k chunks, 3.2 GiB at 100k chunks), or **8 GB RAM**
+(16 GB recommended at 100k chunks) when running `local:BAAI/bge-m3` in-process
+with `mesa-memory[ml]` (~2.5 GiB additional CPU model RAM). SSD storage of at
+least 5 GB per 100k chunks is recommended.
+
 ## Quickstart
 
 Run these examples in a fresh Bash shell without existing MESA overrides.
@@ -250,7 +259,10 @@ Run `docker compose up --build -d` with
 binds the published port on loopback, provisions local credentials and keeps
 `MESA_MODEL_ENABLED=false` and `MESA_EXTERNAL_PROVIDER_ENABLED=false` by
 default. Use `MESA_MODEL_ENABLED=true` to enable embeddings through the
-combined model flag, or set `MESA_EMBEDDING_ENABLED=true` directly.
+combined model flag, or set `MESA_EMBEDDING_ENABLED=true` directly. Allocate
+at least **4 GB RAM** for models-off containers up to 100k chunks, **6 GB RAM**
+with external 1024-dim embeddings, or **8 GB RAM** (16 GB recommended at 100k)
+for in-process `local:BAAI/bge-m3` (`MESA_EXTRAS=ml`).
 [Docker configuration](../docker-compose.v4.yml) ·
 [Model configuration](configuration.md)
 

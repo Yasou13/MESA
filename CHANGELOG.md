@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Updated `mesa_evals/soak_test.py` for models-off chunk retrieval recall checks
+  and remote `/metrics` drain measurability, and added measured minimum hardware
+  requirements to `docs/getting-started.md` (D113).
 - Increased the SQLite `PRAGMA busy_timeout` default from 5 s to 15 s
   (`mesa_storage/sqlite_engine.py`) so transient WAL checkpoint or FTS5 merge
   pauses at 100k+ chunks and under parallel writers wait rather than returning

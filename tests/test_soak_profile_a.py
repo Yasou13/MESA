@@ -699,3 +699,45 @@ async def test_embedded_soak_run_integration(
     assert "max_consecutive_health_failures" in tick_sample
     assert "runtime" in tick_sample
     assert "resources" in tick_sample
+
+
+def test_is_subject_in_search_results_matches_models_off_chunk_passages() -> None:
+    results = [
+        {
+            "document_id": "soak-doc-000001",
+            "evidence_span": "SOAK-000001 is linked to CASE-000001.",
+            "provenance": [{"evidence_span": "SOAK-000001 is linked to CASE-000001."}],
+        }
+    ]
+    assert soak_test._is_subject_in_search_results("SOAK-000001", results)
+    assert not soak_test._is_subject_in_search_results("SOAK-999999", results)
+
+
+@pytest.mark.asyncio
+async def test_remote_drain_succeeds_from_metrics_backlog() -> None:
+    class _FakeResp:
+        def __init__(self, status_code: int, text: str = "", data: dict | None = None):
+            self.status_code = status_code
+            self.text = text
+            self._data = data or {}
+
+        def json(self) -> dict:
+            return self._data
+
+    class _FakeClient:
+        async def get(self, path: str):
+            if path == "/health":
+                return _FakeResp(200, data={"status": "healthy"})
+            if path == "/metrics":
+                return _FakeResp(
+                    200,
+                    text="mesa_v4_projection_backlog 0.0\nmesa_v4_projection_dlq 0.0\n",
+                )
+            return _FakeResp(404)
+
+    completed, remaining, measurable = await soak_test._drain_runtime(
+        _FakeClient(), None, timeout=2.0, interval=0.05
+    )
+    assert completed is True
+    assert remaining == 0
+    assert measurable is True

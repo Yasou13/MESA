@@ -503,32 +503,61 @@ async def query_runtime_state(
                 "dead_letters": None,
             }
 
-    # Remote mode: check Prometheus /metrics endpoint
+    # Remote mode: prefer structured /health counters, fall back to /metrics.
+    pending_mutations: int | None = None
+    failed_mutations: int | None = None
+    backlog: int | None = None
+    dlq: int | None = None
     try:
-        resp = await client.get("/metrics")
-        if resp.status_code == 200:
-            text = resp.text
-            backlog = None
-            dlq = None
-            for line in text.splitlines():
-                if line.startswith("mesa_v4_projection_backlog "):
-                    backlog = int(float(line.split()[1]))
-                elif line.startswith("mesa_v4_projection_dlq "):
-                    dlq = int(float(line.split()[1]))
-            return {
-                "pending_mutations": None,
-                "failed_mutations": None,
-                "projection_backlog": backlog,
-                "dead_letters": dlq,
-            }
+        h_resp = await client.get("/health")
+        if h_resp.status_code == 200:
+            payload = h_resp.json()
+            if isinstance(payload, dict):
+                v4_proj = payload.get("v4_projection")
+                if isinstance(v4_proj, dict):
+                    if "backlog" in v4_proj:
+                        backlog = int(v4_proj["backlog"])
+                    if "dead_letter" in v4_proj:
+                        dlq = int(v4_proj["dead_letter"])
+                v4_own = payload.get("v4_ownership")
+                if isinstance(v4_own, dict):
+                    pipeline_states = v4_own.get("pipeline_states")
+                    if isinstance(pipeline_states, dict):
+                        pending_mutations = sum(
+                            int(pipeline_states.get(s, 0))
+                            for s in (
+                                "PENDING",
+                                "ADMITTED",
+                                "PROCESSING",
+                                "EXTRACTING",
+                                "VALIDATING",
+                                "INDEXING",
+                                "ROLLING_BACK",
+                            )
+                        )
+                        failed_mutations = int(pipeline_states.get("FAILED", 0)) + int(
+                            pipeline_states.get("REJECTED", 0)
+                        )
     except Exception:
         pass
 
+    if backlog is None or dlq is None:
+        try:
+            resp = await client.get("/metrics")
+            if resp.status_code == 200:
+                for line in resp.text.splitlines():
+                    if backlog is None and line.startswith("mesa_v4_projection_backlog "):
+                        backlog = int(float(line.split()[1]))
+                    elif dlq is None and line.startswith("mesa_v4_projection_dlq "):
+                        dlq = int(float(line.split()[1]))
+        except Exception:
+            pass
+
     return {
-        "pending_mutations": None,
-        "failed_mutations": None,
-        "projection_backlog": None,
-        "dead_letters": None,
+        "pending_mutations": pending_mutations,
+        "failed_mutations": failed_mutations,
+        "projection_backlog": backlog,
+        "dead_letters": dlq,
     }
 
 
@@ -914,7 +943,7 @@ async def _poll_mutation_committed(
 def _is_subject_in_search_results(
     expected_subj: str, results: list[dict[str, Any]]
 ) -> bool:
-    """Check if expected subject entity or assertion is present in V4 search results."""
+    """Check if expected subject entity or chunk passage is present in V4 search results."""
     for r in results:
         entity = r.get("entity", {})
         if (
@@ -923,9 +952,16 @@ def _is_subject_in_search_results(
             or entity.get("normalized_name") == expected_subj.lower()
         ):
             return True
+        if expected_subj in str(r.get("evidence_span", "")) or expected_subj in str(
+            r.get("content", "")
+        ):
+            return True
         for prov in r.get("provenance", []):
-            if expected_subj in str(prov.get("fact_text", "")) or expected_subj in str(
-                prov.get("predicate", "")
+            if (
+                expected_subj in str(prov.get("fact_text", ""))
+                or expected_subj in str(prov.get("predicate", ""))
+                or expected_subj in str(prov.get("evidence_span", ""))
+                or expected_subj in str(prov.get("literal_value", ""))
             ):
                 return True
     return False
@@ -960,7 +996,7 @@ async def _op_insert(
         "title": f"Soak Kaydı #{seq}",
         "source_ref": "soak-v4",
         "content": content,
-        "evidence_span": f"0:{len(subj) + len(obj) + 14}",
+        "evidence_span": "",
         "revision_number": 1,
         "chunk_ordinal": 0,
         "finalize_revision": True,
@@ -1195,7 +1231,7 @@ async def _op_idempotency(
         "title": f"Soak Kaydı #{item.seq}",
         "source_ref": "soak-v4",
         "content": item.content,
-        "evidence_span": f"0:{len(item.subj) + len(item.obj) + 14}",
+        "evidence_span": "",
         "revision_number": 1,
         "chunk_ordinal": 0,
         "finalize_revision": True,
@@ -1444,7 +1480,7 @@ async def _op_cross_scope_check(
         "title": f"Cross-Scope Test #{seq}",
         "source_ref": "soak-cross-scope",
         "content": content,
-        "evidence_span": f"0:{len(subj) + len(obj) + 14}",
+        "evidence_span": "",
         "revision_number": 1,
         "chunk_ordinal": 0,
         "finalize_revision": True,
@@ -1757,12 +1793,12 @@ async def _drain_runtime(
         pending_mut = state.get("pending_mutations")
         proj_backlog = state.get("projection_backlog")
 
-        if pending_mut is None or proj_backlog is None:
+        if proj_backlog is None or (dao is not None and pending_mut is None):
             state_measurable = False
             last_backlog = None
         else:
             state_measurable = True
-            total_pending = pending_mut + proj_backlog
+            total_pending = (pending_mut or 0) + proj_backlog
             last_backlog = total_pending
             if total_pending == 0:
                 logger.info(
