@@ -604,3 +604,33 @@ async def test_ask_sdk_cli_and_mcp_surfaces(monkeypatch, capsys) -> None:
     facade._client.ask = MagicMock(return_value=expected)
     assert facade.ask("notice?") == expected
     facade.close()
+
+
+def _timeout_recording_transport(seen: list[float | None]) -> httpx.MockTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.extensions["timeout"]["read"])
+        return httpx.Response(200, json={"answer": "", "citations": [], "not_found": True})
+
+    return httpx.MockTransport(handler)
+
+
+@pytest.mark.asyncio
+async def test_ask_sdk_waits_longer_than_one_llm_call() -> None:
+    # The server allows 60 s per LLM call; the SDK default (10 s) and the MCP
+    # client (8 s) must not cut a grounded answer off before the server replies.
+    seen: list[float | None] = []
+    sync_client = MesaV4Client(base_url="http://mesa.invalid", api_key="k")
+    sync_client._client = httpx.Client(
+        base_url="http://mesa.invalid", transport=_timeout_recording_transport(seen)
+    )
+    sync_client.ask(question="q", tenant_id="t1", workspace_id="ws1", dataset_ids=["ds1"])
+    sync_client.close()
+
+    mcp_client = MesaHttpV4Service(MCPSettings(api_key="k"))._http_client
+    mcp_client._client = httpx.AsyncClient(
+        base_url="http://mesa.invalid", transport=_timeout_recording_transport(seen)
+    )
+    await mcp_client.ask(question="q", tenant_id="t1", workspace_id="ws1", dataset_ids=["ds1"])
+    await mcp_client.aclose()
+
+    assert seen == [600.0, 600.0]
