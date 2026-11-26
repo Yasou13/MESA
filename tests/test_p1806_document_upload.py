@@ -26,15 +26,17 @@ def fields(document_id: str) -> dict[str, str]:
 
 
 async def upload(client, name, *, document_id="upload", extra=None, content=None):
+    if content is None:
+        raw = (FIXTURES / name).read_bytes()
+        # Git on Windows checks out text fixtures with CRLF; keep canonical LF bytes.
+        if Path(name).suffix.lower() in {".txt", ".md"}:
+            raw = raw.replace(b"\r\n", b"\n")
+    else:
+        raw = content
     return await client.post(
         "/v4/documents/upload",
         data={**fields(document_id), **(extra or {})},
-        files={
-            "file": (
-                name,
-                content if content is not None else (FIXTURES / name).read_bytes(),
-            )
-        },
+        files={"file": (name, raw)},
     )
 
 
