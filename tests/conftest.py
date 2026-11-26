@@ -26,6 +26,13 @@ from mesa_memory.api.middleware import limiter
 
 limiter.enabled = False
 
+
+def pytest_configure(config) -> None:
+    config.addinivalue_line(
+        "markers",
+        "slow: sustained concurrency or scale test that runs in the full gate",
+    )
+
 # ---------------------------------------------------------------------------
 # Dynamic path resolution — resolves from *this file's* location, not CWD.
 # Works identically on developer machines, CI runners, and containers.
