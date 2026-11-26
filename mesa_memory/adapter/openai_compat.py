@@ -367,3 +367,18 @@ class OpenAICompatibleAdapter(BaseUniversalLLMAdapter):
 
     def get_token_count(self, text: str) -> int:
         return count_tokens(text, adapter_type="openai")
+
+    def close(self) -> None:
+        """Close underlying HTTP client pools."""
+        try:
+            self._sync_client.close()
+        except Exception:
+            pass
+
+    async def aclose(self) -> None:
+        """Close underlying async and sync HTTP client pools."""
+        try:
+            await self._async_client.close()
+        except Exception:
+            pass
+        self.close()

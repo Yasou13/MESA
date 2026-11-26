@@ -922,6 +922,16 @@ async def _resolve_v4_scope(
     return (tenant_id, workspace_id, effective_agent, datasets, "")
 
 
+async def _close_adapter(adapter: Any) -> None:
+    aclose = getattr(adapter, "aclose", None)
+    if callable(aclose):
+        await aclose()
+        return
+    close = getattr(adapter, "close", None)
+    if callable(close):
+        close()
+
+
 async def execute_v4_ask(
     *,
     request: Request,
@@ -951,108 +961,111 @@ async def execute_v4_ask(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     try:
-        certification_metadata: dict[str, Any] = {}
-        principal = _active_principal(request)
-        valid_at_iso = (
-            payload.valid_at.astimezone(timezone.utc).isoformat()
-            if payload.valid_at
-            else None
-        )
-        valid_from_iso = (
-            payload.valid_from.astimezone(timezone.utc).isoformat()
-            if payload.valid_from
-            else None
-        )
-        valid_to_iso = (
-            payload.valid_to.astimezone(timezone.utc).isoformat()
-            if payload.valid_to
-            else None
-        )
-        if payload.retrieval_mode == "adaptive":
-            planner = BoundedQueryPlanner(adapter)
-            retriever = BoundedAdaptiveQueryRetriever(dao, planner)
-            adaptive_result = await retriever.retrieve(
+        try:
+            certification_metadata: dict[str, Any] = {}
+            principal = _active_principal(request)
+            valid_at_iso = (
+                payload.valid_at.astimezone(timezone.utc).isoformat()
+                if payload.valid_at
+                else None
+            )
+            valid_from_iso = (
+                payload.valid_from.astimezone(timezone.utc).isoformat()
+                if payload.valid_from
+                else None
+            )
+            valid_to_iso = (
+                payload.valid_to.astimezone(timezone.utc).isoformat()
+                if payload.valid_to
+                else None
+            )
+            if payload.retrieval_mode == "adaptive":
+                planner = BoundedQueryPlanner(adapter)
+                retriever = BoundedAdaptiveQueryRetriever(dao, planner)
+                adaptive_result = await retriever.retrieve(
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    dataset_ids=datasets,
+                    query=payload.question,
+                    limit=payload.limit,
+                    document_ids=payload.document_ids,
+                    jurisdiction=payload.jurisdiction,
+                    valid_at=valid_at_iso,
+                    valid_from=valid_from_iso,
+                    valid_to=valid_to_iso,
+                    request_principal_id=str(principal.principal_id),
+                    certification_metadata=certification_metadata,
+                )
+                results = adaptive_result.candidates[: payload.limit]
+            else:
+                search_kwargs: dict[str, Any] = {
+                    "tenant_id": tenant_id,
+                    "agent_id": agent_id,
+                    "dataset_ids": datasets,
+                    "query": payload.question,
+                    "limit": payload.limit,
+                    "jurisdiction": payload.jurisdiction,
+                    "valid_at": valid_at_iso,
+                    "valid_from": valid_from_iso,
+                    "valid_to": valid_to_iso,
+                    "request_principal_id": str(principal.principal_id),
+                    "certification_metadata": certification_metadata,
+                }
+                if payload.document_ids is not None:
+                    search_kwargs["document_ids"] = payload.document_ids
+                results = await dao.search_v4_memory(**search_kwargs)
+        except EmbeddingMigrationRequiredError:
+            raise HTTPException(
+                status_code=409,
+                detail="embedding_migration_required",
+            )
+        except (
+            VectorSearchError,
+            EmbeddingUnavailableError,
+            EmbeddingGenerationError,
+            ExternalProviderForbiddenError,
+            EmbeddingIdentityMismatchError,
+        ):
+            raise HTTPException(
+                status_code=503,
+                detail="vector_backend_unavailable",
+            )
+
+        expanded_texts: dict[int, str] | None = None
+        if payload.expand != "none" and results:
+            expanded_texts = await dao.expand_v4_passages(
                 tenant_id=tenant_id,
                 agent_id=agent_id,
                 dataset_ids=datasets,
-                query=payload.question,
-                limit=payload.limit,
+                results=results,
+                expand=payload.expand,
                 document_ids=payload.document_ids,
                 jurisdiction=payload.jurisdiction,
                 valid_at=valid_at_iso,
                 valid_from=valid_from_iso,
                 valid_to=valid_to_iso,
-                request_principal_id=str(principal.principal_id),
-                certification_metadata=certification_metadata,
             )
-            results = adaptive_result.candidates[: payload.limit]
-        else:
-            search_kwargs: dict[str, Any] = {
-                "tenant_id": tenant_id,
-                "agent_id": agent_id,
-                "dataset_ids": datasets,
-                "query": payload.question,
-                "limit": payload.limit,
-                "jurisdiction": payload.jurisdiction,
-                "valid_at": valid_at_iso,
-                "valid_from": valid_from_iso,
-                "valid_to": valid_to_iso,
-                "request_principal_id": str(principal.principal_id),
-                "certification_metadata": certification_metadata,
-            }
-            if payload.document_ids is not None:
-                search_kwargs["document_ids"] = payload.document_ids
-            results = await dao.search_v4_memory(**search_kwargs)
-    except EmbeddingMigrationRequiredError:
-        raise HTTPException(
-            status_code=409,
-            detail="embedding_migration_required",
-        )
-    except (
-        VectorSearchError,
-        EmbeddingUnavailableError,
-        EmbeddingGenerationError,
-        ExternalProviderForbiddenError,
-        EmbeddingIdentityMismatchError,
-    ):
-        raise HTTPException(
-            status_code=503,
-            detail="vector_backend_unavailable",
-        )
 
-    expanded_texts: dict[int, str] | None = None
-    if payload.expand != "none" and results:
-        expanded_texts = await dao.expand_v4_passages(
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            dataset_ids=datasets,
-            results=results,
-            expand=payload.expand,
-            document_ids=payload.document_ids,
-            jurisdiction=payload.jurisdiction,
-            valid_at=valid_at_iso,
-            valid_from=valid_from_iso,
-            valid_to=valid_to_iso,
-        )
-
-    degraded = list(certification_metadata.get("degraded_sources", []))
-    try:
-        return await answer_from_results(
-            question=payload.question,
-            results=results,
-            adapter=adapter,
-            degraded_sources=degraded,
-            expanded_texts=expanded_texts,
-        )
-    except LLMResponseError as exc:
-        raise HTTPException(
-            status_code=503, detail=f"LLM provider returned malformed response: {exc}"
-        ) from exc
-    except Exception as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=f"LLM provider unavailable: {type(exc).__name__}",
-        ) from exc
+        degraded = list(certification_metadata.get("degraded_sources", []))
+        try:
+            return await answer_from_results(
+                question=payload.question,
+                results=results,
+                adapter=adapter,
+                degraded_sources=degraded,
+                expanded_texts=expanded_texts,
+            )
+        except LLMResponseError as exc:
+            raise HTTPException(
+                status_code=503, detail=f"LLM provider returned malformed response: {exc}"
+            ) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"LLM provider unavailable: {type(exc).__name__}",
+            ) from exc
+    finally:
+        await _close_adapter(adapter)
 
 
 async def _authorize_mutation_access(
@@ -2365,42 +2378,45 @@ def create_v4_router(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
         try:
-            doc_text = await dao.get_v4_document_text(
-                tenant_id=payload.tenant_id,
-                dataset_id=payload.dataset_id,
-                document_id=document_id,
-                revision_id=payload.revision_id,
-            )
-        except CatalogIdentityNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+            try:
+                doc_text = await dao.get_v4_document_text(
+                    tenant_id=payload.tenant_id,
+                    dataset_id=payload.dataset_id,
+                    document_id=document_id,
+                    revision_id=payload.revision_id,
+                )
+            except CatalogIdentityNotFoundError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-        try:
-            return await summarize_document_text(
-                document_id=str(doc_text["document_id"]),
-                revision_id=str(doc_text["revision_id"]),
-                revision_number=int(doc_text["revision_number"]),
-                status=str(doc_text["status"]),
-                text=str(doc_text["text"]),
-                adapter=adapter,
-                context_token_budget=int(config.context_window_limit),
-            )
-        except DocumentTooLongToSummarizeError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except LLMResponseError as exc:
-            # LLMResponseError is a ValueError; catch it before the 422 branch.
-            raise HTTPException(
-                status_code=503,
-                detail=f"LLM provider returned malformed response: {exc}",
-            ) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except Exception as exc:
-            raise HTTPException(
-                status_code=503,
-                detail=f"LLM provider unavailable: {type(exc).__name__}",
-            ) from exc
+            try:
+                return await summarize_document_text(
+                    document_id=str(doc_text["document_id"]),
+                    revision_id=str(doc_text["revision_id"]),
+                    revision_number=int(doc_text["revision_number"]),
+                    status=str(doc_text["status"]),
+                    text=str(doc_text["text"]),
+                    adapter=adapter,
+                    context_token_budget=int(config.context_window_limit),
+                )
+            except DocumentTooLongToSummarizeError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            except LLMResponseError as exc:
+                # LLMResponseError is a ValueError; catch it before the 422 branch.
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"LLM provider returned malformed response: {exc}",
+                ) from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"LLM provider unavailable: {type(exc).__name__}",
+                ) from exc
+        finally:
+            await _close_adapter(adapter)
 
     @router.post("/memory/search", response_model=V4SearchResponse)
     async def search_memory(

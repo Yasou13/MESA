@@ -265,6 +265,8 @@ def test_eight_parallel_clients_no_5xx_no_chunk_loss_and_single_writer_lock(
             def _record_5xx(kind: str, status: int, detail: str) -> None:
                 with errors_lock:
                     http_5xx.append({"kind": kind, "status": status, "detail": detail[:300]})
+                    if len(http_5xx) >= 3:
+                        stop_event.set()
 
             def _upload_worker(worker_id: int) -> None:
                 seq = 0
@@ -379,8 +381,18 @@ def test_eight_parallel_clients_no_5xx_no_chunk_loss_and_single_writer_lock(
                 stop_event.set()
                 probe_thread.join(timeout=20.0)
 
-            assert not http_5xx, f"Observed HTTP 5xx under concurrency: {http_5xx[:10]}"
-            assert not unexpected_errors, f"Unexpected client errors: {unexpected_errors[:10]}"
+            server_tail = ""
+            if http_5xx or unexpected_errors:
+                server_tail = "\n--- server.log tail ---\n" + log_path.read_text(
+                    encoding="utf-8", errors="replace"
+                )[-4000:]
+            assert not http_5xx, (
+                f"Observed HTTP 5xx under concurrency ({len(http_5xx)} total): "
+                f"{http_5xx[:10]}{server_tail}"
+            )
+            assert not unexpected_errors, (
+                f"Unexpected client errors: {unexpected_errors[:10]}{server_tail}"
+            )
             assert stats["uploads"] >= 4, stats
             assert stats["searches"] >= 4, stats
             assert stats["asks"] >= 4, stats
