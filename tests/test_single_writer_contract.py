@@ -17,10 +17,82 @@ ROOT = Path(__file__).parents[1]
 def test_storage_root_rejects_a_second_writer(tmp_path) -> None:
     first = StorageWriterLock.acquire(tmp_path, owner="combined-runtime")
     try:
+        assert first.is_held_for(tmp_path)
         with pytest.raises(StorageWriterLockError, match="active writer"):
             StorageWriterLock.acquire(tmp_path, owner="combined-runtime")
     finally:
         first.release()
+
+    assert first.released
+    assert not first.is_held_for(tmp_path)
+    # Releasing allows a subsequent writer to acquire the same root.
+    with StorageWriterLock.acquire(tmp_path, owner="combined-runtime") as second:
+        assert second.is_held_for(tmp_path)
+
+
+def test_forged_writer_lock_is_rejected(tmp_path) -> None:
+    lock_file = tmp_path / ".mesa-single-writer.lock"
+    lock_file.write_text("owner=other\npid=1\n", encoding="utf-8")
+    with StorageWriterLock.acquire(tmp_path, owner="real-writer") as real_lock:
+        assert real_lock.is_held_for(tmp_path)
+        with lock_file.open("r+", encoding="utf-8") as forged_handle:
+            forged = StorageWriterLock(forged_handle, tmp_path.resolve())
+            assert not forged.is_held_for(tmp_path)
+            forged.release()
+        assert real_lock.is_held_for(tmp_path)
+
+
+def test_windows_msvcrt_locking_branch_enforces_exclusive_writer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Exercise the Windows msvcrt.locking code path on every platform."""
+    import mesa_storage.writer_lock as lock_module
+
+    locked_fds: set[int] = set()
+    ops: list[tuple[str, int]] = []
+
+    class FakeMsvcrt:
+        LK_NBLCK = 2
+        LK_UNLCK = 0
+
+        @staticmethod
+        def locking(fd: int, mode: int, nbytes: int) -> None:
+            assert nbytes == 1
+            if mode == FakeMsvcrt.LK_NBLCK:
+                if locked_fds:
+                    raise PermissionError("already locked")
+                locked_fds.add(fd)
+                ops.append(("lock", fd))
+            elif mode == FakeMsvcrt.LK_UNLCK:
+                if fd not in locked_fds:
+                    raise PermissionError("not locked")
+                locked_fds.remove(fd)
+                ops.append(("unlock", fd))
+            else:
+                raise AssertionError(f"unexpected mode: {mode}")
+
+    monkeypatch.setattr(lock_module.sys, "platform", "win32")
+    monkeypatch.setattr(lock_module, "msvcrt", FakeMsvcrt, raising=False)
+
+    first = StorageWriterLock.acquire(tmp_path, owner="win-writer")
+    try:
+        assert first.is_held_for(tmp_path)
+        with pytest.raises(StorageWriterLockError, match="active writer"):
+            StorageWriterLock.acquire(tmp_path, owner="win-writer")
+
+        # Forged object without acquire() must not report held or unlock on release.
+        with (tmp_path / ".mesa-single-writer.lock").open("r+", encoding="utf-8") as fh:
+            forged = StorageWriterLock(fh, tmp_path.resolve())
+            assert not forged.is_held_for(tmp_path)
+            forged.release()
+        assert len(locked_fds) == 1
+    finally:
+        first.release()
+
+    assert not locked_fds
+    assert [op[0] for op in ops] == ["lock", "unlock"]
+    # Second release is a safe no-op.
+    first.release()
 
 
 def test_storage_root_rejects_a_writer_from_a_second_process(tmp_path) -> None:

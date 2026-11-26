@@ -120,7 +120,9 @@ class ProjectionSnapshot:
         self._database = database
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(f"file:{self._database}?mode=ro", uri=True)
+        connection = sqlite3.connect(
+            f"{self._database.resolve().as_uri()}?mode=ro", uri=True
+        )
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA query_only=ON")
         return connection

@@ -10,6 +10,11 @@ import time
 
 import pytest
 
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="uses POSIX signal.SIGALRM / signal.setitimer",
+)
+
 from mesa_storage.legal_identity import LegalEntityResolver
 
 

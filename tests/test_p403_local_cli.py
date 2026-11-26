@@ -36,9 +36,10 @@ async def test_provision_credentials_lifecycle(tmp_path, capsys):
     creds_path = home / "credentials.json"
     assert creds_path.is_file()
 
-    # Mode must be 0600
-    file_mode = stat.S_IMODE(os.stat(creds_path).st_mode)
-    assert file_mode == 0o600
+    # Mode must be 0600 on POSIX (Windows NTFS does not use POSIX mode bits)
+    if sys.platform != "win32":
+        file_mode = stat.S_IMODE(os.stat(creds_path).st_mode)
+        assert file_mode == 0o600
 
     # Key must NOT be printed
     assert creds["api_key"] not in captured.out
@@ -90,16 +91,45 @@ async def test_provision_credentials_lifecycle(tmp_path, capsys):
     stored = json.loads(creds_path.read_text())
     assert creds3["api_key"] == stored["api_key"] == creds["api_key"]
     assert creds3["base_url"] == stored["base_url"] == "http://127.0.0.1:8901"
-    assert stat.S_IMODE(os.stat(creds_path).st_mode) == 0o600
+    if sys.platform != "win32":
+        assert stat.S_IMODE(os.stat(creds_path).st_mode) == 0o600
 
 
-def test_start_command_windows_check(monkeypatch, capsys):
+def test_start_command_runs_natively_on_windows(tmp_path, monkeypatch):
+    import uvicorn  # import on host platform before simulating win32
+
     monkeypatch.setattr(sys, "platform", "win32")
-    with pytest.raises(SystemExit) as exc:
-        start_command(argparse.Namespace())
-    assert exc.value.code == 1
-    out, _ = capsys.readouterr()
-    assert "MESA runs on Linux and macOS; on Windows use Docker or WSL" in out
+    home = tmp_path / "home"
+    storage = tmp_path / "storage"
+    args = cli._parser().parse_args(
+        ["start", "--home", str(home), "--storage-root", str(storage), "--port", "8124"]
+    )
+    with patch.object(uvicorn, "run") as run:
+        start_command(args)
+    assert run.call_count == 1
+    assert run.call_args.kwargs["host"] == "127.0.0.1"
+    assert run.call_args.kwargs["port"] == 8124
+    creds = json.loads((home / "credentials.json").read_text(encoding="utf-8"))
+    assert creds["base_url"] == "http://127.0.0.1:8124"
+
+
+def test_resolve_mcp_server_entry_finds_exe_on_windows(tmp_path, monkeypatch):
+    from mesa_mcp.local_cli import _resolve_mcp_server_entry
+
+    scripts_dir = tmp_path / "Scripts"
+    scripts_dir.mkdir()
+    fake_python = scripts_dir / "python.exe"
+    fake_python.write_text("", encoding="utf-8")
+    fake_mcp = scripts_dir / "mesa-mcp.exe"
+    fake_mcp.write_text("", encoding="utf-8")
+
+    monkeypatch.setenv("MESA_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(sys, "executable", str(fake_python))
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+
+    cmd, _env = _resolve_mcp_server_entry()
+    assert cmd == str(fake_mcp.resolve())
 
 
 @pytest.mark.parametrize("host", [None, "0.0.0.0", "::1"])

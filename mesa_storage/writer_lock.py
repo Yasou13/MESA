@@ -2,14 +2,35 @@
 
 from __future__ import annotations
 
-import fcntl
 import os
 import re
+import sys
 from pathlib import Path
 from typing import TextIO
 
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
+
 _LOCK_NAME = ".mesa-single-writer.lock"
 _OWNER_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+
+def _lock_nonblocking(fd: int) -> None:
+    if sys.platform == "win32":
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+    else:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _unlock(fd: int) -> None:
+    if sys.platform == "win32":
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    else:
+        fcntl.flock(fd, fcntl.LOCK_UN)
 
 
 class StorageWriterLockError(RuntimeError):
@@ -19,9 +40,12 @@ class StorageWriterLockError(RuntimeError):
 class StorageWriterLock:
     """An exclusive, host-local ownership lease held by an open file descriptor."""
 
-    def __init__(self, handle: TextIO, storage_root: Path) -> None:
+    def __init__(
+        self, handle: TextIO, storage_root: Path, *, _acquired: bool = False
+    ) -> None:
         self._handle = handle
         self._storage_root = storage_root
+        self._acquired = _acquired
 
     @classmethod
     def acquire(cls, storage_root: Path, *, owner: str) -> "StorageWriterLock":
@@ -47,7 +71,7 @@ class StorageWriterLock:
 
         handle = os.fdopen(descriptor, "r+", encoding="utf-8")
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _lock_nonblocking(handle.fileno())
         except (BlockingIOError, OSError) as exc:
             handle.close()
             raise StorageWriterLockError(
@@ -61,12 +85,15 @@ class StorageWriterLock:
             handle.flush()
             os.fsync(handle.fileno())
         except OSError as exc:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            try:
+                _unlock(handle.fileno())
+            except OSError:
+                pass
             handle.close()
             raise StorageWriterLockError(
                 "storage writer ownership could not be recorded"
             ) from exc
-        return cls(handle, storage_root.resolve(strict=True))
+        return cls(handle, storage_root.resolve(strict=True), _acquired=True)
 
     @property
     def storage_root(self) -> Path:
@@ -80,8 +107,8 @@ class StorageWriterLock:
         """Return whether this handle owns the real lock file for ``storage_root``.
 
         Root metadata alone is not a capability: callers can construct an object
-        around any open file.  Verify the descriptor identity and (re)acquire the
-        non-blocking OS lock so consumers can rely on implementation-owned proof.
+        around any open file.  Verify the descriptor identity and OS lock
+        ownership so consumers can rely on implementation-owned proof.
         """
         if self._handle.closed:
             return False
@@ -96,8 +123,11 @@ class StorageWriterLock:
             actual.st_ino,
         ) != (expected.st_dev, expected.st_ino):
             return False
+        if sys.platform == "win32":
+            # Win32 byte-range locks reject re-locking even on the owning handle.
+            return self._acquired
         try:
-            fcntl.flock(self._handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _lock_nonblocking(self._handle.fileno())
         except (BlockingIOError, OSError):
             return False
         return True
@@ -106,8 +136,16 @@ class StorageWriterLock:
         """Release ownership. Calling this method more than once is safe."""
         if self._handle.closed:
             return
-        fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
-        self._handle.close()
+        try:
+            if sys.platform == "win32":
+                if self._acquired:
+                    self._handle.flush()
+                    _unlock(self._handle.fileno())
+            else:
+                _unlock(self._handle.fileno())
+        finally:
+            self._acquired = False
+            self._handle.close()
 
     def __enter__(self) -> "StorageWriterLock":
         return self

@@ -279,7 +279,7 @@ def inspect_rebuild_preflight(
         raise RebuildPathError("canonical SQLite database is unavailable")
     connection: sqlite3.Connection | None = None
     try:
-        connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+        connection = sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)
         connection.row_factory = sqlite3.Row
         operation = connection.execute(
             "SELECT *, lease_expires_at > CURRENT_TIMESTAMP AS lease_valid "

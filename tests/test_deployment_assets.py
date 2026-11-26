@@ -9,6 +9,7 @@ import sys
 import tomllib
 from pathlib import Path
 
+import pytest
 import yaml
 
 from mesa_memory.config import RuntimeProfile
@@ -235,6 +236,10 @@ def test_documented_public_api_examples_match_authenticated_route_contract() -> 
     assert 'hit.get("provenance", [])' in v4_example
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="executes POSIX bash/mktemp/kill quickstart examples",
+)
 def test_getting_started_runs_every_example_against_a_fresh_store(tmp_path) -> None:
     guide = (ROOT / "docs/getting-started.md").read_text(encoding="utf-8")
     fences = re.findall(r"^```([^\n]*)\n(.*?)^```$", guide, re.MULTILINE | re.DOTALL)

@@ -4,11 +4,17 @@ import gc
 import random
 import re
 import signal
+import sys
 import threading
 import time
 from functools import partial
 
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="uses POSIX signal.SIGALRM / signal.setitimer",
+)
 
 import mesa_storage.dao as dao_module
 from mesa_mcp.adapter import _required_string

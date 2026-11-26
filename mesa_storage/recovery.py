@@ -85,12 +85,19 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _sqlite_ro_uri(path: Path) -> str:
+    return f"{path.resolve().as_uri()}?mode=ro"
+
+
 def _fsync_file(path: Path) -> None:
-    with path.open("rb") as stream:
+    mode = "r+b" if sys.platform == "win32" else "rb"
+    with path.open(mode) as stream:
         os.fsync(stream.fileno())
 
 
 def _fsync_dir(path: Path) -> None:
+    if sys.platform == "win32":
+        return
     fd = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
     try:
         os.fsync(fd)
@@ -99,19 +106,22 @@ def _fsync_dir(path: Path) -> None:
 
 
 def _sqlite_integrity(path: Path) -> str:
+    connection: sqlite3.Connection | None = None
     try:
-        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        connection = sqlite3.connect(_sqlite_ro_uri(path), uri=True)
         result = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
-        connection.close()
         return result
     except sqlite3.DatabaseError as exc:
         raise RecoveryError(
             f"SQLite integrity check failed for {path.name}: {type(exc).__name__}"
         ) from exc
+    finally:
+        if connection is not None:
+            connection.close()
 
 
 def _copy_sqlite(source: Path, destination: Path) -> None:
-    source_connection = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+    source_connection = sqlite3.connect(_sqlite_ro_uri(source), uri=True)
     destination_connection = sqlite3.connect(destination)
     try:
         source_connection.backup(destination_connection)
@@ -143,19 +153,22 @@ def _copy_snapshot(source: Path, staging: Path) -> list[str]:
             sqlite_files.append(relative.as_posix())
         else:
             shutil.copyfile(source_file, destination)
-        shutil.copystat(source_file, destination, follow_symlinks=False)
         _fsync_file(destination)
+        shutil.copystat(source_file, destination, follow_symlinks=False)
     return sqlite_files
 
 
 def _alembic_version(path: Path) -> str | None:
+    connection: sqlite3.Connection | None = None
     try:
-        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        connection = sqlite3.connect(_sqlite_ro_uri(path), uri=True)
         row = connection.execute("SELECT version_num FROM alembic_version").fetchone()
-        connection.close()
         return str(row[0]) if row else None
     except sqlite3.DatabaseError:
         return None
+    finally:
+        if connection is not None:
+            connection.close()
 
 
 def _write_manifest(
@@ -328,7 +341,7 @@ def validate_snapshot(snapshot: Path) -> dict[str, Any]:
         database = snapshot / relative
         if _sqlite_integrity(database) != "ok":
             raise RecoveryError(f"SQLite integrity check failed: {relative}")
-        connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+        connection = sqlite3.connect(_sqlite_ro_uri(database), uri=True)
         try:
             result["sqlite"][relative] = {
                 "integrity_check": "ok",
@@ -434,8 +447,8 @@ def restore_backup(
             target = staging / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source_file, target)
-            shutil.copystat(source_file, target, follow_symlinks=False)
             _fsync_file(target)
+            shutil.copystat(source_file, target, follow_symlinks=False)
         manifest_source = snapshot / MANIFEST_NAME
         manifest_target = staging / MANIFEST_NAME
         shutil.copyfile(manifest_source, manifest_target)

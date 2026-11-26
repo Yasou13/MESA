@@ -1,10 +1,16 @@
 """Performance and linear-time regression tests for legal_rules extractor (F-36)."""
 
 import signal
+import sys
 import time
 from pathlib import Path
 
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="uses POSIX signal.SIGALRM / signal.alarm",
+)
 
 from mesa_memory.document_chunking import chunk_legal_document
 from mesa_storage.legal_rules import extract

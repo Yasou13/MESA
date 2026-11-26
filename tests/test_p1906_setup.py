@@ -67,7 +67,8 @@ def test_no_models_creates_start_env_and_preserves_unrelated_settings(tmp_path, 
     home = tmp_path / "mesa"
     _run(monkeypatch, home, "--embedding", "none", "--llm", "none")
     env_file = home / ".env"
-    assert stat.S_IMODE(env_file.stat().st_mode) == 0o600
+    if sys.platform != "win32":
+        assert stat.S_IMODE(env_file.stat().st_mode) == 0o600
     with env_file.open("a") as stream:
         stream.write("# custom configuration\nMESA_CHUNKING=plain\n")
     _run(monkeypatch, home, "--embedding", "none", "--llm", "none")

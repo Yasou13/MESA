@@ -99,21 +99,18 @@ async def provision_credentials(
         "agent_id": "local-agent",
     }
 
-    # Write credentials.json securely with mode 0600
+    # Write credentials.json securely with mode 0600 on POSIX
     fd = os.open(creds_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with open(fd, "w", encoding="utf-8") as f:
         json.dump(creds, f, indent=2)
-    os.chmod(creds_path, 0o600)
+    if sys.platform != "win32":
+        os.chmod(creds_path, 0o600)
 
     print(f"Credentials written to {creds_path}")
     return creds
 
 
 def start_command(args: argparse.Namespace) -> None:
-    if sys.platform == "win32":
-        print("MESA runs on Linux and macOS; on Windows use Docker or WSL")
-        sys.exit(1)
-
     home, storage_root, port = resolve_local_paths(
         home=getattr(args, "home", None),
         storage_root=getattr(args, "storage_root", None),
@@ -383,9 +380,19 @@ def _resolve_mcp_server_entry() -> tuple[str, dict[str, str]]:
 
     cmd = shutil.which("mesa-mcp")
     if not cmd:
-        venv_candidate = Path(sys.executable).parent / "mesa-mcp"
-        if venv_candidate.is_file():
-            cmd = str(venv_candidate.resolve())
+        candidates = (
+            ("mesa-mcp.exe", "mesa-mcp") if sys.platform == "win32" else ("mesa-mcp",)
+        )
+        resolved_candidate = next(
+            (
+                candidate
+                for name in candidates
+                if (candidate := Path(sys.executable).parent / name).is_file()
+            ),
+            None,
+        )
+        if resolved_candidate is not None:
+            cmd = str(resolved_candidate.resolve())
         else:
             cmd = "mesa-mcp"
     else:

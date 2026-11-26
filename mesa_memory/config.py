@@ -423,7 +423,7 @@ def _read_cgroup_ram_limit() -> Optional[int]:
     """
     for path, version in [(_CGROUP_V1_PATH, "v1"), (_CGROUP_V2_PATH, "v2")]:
         try:
-            with open(path, "r") as fh:
+            with open(path, "r", encoding="utf-8") as fh:
                 content = fh.read().strip()
             if content == _CGROUP_MAX_SENTINEL:
                 # cgroup v2 reports "max" when no limit is set

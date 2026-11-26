@@ -22,12 +22,15 @@ async def initialize_schema(engine: AsyncEngine) -> None:
 
     from alembic import command
     from alembic.config import Config
+    from sqlalchemy.engine.url import URL
 
     _MODULE_DIR = Path(__file__).parent.resolve()
     alembic_ini_path = _MODULE_DIR / "alembic.ini"
     alembic_cfg = Config(str(alembic_ini_path))
-    db_url = f"sqlite+aiosqlite:///{engine.db_path}"
-    alembic_cfg.set_main_option("sqlalchemy.url", db_url)
+    db_url = URL.create(
+        "sqlite+aiosqlite", database=str(engine.db_path)
+    ).render_as_string(hide_password=False)
+    alembic_cfg.set_main_option("sqlalchemy.url", db_url.replace("%", "%%"))
     alembic_cfg.attributes["mesa_require_head_postflight"] = True
 
     # Alembic DDL is synchronous.  It runs before the service accepts traffic,
