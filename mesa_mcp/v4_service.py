@@ -378,6 +378,86 @@ class MesaHttpV4Service:
             degraded_sources=resp.get("degraded_sources", []),
         )
 
+    async def v4_ask(self, **kwargs: Any) -> dict[str, Any]:
+        """Answer a question through POST /v4/ask (D103)."""
+        dataset_ids_arg = kwargs.get("dataset_ids")
+        dataset_id = (
+            kwargs.get("dataset_id")
+            or (dataset_ids_arg[0] if dataset_ids_arg else None)
+            or self._settings.default_dataset_id
+        )
+        effective_datasets = (
+            list(dataset_ids_arg) if dataset_ids_arg is not None else [dataset_id]
+        )
+        tenant_id = kwargs.get("tenant_id") or self._settings.default_tenant_id
+        workspace_id = kwargs.get("workspace_id") or self._settings.default_workspace_id
+        actor_id = (
+            kwargs.get("agent_id") or kwargs.get("actor_id") or self._settings.actor_id
+        )
+        use_session = kwargs.get("use_session")
+        if use_session is None:
+            use_session = False
+
+        client = self._http_client
+        ask_arguments: dict[str, Any] = {
+            "question": kwargs["question"],
+            "dataset_ids": effective_datasets,
+            "limit": kwargs.get("limit") or 8,
+        }
+        ask_arguments.update(
+            {
+                key: kwargs[key]
+                for key in (
+                    "document_ids",
+                    "jurisdiction",
+                    "valid_at",
+                    "valid_from",
+                    "valid_to",
+                    "expand",
+                    "retrieval_mode",
+                )
+                if kwargs.get(key) is not None
+            }
+        )
+        if not use_session:
+            try:
+                return await client.ask(
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                    agent_id=actor_id,
+                    **ask_arguments,
+                )
+            except Exception as exc:
+                raise _map_exception(exc) from exc
+
+        session_id = await self._get_session_id(
+            client,
+            dataset_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            actor_id=actor_id,
+        )
+        try:
+            return await client.ask(session_id=session_id, **ask_arguments)
+        except Exception as exc:
+            raise _map_exception(exc) from exc
+
+    async def v4_summarize(self, **kwargs: Any) -> dict[str, Any]:
+        """Summarize one document revision through POST /v4/documents/{id}/summary (D105)."""
+        dataset_id = kwargs.get("dataset_id") or self._settings.default_dataset_id
+        tenant_id = kwargs.get("tenant_id") or self._settings.default_tenant_id
+        workspace_id = kwargs.get("workspace_id") or self._settings.default_workspace_id
+        try:
+            return await self._http_client.summarize_document(
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                dataset_id=dataset_id,
+                document_id=kwargs["document_id"],
+                revision_id=kwargs.get("revision_id"),
+            )
+        except Exception as exc:
+            raise _map_exception(exc) from exc
+
     async def v4_context(self, **kwargs: Any) -> dict[str, Any]:
         """Build context through the canonical V4 ContextBuilder endpoint."""
         dataset_id = kwargs.get("dataset_id") or self._settings.default_dataset_id
@@ -407,6 +487,7 @@ class MesaHttpV4Service:
                     "valid_from",
                     "valid_to",
                     "retrieval_mode",
+                    "expand",
                 )
                 if kwargs.get(key) is not None
             }

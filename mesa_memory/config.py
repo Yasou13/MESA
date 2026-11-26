@@ -41,7 +41,6 @@ class RuntimeProfileError(ValueError):
 
 
 REMOVED_MESA_ENV_VARS: tuple[str, ...] = (
-    "MESA_LLM_PROVIDER",
     "MESA_EXTRACTION_PROVIDER",
     "MESA_EXTRACTION_MODEL",
     "MESA_EMBEDDING_PROVIDER",
@@ -51,6 +50,8 @@ REMOVED_MESA_ENV_VARS: tuple[str, ...] = (
 
 # Settings of removed features: logged once as a warning at startup and ignored (D71).
 REMOVED_IGNORED_MESA_ENV_VARS: tuple[str, ...] = (
+    "MESA_LLM_PROVIDER",
+    "LLM_EMBEDDING_MODEL",
     "MESA_TIER3_MODE",
     "MESA_TIER3_LLM_PROVIDER_A",
     "MESA_TIER3_LLM_MODEL_A",
@@ -178,10 +179,10 @@ def load_runtime_profile(
             replacement = (
                 "MESA_EMBEDDING_MODEL=ollama:qwen3-embedding:4b"
                 if "EMBEDDING" in removed_var
-                else "MESA_LLM_MODEL=ollama:qwen3:8b"
+                else "MESA_LLM_MODEL=qwen3:8b"
             )
             raise RuntimeProfileError(
-                f"'{removed_var}' has been removed. Use provider:model instead "
+                f"'{removed_var}' has been removed. Use the unified setting instead "
                 f"(e.g. {replacement})."
             )
     raw_profile = values.get("MESA_RUNTIME_PROFILE")
@@ -499,7 +500,6 @@ class MesaConfig(BaseSettings):
             file_secret_settings,
         )
 
-    llm_provider: str = "claude"
     llm_model: str = Field("", validation_alias=AliasChoices("MESA_LLM_MODEL"))
     llm_base_url: str | None = Field(
         None, validation_alias=AliasChoices("MESA_LLM_BASE_URL")
@@ -521,9 +521,6 @@ class MesaConfig(BaseSettings):
     )
     extraction_max_tokens: int = Field(
         4096, validation_alias="MESA_EXTRACTION_MAX_TOKENS"
-    )
-    llm_embedding_model_name: str = Field(
-        "sentence-transformers/all-MiniLM-L6-v2", validation_alias="LLM_EMBEDDING_MODEL"
     )
     embedding_model: str = Field(
         "local:BAAI/bge-m3", validation_alias="MESA_EMBEDDING_MODEL"
@@ -765,9 +762,13 @@ class MesaConfig(BaseSettings):
             self.embedding_model,
         )
 
-        object.__setattr__(self, "llm_model", "ollama:qwen3:8b")
+        object.__setattr__(self, "llm_model", "qwen3:8b")
+        if not self.llm_base_url:
+            ollama_base = self.ollama_url.rstrip("/")
+            ollama_v1 = ollama_base if ollama_base.endswith("/v1") else f"{ollama_base}/v1"
+            object.__setattr__(self, "llm_base_url", ollama_v1)
         object.__setattr__(self, "extraction_thinking", False)
-        # Ensure the OLLAMA_URL env var is set for the adapter factory
+        # Ensure the OLLAMA_URL env var is set for embedding and legacy callers
         os.environ.setdefault("MESA_OLLAMA_URL", self.ollama_url)
         return self
 
@@ -844,23 +845,21 @@ def configured_embedding_identity(
         version=config.embedding_version,
         dimension=config.embedding_dimension,
         normalized=config.embedding_normalized,
-        model_revision=config.embedding_model_revision,
+        model_revision=config.embedding_model_revision or None,
     )
 
 
 def parse_embedding_spec(spec: str) -> tuple[str, str]:
-    """Reuse the LLM parser for shared providers and add the local backend."""
-    from mesa_memory.adapter.factory import parse_llm_spec
-
-    provider, separator, model = spec.strip().partition(":")
-    if provider.strip().lower() == "local" and separator and model.strip():
-        return "local", model.strip()
-    try:
-        provider, model = parse_llm_spec(spec)
-        if provider in {"ollama", "openai", "openai_compatible"}:
-            return provider, model
-    except ValueError:
-        pass
+    """Parse MESA_EMBEDDING_MODEL as 'provider:model'."""
+    provider, separator, model = (spec or "").strip().partition(":")
+    normalized_provider = provider.strip().lower()
+    normalized_model = model.strip()
+    if (
+        separator
+        and normalized_model
+        and normalized_provider in {"local", "ollama", "openai", "openai_compatible"}
+    ):
+        return normalized_provider, normalized_model
     raise ValueError(
         "MESA_EMBEDDING_MODEL must be provider:model with a nonempty model; "
         "supported providers: local, ollama, openai, openai_compatible."

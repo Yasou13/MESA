@@ -237,12 +237,15 @@ class ContextBuilder:
         include_provenance: bool = True,
         max_evidence_span_chars: int | None = None,
         retrieval_mode: Literal["single", "adaptive"] = "single",
+        expand: Literal["none", "neighbors", "article"] = "none",
     ) -> dict[str, Any]:
         """Construct context combining current-session logs and long-term canonical truth."""
         if token_budget < 1:
             raise ValueError("token_budget must be positive")
         if retrieval_mode not in {"single", "adaptive"}:
             raise ValueError("retrieval_mode must be 'single' or 'adaptive'")
+        if expand not in {"none", "neighbors", "article"}:
+            raise ValueError("expand must be 'none', 'neighbors', or 'article'")
 
         # 1. Fetch current session raw logs if session_id provided
         session_logs: list[dict[str, Any]] = []
@@ -300,6 +303,24 @@ class ContextBuilder:
                         valid_to=valid_to,
                     )
                     retrieval_diagnostics["retrieval_count"] = 1
+
+        expanded_texts: dict[int, str] = {}
+        if (
+            expand != "none"
+            and canonical_memories
+            and hasattr(self.dao, "expand_v4_passages")
+        ):
+            expanded_texts = await self.dao.expand_v4_passages(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                dataset_ids=dataset_ids,
+                results=canonical_memories,
+                expand=expand,
+                jurisdiction=jurisdiction,
+                valid_at=valid_at,
+                valid_from=valid_from,
+                valid_to=valid_to,
+            )
 
         # 3. Construct candidate structured evidence records
         session_records: list[dict[str, Any]] = []
@@ -444,6 +465,8 @@ class ContextBuilder:
                 ),
                 "_retrieval_provenance": deepcopy(retrieval_prov),
             }
+            if idx in expanded_texts and expanded_texts[idx]:
+                memory_record["expanded_context"] = expanded_texts[idx]
             if graph_paths:
                 # Structural path metadata drives atomic proof selection and
                 # remains available in canonical retrieval provenance.  It is
@@ -745,6 +768,7 @@ class ContextBuilder:
             "context_status": context_status,
             "context_diagnostics": {
                 **retrieval_diagnostics,
+                "expand": expand,
                 "retrieval_candidate_count": len(canonical_memories),
                 "renderable_candidate_count": renderable_candidate_count,
                 "retained_memory_count": len(model_visible_memories),

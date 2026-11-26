@@ -1441,6 +1441,65 @@
         }
       }
     },
+    "/v4/documents/{document_id}/summary": {
+      "post": {
+        "tags": [
+          "v4-full-cognitive"
+        ],
+        "summary": "Summarize Document",
+        "operationId": "summarize_document_v4_documents__document_id__summary_post",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "title": "Document Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V4DocumentSummaryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V4DocumentSummaryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v4/memory/search": {
       "post": {
         "tags": [
@@ -1465,6 +1524,52 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/V4SearchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/v4/ask": {
+      "post": {
+        "tags": [
+          "v4-full-cognitive"
+        ],
+        "summary": "Ask Memory",
+        "operationId": "ask_memory_v4_ask_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V4AskRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V4AskResponse"
                 }
               }
             }
@@ -1762,6 +1867,21 @@
               "default": "single",
               "title": "Retrieval Mode"
             }
+          },
+          {
+            "name": "expand",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "none",
+                "neighbors",
+                "article"
+              ],
+              "type": "string",
+              "default": "none",
+              "title": "Expand"
+            }
           }
         ],
         "responses": {
@@ -1837,6 +1957,50 @@
             }
           }
         }
+      }
+    },
+    "/v1/chat/completions": {
+      "post": {
+        "tags": [
+          "openai-compatible"
+        ],
+        "summary": "Chat Completions",
+        "operationId": "chat_completions_v1_chat_completions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenAIChatCompletionsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
       }
     },
     "/control/mcp/clients": {
@@ -2809,6 +2973,113 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "OpenAIChatCompletionsRequest": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Model",
+            "default": "mesa"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/OpenAIChatMessage"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Messages"
+          },
+          "stream": {
+            "type": "boolean",
+            "title": "Stream",
+            "default": false
+          },
+          "document_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "array",
+                "maxItems": 64,
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Ids"
+          },
+          "valid_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid At"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 8
+          },
+          "expand": {
+            "type": "string",
+            "enum": [
+              "none",
+              "neighbors",
+              "article"
+            ],
+            "title": "Expand",
+            "default": "none"
+          },
+          "retrieval_mode": {
+            "type": "string",
+            "enum": [
+              "single",
+              "adaptive"
+            ],
+            "title": "Retrieval Mode",
+            "default": "single"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "messages"
+        ],
+        "title": "OpenAIChatCompletionsRequest",
+        "description": "OpenAI-compatible chat completions request body (D104)."
+      },
+      "OpenAIChatMessage": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Role"
+          },
+          "content": {
+            "title": "Content",
+            "default": ""
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "title": "OpenAIChatMessage"
+      },
       "PolicyCreateReq": {
         "properties": {
           "rule_id": {
@@ -2863,6 +3134,395 @@
           "created_by"
         ],
         "title": "PolicyCreateReq"
+      },
+      "V4AskCitation": {
+        "properties": {
+          "source_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Source Number"
+          },
+          "document_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision Id"
+          },
+          "revision_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision Number"
+          },
+          "chunk_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunk Id"
+          },
+          "span": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/V4CitationSpan"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "sheet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheet"
+          },
+          "row_start": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row Start"
+          },
+          "row_end": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row End"
+          },
+          "valid_from": {
+            "type": "string",
+            "title": "Valid From",
+            "default": ""
+          },
+          "valid_to": {
+            "type": "string",
+            "title": "Valid To",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_number"
+        ],
+        "title": "V4AskCitation",
+        "description": "Exact source citation verified to come from the prompt context (D103)."
+      },
+      "V4AskRequest": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Question"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          },
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "dataset_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "maxLength": 128,
+                  "minLength": 1
+                },
+                "type": "array",
+                "maxItems": 64,
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Ids"
+          },
+          "document_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "maxLength": 256,
+                  "minLength": 1
+                },
+                "type": "array",
+                "maxItems": 64,
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Ids"
+          },
+          "jurisdiction": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jurisdiction"
+          },
+          "valid_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid At"
+          },
+          "valid_from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid From"
+          },
+          "valid_to": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid To"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 8
+          },
+          "expand": {
+            "type": "string",
+            "enum": [
+              "none",
+              "neighbors",
+              "article"
+            ],
+            "title": "Expand",
+            "default": "none"
+          },
+          "retrieval_mode": {
+            "type": "string",
+            "enum": [
+              "single",
+              "adaptive"
+            ],
+            "title": "Retrieval Mode",
+            "default": "single"
+          }
+        },
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "title": "V4AskRequest",
+        "description": "Grounded question-answering request (D103)."
+      },
+      "V4AskResponse": {
+        "properties": {
+          "answer": {
+            "type": "string",
+            "title": "Answer"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/V4AskCitation"
+            },
+            "type": "array",
+            "title": "Citations"
+          },
+          "not_found": {
+            "type": "boolean",
+            "title": "Not Found"
+          },
+          "not_found_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Found Reason"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/V4AskUsage"
+          },
+          "latency_ms": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Latency Ms"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "default": ""
+          },
+          "degraded_sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Degraded Sources"
+          }
+        },
+        "type": "object",
+        "required": [
+          "answer",
+          "citations",
+          "not_found",
+          "usage",
+          "latency_ms"
+        ],
+        "title": "V4AskResponse",
+        "description": "Grounded answer with verified citations or explicit not_found (D103)."
+      },
+      "V4AskUsage": {
+        "properties": {
+          "prompt_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Prompt Tokens",
+            "default": 0
+          },
+          "completion_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Completion Tokens",
+            "default": 0
+          },
+          "total_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Tokens",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "V4AskUsage",
+        "description": "Token usage reported by the answering LLM (D103)."
       },
       "V4CapabilityFlags": {
         "properties": {
@@ -3508,6 +4168,110 @@
         "title": "V4DocumentStatusResponse",
         "description": "Document metadata and per-revision ingest status for viewers (D96)."
       },
+      "V4DocumentSummaryRequest": {
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Tenant Id"
+          },
+          "workspace_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Workspace Id"
+          },
+          "dataset_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Dataset Id"
+          },
+          "revision_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "workspace_id",
+          "dataset_id"
+        ],
+        "title": "V4DocumentSummaryRequest",
+        "description": "Single-document summary request (D105)."
+      },
+      "V4DocumentSummaryResponse": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "revision_id": {
+            "type": "string",
+            "title": "Revision Id"
+          },
+          "revision_number": {
+            "type": "integer",
+            "title": "Revision Number"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "parts": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Parts"
+          },
+          "llm_calls": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Llm Calls"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/V4AskUsage"
+          },
+          "latency_ms": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Latency Ms"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id",
+          "revision_id",
+          "revision_number",
+          "status",
+          "summary",
+          "parts",
+          "llm_calls",
+          "usage",
+          "latency_ms"
+        ],
+        "title": "V4DocumentSummaryResponse",
+        "description": "Single-document summary response (D105)."
+      },
       "V4DocumentTextResponse": {
         "properties": {
           "document_id": {
@@ -3584,7 +4348,7 @@
           "article_id": {
             "type": "string",
             "maxLength": 32,
-            "pattern": "^(?:madde[- ]*)?\\d+[A-Za-z\u00c7\u011e\u0130\u00d6\u015e\u00dc\u00e7\u011f\u0131\u00f6\u015f\u00fc]?$",
+            "pattern": "^(?:madde[- ]*)?\\d+[A-Za-zÇĞİÖŞÜçğıöşü]?$",
             "title": "Article Id"
           },
           "version_id": {

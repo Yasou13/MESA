@@ -40,8 +40,8 @@ def _embedding(values: list[float], index: int = 0) -> SimpleNamespace:
 
 
 def _install_openai_fake(monkeypatch):
-    """Install an SDK-shaped fake after importing the optional adapter."""
-    from mesa_memory.adapter import live
+    """Install an SDK-shaped fake after importing the OpenAI-compatible adapter."""
+    from mesa_memory.adapter import openai_compat
 
     sync_client = MagicMock()
     async_client = MagicMock()
@@ -51,14 +51,10 @@ def _install_openai_fake(monkeypatch):
         RateLimitError=type("RateLimitError", (Exception,), {}),
         APIConnectionError=type("APIConnectionError", (Exception,), {}),
         NotFoundError=type("NotFoundError", (Exception,), {}),
+        BadRequestError=type("BadRequestError", (Exception,), {}),
     )
-    monkeypatch.setattr(live, "openai", fake_sdk)
-    monkeypatch.setattr(live, "_OPENAI_RATE_LIMIT_ERRORS", (fake_sdk.RateLimitError,))
-    monkeypatch.setattr(
-        live, "_OPENAI_CONNECTION_ERRORS", (fake_sdk.APIConnectionError,)
-    )
-    monkeypatch.setattr(live, "_OPENAI_NOT_FOUND_ERRORS", (fake_sdk.NotFoundError,))
-    return live, fake_sdk, sync_client, async_client
+    monkeypatch.setattr(openai_compat, "openai", fake_sdk)
+    return openai_compat, fake_sdk, sync_client, async_client
 
 
 def test_openai_adapter_sync_contract_with_fake_sdk(monkeypatch) -> None:
@@ -117,20 +113,20 @@ def test_openai_adapter_not_found_fails_closed(monkeypatch) -> None:
 
 
 def test_openai_adapter_sync_error_contract_without_retry_delay(monkeypatch) -> None:
-    live, sdk, sync_client, _ = _install_openai_fake(monkeypatch)
-    adapter = live.OpenAICompatibleAdapter(api_key="test-key")
+    compat, sdk, sync_client, _ = _install_openai_fake(monkeypatch)
+    adapter = compat.OpenAICompatibleAdapter(api_key="test-key")
 
     sync_client.chat.completions.create.side_effect = sdk.RateLimitError("limited")
     with pytest.raises(sdk.RateLimitError):
-        adapter.complete.__wrapped__(adapter, "prompt")
+        adapter.complete("prompt")
 
     sync_client.embeddings.create.side_effect = sdk.APIConnectionError("offline")
     with pytest.raises(sdk.APIConnectionError):
-        adapter.embed.__wrapped__(adapter, "text")
+        adapter.embed("text")
     with pytest.raises(sdk.APIConnectionError):
-        adapter.embed_batch.__wrapped__(adapter, ["text"])
+        adapter.embed_batch(["text"])
 
-    monkeypatch.setattr(live, "count_tokens", lambda *args, **kwargs: 6)
+    monkeypatch.setattr(compat, "count_tokens", lambda *args, **kwargs: 6)
     assert adapter.get_token_count("one two") == 6
 
 
@@ -138,8 +134,8 @@ def test_openai_adapter_sync_error_contract_without_retry_delay(monkeypatch) -> 
 async def test_openai_adapter_async_error_contract_without_retry_delay(
     monkeypatch,
 ) -> None:
-    live, sdk, _, async_client = _install_openai_fake(monkeypatch)
-    adapter = live.OpenAICompatibleAdapter(api_key="test-key")
+    compat, sdk, _, async_client = _install_openai_fake(monkeypatch)
+    adapter = compat.OpenAICompatibleAdapter(api_key="test-key")
     async_client.chat.completions.create = AsyncMock(
         side_effect=sdk.APIConnectionError("offline")
     )
@@ -148,41 +144,40 @@ async def test_openai_adapter_async_error_contract_without_retry_delay(
     )
 
     with pytest.raises(sdk.APIConnectionError):
-        await adapter.acomplete.__wrapped__(adapter, "prompt")
+        await adapter.acomplete("prompt")
     with pytest.raises(sdk.RateLimitError):
-        await adapter.aembed.__wrapped__(adapter, "text")
+        await adapter.aembed("text")
     with pytest.raises(sdk.RateLimitError):
-        await adapter.aembed_batch.__wrapped__(adapter, ["text"])
+        await adapter.aembed_batch(["text"])
 
 
 def test_adapter_factory_resolves_all_supported_provider_paths(monkeypatch) -> None:
-    from mesa_memory.adapter import claude, factory, live, ollama
+    from mesa_memory.adapter import factory, openai_compat
 
     class FakeAdapter:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
 
-    monkeypatch.setattr(live, "OpenAICompatibleAdapter", FakeAdapter)
-    monkeypatch.setattr(claude, "ClaudeAdapter", FakeAdapter)
-    monkeypatch.setattr(ollama, "OllamaAdapter", FakeAdapter)
+    monkeypatch.setattr(openai_compat, "OpenAICompatibleAdapter", FakeAdapter)
     monkeypatch.setattr(factory.config, "llm_api_key", "configured-key")
     monkeypatch.setattr(factory.config, "llm_base_url", "http://provider")
     monkeypatch.setattr(factory.config, "external_provider_enabled", True)
 
     assert isinstance(
-        factory.AdapterFactory.get_adapter("openai_compatible", model_name="m"), FakeAdapter
+        factory.AdapterFactory.get_adapter("openai_compatible", model_name="m"),
+        FakeAdapter,
     )
     assert isinstance(
         factory.AdapterFactory.get_adapter("openai", model_name="m"), FakeAdapter
     )
-    assert isinstance(factory.AdapterFactory.get_adapter("claude", model_name="m"), FakeAdapter)
-    assert isinstance(factory.AdapterFactory.get_adapter("anthropic", model_name="m"), FakeAdapter)
-    assert isinstance(factory.AdapterFactory.get_adapter("ollama", model_name="m"), FakeAdapter)
+    assert isinstance(
+        factory.AdapterFactory.get_adapter("ollama", model_name="m"), FakeAdapter
+    )
     assert isinstance(
         factory.AdapterFactory.get_adapter("mock"), factory.DeterministicMockAdapter
     )
 
-    monkeypatch.setattr(factory.config, "llm_model", "openai:gpt-4o")
+    monkeypatch.setattr(factory.config, "llm_model", "gpt-4o")
     assert isinstance(factory.AdapterFactory.get_adapter(), FakeAdapter)
 
     with pytest.raises(ValueError, match="Unknown LLM provider"):
@@ -212,127 +207,8 @@ async def test_deterministic_mock_adapter_async_contract() -> None:
     assert await adapter.aembed_batch(["text"])
 
 
-def test_claude_adapter_contract_with_fake_optional_sdks(monkeypatch) -> None:
-    from mesa_memory.adapter import claude
-
-    sync_anthropic, async_anthropic = MagicMock(), MagicMock()
-    sync_openai, async_openai = MagicMock(), MagicMock()
-    monkeypatch.setattr(
-        claude,
-        "anthropic",
-        SimpleNamespace(
-            Anthropic=Mock(return_value=sync_anthropic),
-            AsyncAnthropic=Mock(return_value=async_anthropic),
-        ),
-    )
-    monkeypatch.setattr(
-        claude,
-        "_openai_module",
-        SimpleNamespace(
-            OpenAI=Mock(return_value=sync_openai),
-            AsyncOpenAI=Mock(return_value=async_openai),
-        ),
-    )
-    sync_anthropic.messages.create.return_value = SimpleNamespace(
-        content=[SimpleNamespace(text='{"result": "claude"}')]
-    )
-    sync_openai.embeddings.create.return_value = SimpleNamespace(
-        data=[SimpleNamespace(embedding=[0.3], index=0)]
-    )
-    adapter = claude.ClaudeAdapter("anthropic-key", "openai-key")
-
-    assert adapter.complete("prompt", schema=_ResultSchema).result == "claude"
-    assert adapter.embed("text") == [0.3]
-    assert adapter.embed_batch(["text"]) == [[0.3]]
-    monkeypatch.setattr(claude, "count_tokens", lambda *args, **kwargs: 4)
-    assert adapter.get_token_count("text") == 4
-
-
-@pytest.mark.asyncio
-async def test_claude_adapter_async_and_sync_local_fallback_contract(
-    monkeypatch,
-) -> None:
-    from mesa_memory.adapter import claude
-
-    sync_anthropic, async_anthropic = MagicMock(), MagicMock()
-    async_anthropic.messages.create = AsyncMock(
-        return_value=SimpleNamespace(content=[SimpleNamespace(text="async claude")])
-    )
-    monkeypatch.setattr(
-        claude,
-        "anthropic",
-        SimpleNamespace(
-            Anthropic=Mock(return_value=sync_anthropic),
-            AsyncAnthropic=Mock(return_value=async_anthropic),
-        ),
-    )
-    monkeypatch.setattr(claude, "_openai_module", None)
-    monkeypatch.setattr(claude, "_local_embed", lambda text: [0.7])
-    monkeypatch.setattr(
-        claude, "_local_embed_batch", lambda texts: [[0.8] for _ in texts]
-    )
-    adapter = claude.ClaudeAdapter("anthropic-key")
-
-    assert await adapter.acomplete("prompt") == "async claude"
-    assert adapter.embed("text") == [0.7]
-    assert adapter.embed_batch(["one", "two"]) == [[0.8], [0.8]]
-
-
-@pytest.mark.asyncio
-async def test_claude_adapter_async_openai_embedding_contract(monkeypatch) -> None:
-    from mesa_memory.adapter import claude
-
-    sync_anthropic, async_anthropic = MagicMock(), MagicMock()
-    async_anthropic.messages.create = AsyncMock(
-        return_value=SimpleNamespace(
-            content=[SimpleNamespace(text='{"result": "async"}')]
-        )
-    )
-    async_openai = MagicMock()
-    async_openai.embeddings.create = AsyncMock(
-        return_value=SimpleNamespace(data=[SimpleNamespace(embedding=[0.2], index=0)])
-    )
-    monkeypatch.setattr(
-        claude,
-        "anthropic",
-        SimpleNamespace(
-            Anthropic=Mock(return_value=sync_anthropic),
-            AsyncAnthropic=Mock(return_value=async_anthropic),
-        ),
-    )
-    monkeypatch.setattr(
-        claude,
-        "_openai_module",
-        SimpleNamespace(
-            OpenAI=Mock(return_value=MagicMock()),
-            AsyncOpenAI=Mock(return_value=async_openai),
-        ),
-    )
-    adapter = claude.ClaudeAdapter("anthropic-key", "openai-key")
-
-    assert (await adapter.acomplete("prompt", schema=_ResultSchema)).result == "async"
-    assert await adapter.aembed("one") == [0.2]
-    assert await adapter.aembed_batch(["one"]) == [[0.2]]
-
-
-def test_ollama_and_tokenizer_contracts_with_fake_sdk(monkeypatch) -> None:
-    from mesa_memory.adapter import ollama, tokenizer
-
-    client = MagicMock()
-    client.generate.side_effect = [
-        {"response": "plain"},
-        {"response": '{"result": "structured"}'},
-    ]
-    client.embeddings.return_value = {"embedding": [0.5]}
-    monkeypatch.setattr(
-        ollama, "ollama", SimpleNamespace(Client=Mock(return_value=client))
-    )
-    adapter = ollama.OllamaAdapter(model="fake", base_url="http://fake")
-    assert adapter.complete("prompt") == "plain"
-    assert adapter.complete("prompt", schema=_ResultSchema).result == "structured"
-    assert adapter.embed_batch(["one", "two"]) == [[0.5], [0.5]]
-    monkeypatch.setattr(ollama, "count_tokens", lambda *args, **kwargs: 3)
-    assert adapter.get_token_count("one two") == 3
+def test_tokenizer_contracts(monkeypatch) -> None:
+    from mesa_memory.adapter import tokenizer
 
     encoding = SimpleNamespace(encode=lambda text: [1, 2, 3])
     monkeypatch.setattr(tokenizer, "_CL100K_ENCODING", encoding)

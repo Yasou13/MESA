@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import json
+import os
+import re
+import socket
+import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import yaml
 
 from mesa_memory.config import RuntimeProfile
 from mesa_memory.runtime_entrypoint import command_for_profile
+from tests.fake_openai_server import FakeOpenAIServer, chat_completion_payload
 
 ROOT = Path(__file__).parents[1]
 
@@ -196,27 +203,23 @@ def test_documented_install_lines_use_published_pypi_package() -> None:
     assert "git+https://github.com/Yasou13/MESA" not in readme
 
     assert "pip install mesa-memory" in quickstart
-    assert (
-        "The development version can be installed directly from git: "
-        '`pip install "mesa-memory @ git+https://github.com/Yasou13/MESA"`.'
-        in quickstart
-    )
+    assert "`pip install -e .`" in quickstart
 
     assert "!pip install mesa-memory" in colab
     assert "git+https://github.com/Yasou13/MESA" not in colab
 
 
-def test_openai_and_ollama_in_core_dependencies() -> None:
+def test_openai_in_core_dependencies_and_legacy_sdks_removed() -> None:
     import tomllib
     data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     core_deps = data["project"]["dependencies"]
     optional_adapters = data["project"]["optional-dependencies"]["adapters"]
 
     assert any(dep.startswith("openai>=") for dep in core_deps)
-    assert any(dep.startswith("ollama>=") for dep in core_deps)
+    assert not any(dep.startswith("ollama") for dep in core_deps)
     assert not any(dep.startswith("openai") for dep in optional_adapters)
     assert not any(dep.startswith("ollama") for dep in optional_adapters)
-    assert any(dep.startswith("anthropic>=") for dep in optional_adapters)
+    assert not any(dep.startswith("anthropic") for dep in optional_adapters)
 
 
 
@@ -224,14 +227,75 @@ def test_documented_public_api_examples_match_authenticated_route_contract() -> 
     quickstart = (ROOT / "docs/getting-started.md").read_text(encoding="utf-8")
     v4_example = (ROOT / "examples/v4_quickstart.py").read_text(encoding="utf-8")
 
-    assert (
-        'curl --fail -H "X-API-Key: $MESA_API_KEY" http://127.0.0.1:18080/health'
-        in quickstart
-    )
+    assert 'api_key=credentials["api_key"]' in quickstart
+    assert 'credentials["base_url"] + "/v1"' in quickstart
     assert "python -m examples.v4_quickstart" in quickstart
     assert "client.wait_until_committed(" in v4_example
     assert "client.end_session(" in v4_example
     assert 'hit.get("provenance", [])' in v4_example
+
+
+def test_getting_started_runs_every_example_against_a_fresh_store(tmp_path) -> None:
+    guide = (ROOT / "docs/getting-started.md").read_text(encoding="utf-8")
+    fences = re.findall(r"^```([^\n]*)\n(.*?)^```$", guide, re.MULTILINE | re.DOTALL)
+    assert fences and all(language == "bash" for language, _ in fences)
+    assert 2 * len(fences) == len(re.findall(r"^```", guide, re.MULTILINE))
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+
+    def provider(path, headers, body):
+        assert path == "/v1/chat/completions"
+        assert headers["authorization"] == "Bearer local"
+        assert body["model"] == "docs-model"
+        messages = body["messages"]
+        if len(messages) == 1:
+            content = "OK"
+        elif "summarizing a single document" in messages[0]["content"]:
+            content = "Section 1 gives the opening time."
+        elif "annual budget" in messages[-1]["content"]:
+            content = json.dumps({"answer": "", "citations": [], "not_found": True})
+        else:
+            content = json.dumps({
+                "answer": "The room opens at nine.", "citations": [1], "not_found": False,
+            })
+        return 200, chat_completion_payload(content, model="docs-model")
+
+    env = {key: value for key, value in os.environ.items() if not key.startswith(("MESA_", "LLM_"))}
+    env.update(
+        PATH=os.pathsep.join([str(Path(sys.executable).parent), env["PATH"]]),
+        TMPDIR=str(tmp_path),
+        MESA_PORT=str(port),
+        CHAT_MODEL="docs-model",
+    )
+    script = "\n".join(block for _, block in fences)
+    with FakeOpenAIServer(provider) as fake:
+        env["CHAT_BASE_URL"] = fake.base_url
+        result = subprocess.run(
+            ["bash", "-e", "-o", "pipefail", "-c", script],
+            cwd=tmp_path, env=env, capture_output=True, text=True, timeout=150, check=False,
+        )
+    if result.returncode:
+        logs = "\n".join(
+            line
+            for path in tmp_path.glob("*/server.log")
+            for line in path.read_text().splitlines()[-20:]
+        )
+        raise AssertionError(f"{result.stdout}\n{result.stderr}\n{logs}")
+    assert "The reading room opens at nine." in result.stdout
+    assert "Borrowed books are due in fourteen days." in result.stdout
+    assert "The reading room closes at five." in result.stdout
+    assert "Chat model verified." in result.stdout
+    assert "The room opens at nine." in result.stdout
+    assert "Not found" in result.stdout
+    assert "Section 1 gives the opening time." in result.stdout
+    assert "Sources:" in result.stdout
+    assert "['search', 'read_text', 'list_documents']" in result.stdout
+    (snippet,) = tmp_path.glob("*/mesa-mcp.toml")
+    mcp = tomllib.loads(snippet.read_text())["mcp_servers"]["mesa"]
+    assert Path(mcp["command"]).name == "mesa-mcp"
+    assert mcp["env"]["MESA_BASE_URL"] == f"http://127.0.0.1:{port}"
+    assert snippet.stat().st_mode & 0o077 == 0
 
 
 def test_dependency_and_security_governance_assets_are_present() -> None:

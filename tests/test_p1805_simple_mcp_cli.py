@@ -29,8 +29,11 @@ def test_mesa_help_lists_only_kept_commands() -> None:
     choices = set(subparsers_action.choices.keys())
     assert choices == {
         "start",
+        "setup",
         "add",
         "search",
+        "ask",
+        "summarize",
         "delete",
         "status",
         "mcp-config",
@@ -121,6 +124,8 @@ async def test_mesa_mcp_stdio_starts_and_lists_tools(tmp_path: Path) -> None:
                 "mesa_get_context",
                 "mesa_remember",
                 "mesa_recall",
+                "mesa_ask",
+                "mesa_summarize",
                 "mesa_improve",
                 "mesa_forget",
             }

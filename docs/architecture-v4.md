@@ -13,7 +13,7 @@ V3 whitepaper is available in Git history; see the
 | Module | Responsibility |
 |---|---|
 | `mesa_storage` | Canonical SQLite, catalog repositories, ownership, retrieval and projection providers |
-| `mesa_memory` | Runtime configuration, extraction/validation, embedding, context, security and rebuild orchestration |
+| `mesa_memory` | Runtime configuration, extraction/validation, embedding, context, answering, summarization, security and rebuild orchestration |
 | `mesa_workers` | Durable ingestion, projection and maintenance consumers |
 | `mesa_api` | HTTP schemas, authorized V4 memory routes and control API |
 | `mesa_client` | Sync/async HTTP clients and optional integrations |
@@ -201,10 +201,12 @@ embedding provenance.
 ### Bounded adaptive context retrieval
 
 The raw V4 search endpoint remains the deterministic single-query primitive.
-The context endpoint and `mesa_get_context` default to `retrieval_mode=single`.
+The context endpoint, `mesa_get_context` and ask default to `retrieval_mode=single`.
 Callers may explicitly select `adaptive`, which runs the original query first
 and invokes one semantic reformulation call only when the result is empty or
 none of its top three candidates has support from at least two retrieval lanes.
+Ask uses the configured chat model for this call. Session context only composes
+the planner when extraction is enabled.
 
 The planner receives only the normalized user query and may return at most two
 validated query strings. It cannot change tenant, agent, dataset,
@@ -216,10 +218,11 @@ and outer `query_origins` plus `query_fusion_score` remain separately auditable.
 
 An adaptive request performs at most one planner call and three total
 retrievals. Planner or optional expansion failures preserve the original
-retrieval. The deduplicated final candidate list enters the existing
-`ContextBuilder` once, so the 2048-token default and atomic proof packing remain
-the sole model-visible budget authority. This feature performs no answer
-generation, recursive planning, decomposition or reranking.
+retrieval. In the context route the deduplicated candidate list enters
+`ContextBuilder` once, with a 2048-token default and atomic proof packing.
+Ask uses the selected passages to generate a cited answer. Both routes can
+expand the model-facing text after ranking while retaining the original
+citation spans. [Answering and context options](api-reference.md#ask-with-citations)
 
 ## Migration and release
 

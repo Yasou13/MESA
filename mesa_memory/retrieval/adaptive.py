@@ -220,29 +220,38 @@ class BoundedAdaptiveQueryRetriever:
         dataset_ids: list[str],
         query: str,
         limit: int = 20,
+        document_ids: list[str] | None = None,
         jurisdiction: str | None = None,
         valid_at: str | None = None,
         valid_from: str | None = None,
         valid_to: str | None = None,
         request_principal_id: str | None = None,
+        certification_metadata: dict[str, Any] | None = None,
     ) -> AdaptiveRetrievalResult:
         normalized_query = normalize_planner_query(query)
 
-        async def search(query_text: str) -> list[dict[str, Any]]:
-            return await self._dao.search_v4_memory(
-                tenant_id=tenant_id,
-                agent_id=agent_id,
-                dataset_ids=dataset_ids,
-                query=query_text,
-                limit=limit,
-                jurisdiction=jurisdiction,
-                valid_at=valid_at,
-                valid_from=valid_from,
-                valid_to=valid_to,
-                request_principal_id=request_principal_id,
-            )
+        async def search(
+            query_text: str, *, collect_metadata: bool = False
+        ) -> list[dict[str, Any]]:
+            kwargs: dict[str, Any] = {
+                "tenant_id": tenant_id,
+                "agent_id": agent_id,
+                "dataset_ids": dataset_ids,
+                "query": query_text,
+                "limit": limit,
+                "jurisdiction": jurisdiction,
+                "valid_at": valid_at,
+                "valid_from": valid_from,
+                "valid_to": valid_to,
+                "request_principal_id": request_principal_id,
+            }
+            if document_ids is not None:
+                kwargs["document_ids"] = document_ids
+            if collect_metadata and certification_metadata is not None:
+                kwargs["certification_metadata"] = certification_metadata
+            return await self._dao.search_v4_memory(**kwargs)
 
-        original = await search(normalized_query)
+        original = await search(normalized_query, collect_metadata=True)
         diagnostics: dict[str, Any] = {
             "retrieval_mode": "adaptive",
             "planner_used": False,

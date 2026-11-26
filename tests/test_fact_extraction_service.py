@@ -477,8 +477,8 @@ def test_adapter_bare_list_behavior_safe_for_results_and_strict_for_facts(
 
     from pydantic import BaseModel, ValidationError
 
-    from mesa_memory.adapter import live
-    from mesa_memory.adapter.live import OpenAICompatibleAdapter
+    from mesa_memory.adapter import openai_compat
+    from mesa_memory.adapter.openai_compat import OpenAICompatibleAdapter
 
     sync_client = MagicMock()
     async_client = MagicMock()
@@ -488,12 +488,9 @@ def test_adapter_bare_list_behavior_safe_for_results_and_strict_for_facts(
         RateLimitError=type("RateLimitError", (Exception,), {}),
         APIConnectionError=type("APIConnectionError", (Exception,), {}),
         NotFoundError=type("NotFoundError", (Exception,), {}),
+        BadRequestError=type("BadRequestError", (Exception,), {}),
     )
-    monkeypatch.setattr(live, "openai", fake_sdk)
-    monkeypatch.setattr(live, "_OPENAI_RATE_LIMIT_ERRORS", (fake_sdk.RateLimitError,))
-    monkeypatch.setattr(
-        live, "_OPENAI_CONNECTION_ERRORS", (fake_sdk.APIConnectionError,)
-    )
+    monkeypatch.setattr(openai_compat, "openai", fake_sdk)
 
     class SchemaWithResults(BaseModel):
         results: list[str]

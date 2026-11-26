@@ -11,9 +11,19 @@ from .client import (
     MesaNetworkError,
     MesaV4Client,
     MesaValidationError,
+    V4AskCitation,
+    V4AskResponse,
+    V4AskUsage,
     V4CitationSpan,
     V4ContextSource,
+    V4DocumentSummaryResponse,
     V4SearchResult,
+)
+from .tools import (
+    MESA_OPENAI_TOOLS,
+    aexecute_tool_call,
+    execute_tool_call,
+    get_openai_tools,
 )
 
 __all__ = [
@@ -26,8 +36,16 @@ __all__ = [
     "MesaAPIError",
     "MesaNetworkError",
     "MesaValidationError",
+    "V4AskCitation",
+    "V4AskUsage",
+    "V4AskResponse",
+    "V4DocumentSummaryResponse",
     "V4CitationSpan",
     "V4SearchResult",
     "V4ContextSource",
     "RECOMMENDED_SYSTEM_PROMPT",
+    "MESA_OPENAI_TOOLS",
+    "get_openai_tools",
+    "execute_tool_call",
+    "aexecute_tool_call",
 ]

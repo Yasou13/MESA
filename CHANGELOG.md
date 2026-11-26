@@ -9,6 +9,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `mesa setup` configures and verifies embeddings and chat, saves settings for
+  `mesa start`, and offers the offline rebuild when an existing vector store
+  needs a new embedding space (D107).
+- Opt-in post-rank context expansion (`expand`: `none` | `neighbors` | `article`,
+  default `none`) and opt-in adaptive query planning (`retrieval_mode`: `single`
+  | `adaptive`, default `single`) on `POST /v4/ask` and
+  `GET /v4/sessions/{session_id}/context` across HTTP, SDK, CLI, and MCP (D106).
+  Expansion enforces the exact search scope (`tenant_id`, `dataset_ids`,
+  `agent_id`, `document_ids`, temporal validity, committed state), never adds
+  unreadable chunks, and keeps citations anchored to the original passage spans.
+  Adaptive planning runs on the unified OpenAI-compatible adapter (D102) whenever
+  an LLM is configured.
+- Single-document summarization (`POST /v4/documents/{document_id}/summary`,
+  sync/async SDK `summarize_document`, `Mesa.summarize`, CLI `mesa summarize`,
+  and MCP tool `mesa_summarize`) (D105). Uses the offline tokenizer against
+  `context_window_limit`: one LLM call when the revision fits, ordered
+  map-reduce combine when it splits into 2–8 parts, and HTTP 422 `"document too
+  long to summarize"` above 8 parts. Supports historical revisions via
+  `revision_id` and returns HTTP 409 `"no LLM configured"` when no LLM is set.
+- OpenAI-compatible chat endpoint (`POST /v1/chat/completions`) backed by
+  `/v4/ask` with numbered citations in message text, extra `mesa_citations`
+  field, non-streaming and single-chunk SSE + `[DONE]` streaming, Bearer /
+  `X-API-Key` auth, and `model` scope (`mesa` or
+  `mesa:<tenant>/<workspace>/<dataset>`) (D104).
+- OpenAI-format SDK tool definitions (`MESA_OPENAI_TOOLS`, `get_openai_tools`)
+  for `search`, `read_text`, and `list_documents`, plus `execute_tool_call` /
+  `aexecute_tool_call` helpers in `mesa_client` (D104).
+- Grounded answering (`POST /v4/ask`, sync/async SDK `ask`, `Mesa.ask`, CLI
+  `mesa ask`, and MCP tool `mesa_ask`) (D103). Searches authorized scope
+  (sessionless or session-based, with optional `document_ids`, `valid_at`,
+  `limit=8`, `expand`, and `retrieval_mode`), wraps evidence as untrusted data
+  with `RECOMMENDED_SYSTEM_PROMPT`, enforces strict JSON parsing with one retry
+  on malformed output, drops and logs any out-of-context citations, returns
+  `not_found: true` whenever no valid citation remains, and returns HTTP 409
+  `"no LLM configured"` when no LLM is configured (D101).
+
+### Changed
+
+- Unified all chat LLM providers onto a single OpenAI-compatible adapter
+  (`mesa_memory/adapter/openai_compat.py`) configured via `MESA_LLM_MODEL`,
+  optional `MESA_LLM_BASE_URL`, optional `MESA_LLM_API_KEY`, and
+  `MESA_LLM_TIMEOUT_SECONDS` (D102). Legacy `provider:model` values remain
+  accepted with a one-time deprecation warning (`ollama:` without a base URL
+  resolves to `<MESA_OLLAMA_URL>/v1`; other prefixes are stripped).
+- Removed the separate Claude (`anthropic`), native Ollama (`ollama`), and
+  `live.py` adapters along with the `ollama` and `anthropic` package
+  dependencies. `MESA_LLM_PROVIDER` and `LLM_EMBEDDING_MODEL` now warn once at
+  startup and are ignored (D71, D102). Embeddings remain on `MESA_EMBEDDING_*`.
+
 ## [0.9.6] - 2026-11-25
 
 [Release notes](docs/release-notes-0.9.6.md)

@@ -1,6 +1,6 @@
 """Local CLI tools for MESA (D27, D30).
 
-Provides subcommands `start`, `add`, `search`, `delete`, `status`, `mcp-config`.
+Provides the local server, model setup, and document commands.
 """
 
 from __future__ import annotations
@@ -204,6 +204,85 @@ def search_command(args: argparse.Namespace) -> None:
                     print(f"    {line}")
 
 
+def ask_command(args: argparse.Namespace) -> None:
+    from mesa_client import Mesa
+
+    mesa = Mesa()
+    try:
+        resp = mesa.ask(
+            args.question,
+            document_ids=args.document_id or None,
+            valid_at=args.valid_at,
+            limit=args.limit,
+            expand=args.expand,
+            retrieval_mode=args.retrieval_mode,
+        )
+    finally:
+        mesa.close()
+
+    if getattr(args, "json", False):
+        print(json.dumps(resp, indent=2, ensure_ascii=False))
+        return
+
+    if resp.get("not_found"):
+        reason = resp.get("not_found_reason")
+        suffix = f" ({reason})" if reason else ""
+        print(f"Not found{suffix}.")
+        return
+
+    print(resp.get("answer", ""))
+    citations = resp.get("citations") or []
+    if citations:
+        print("\nCitations:")
+        for cit in citations:
+            num = cit.get("source_number", "?")
+            doc_id = cit.get("document_id") or "unknown"
+            rev = cit.get("revision_number")
+            rev_str = f" rev {rev}" if rev is not None else ""
+            span = cit.get("span")
+            span_str = (
+                f" span {span['start']}..{span['end']}"
+                if isinstance(span, dict) and "start" in span and "end" in span
+                else ""
+            )
+            loc_parts: list[str] = []
+            if cit.get("page") is not None:
+                loc_parts.append(f"p.{cit['page']}")
+            if cit.get("sheet") is not None:
+                rows = (
+                    f" rows {cit.get('row_start')}..{cit.get('row_end')}"
+                    if cit.get("row_start") is not None
+                    else ""
+                )
+                loc_parts.append(f"sheet {cit['sheet']}{rows}")
+            loc_str = f" ({', '.join(loc_parts)})" if loc_parts else ""
+            print(f"  [{num}] {doc_id}{rev_str}{span_str}{loc_str}")
+
+
+def summarize_command(args: argparse.Namespace) -> None:
+    from mesa_client import Mesa
+
+    mesa = Mesa()
+    try:
+        resp = mesa.summarize(
+            args.document_id,
+            revision_id=args.revision_id,
+        )
+    finally:
+        mesa.close()
+
+    if getattr(args, "json", False):
+        print(json.dumps(resp, indent=2, ensure_ascii=False))
+        return
+
+    print(resp.get("summary", ""))
+    doc_id = resp.get("document_id", args.document_id)
+    rev_num = resp.get("revision_number")
+    parts = resp.get("parts", 1)
+    rev_str = f" rev {rev_num}" if rev_num is not None else ""
+    print(f"\n[{doc_id}{rev_str}, {parts} part(s)]")
+
+
 def delete_command(args: argparse.Namespace) -> None:
     from mesa_client import Mesa
 
@@ -368,6 +447,9 @@ def mcp_config_command(args: argparse.Namespace) -> None:
 
 
 def register_local_commands(subparsers: argparse._SubParsersAction) -> None:
+    from .setup import register_setup_command
+
+    register_setup_command(subparsers)
     start_parser = subparsers.add_parser(
         "start", help="start the local MESA server"
     )
@@ -395,6 +477,49 @@ def register_local_commands(subparsers: argparse._SubParsersAction) -> None:
     search_parser.add_argument("query", help="search query")
     search_parser.add_argument("--limit", type=int, default=10, help="maximum results (default: 10)")
     search_parser.add_argument("--json", action="store_true", help="output JSON")
+
+    ask_parser = subparsers.add_parser(
+        "ask", help="ask a grounded question with citations"
+    )
+    ask_parser.add_argument("question", help="question to answer from MESA evidence")
+    ask_parser.add_argument(
+        "--document-id",
+        action="append",
+        default=None,
+        help="restrict search to one or more document IDs (repeatable)",
+    )
+    ask_parser.add_argument(
+        "--valid-at",
+        default=None,
+        help="ISO-8601 timestamp with timezone offset for point-in-time search",
+    )
+    ask_parser.add_argument(
+        "--limit", type=int, default=8, help="maximum evidence passages (default: 8)"
+    )
+    ask_parser.add_argument(
+        "--expand",
+        choices=("none", "neighbors", "article"),
+        default="none",
+        help="context expansion mode (default: none)",
+    )
+    ask_parser.add_argument(
+        "--retrieval-mode",
+        choices=("single", "adaptive"),
+        default="single",
+        help="retrieval mode (default: single)",
+    )
+    ask_parser.add_argument("--json", action="store_true", help="output JSON")
+
+    summarize_parser = subparsers.add_parser(
+        "summarize", help="summarize a single document revision"
+    )
+    summarize_parser.add_argument("document_id", help="document ID to summarize")
+    summarize_parser.add_argument(
+        "--revision-id",
+        default=None,
+        help="optional revision ID (defaults to ACTIVE revision)",
+    )
+    summarize_parser.add_argument("--json", action="store_true", help="output JSON")
 
     delete_parser = subparsers.add_parser(
         "delete", help="purge a document from MESA"
@@ -436,10 +561,15 @@ def register_local_commands(subparsers: argparse._SubParsersAction) -> None:
 
 
 def handle_local_command(args: argparse.Namespace) -> None:
+    from .setup import setup_command
+
     handlers = {
+        "setup": setup_command,
         "start": start_command,
         "add": add_command,
         "search": search_command,
+        "ask": ask_command,
+        "summarize": summarize_command,
         "delete": delete_command,
         "status": status_command,
         "mcp-config": mcp_config_command,

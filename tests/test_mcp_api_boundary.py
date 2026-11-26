@@ -48,6 +48,8 @@ def test_mcp_exposes_only_the_v1_tool_set() -> None:
         "mesa_get_context",
         "mesa_remember",
         "mesa_recall",
+        "mesa_ask",
+        "mesa_summarize",
         "mesa_improve",
         "mesa_forget",
     }

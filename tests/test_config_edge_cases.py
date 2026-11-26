@@ -85,15 +85,8 @@ def test_read_cgroup_ram_limit_file_not_found():
         assert _read_cgroup_ram_limit() is None
 
 
-def test_config_claude_no_key():
-    cfg = MesaConfig(
-        llm_provider="claude",
-        llm_model="openai_compatible:my-model",
-    )
-    assert cfg.llm_provider == "claude"
-
-
 def test_config_zero_cost_mode():
-    config = MesaConfig(zero_cost_mode=True, llm_model="openai_compatible:my-model")
-    assert config.llm_model == "ollama:qwen3:8b"
+    config = MesaConfig(zero_cost_mode=True, llm_model="my-model")
+    assert config.llm_model == "qwen3:8b"
+    assert config.llm_base_url == "http://localhost:11434/v1"
     assert config.extraction_thinking is False

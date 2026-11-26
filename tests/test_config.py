@@ -79,3 +79,24 @@ def test_retired_graph_env_vars_warn_once_and_are_ignored(monkeypatch, caplog):
     for var in retired:
         matches = [rec for rec in caplog.records if var in rec.getMessage()]
         assert len(matches) == 1
+
+
+def test_retired_llm_env_vars_warn_once_and_are_ignored(monkeypatch, caplog):
+    import logging
+
+    from mesa_memory.config import REMOVED_IGNORED_MESA_ENV_VARS, warn_removed_env_vars
+
+    retired = ("MESA_LLM_PROVIDER", "LLM_EMBEDDING_MODEL")
+    for var in retired:
+        assert var in REMOVED_IGNORED_MESA_ENV_VARS
+        monkeypatch.setenv(var, "legacy-value")
+
+    cfg = MesaConfig(_env_file=None)
+    assert not hasattr(cfg, "llm_provider")
+    assert not hasattr(cfg, "llm_embedding_model_name")
+
+    with caplog.at_level(logging.WARNING):
+        warn_removed_env_vars()
+    for var in retired:
+        matches = [rec for rec in caplog.records if var in rec.getMessage()]
+        assert len(matches) == 1

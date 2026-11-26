@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import BaseModel
 
-from mesa_memory.adapter.live import OpenAICompatibleAdapter
+from mesa_memory.adapter.openai_compat import OpenAICompatibleAdapter
 
 pytestmark = pytest.mark.optional_provider
 
@@ -26,8 +26,10 @@ def test_live_adapter_init_success():
 def test_live_adapter_configures_bounded_clients(monkeypatch):
     sync_client = MagicMock()
     async_client = MagicMock()
-    monkeypatch.setattr("mesa_memory.adapter.live.openai.OpenAI", sync_client)
-    monkeypatch.setattr("mesa_memory.adapter.live.openai.AsyncOpenAI", async_client)
+    monkeypatch.setattr("mesa_memory.adapter.openai_compat.openai.OpenAI", sync_client)
+    monkeypatch.setattr(
+        "mesa_memory.adapter.openai_compat.openai.AsyncOpenAI", async_client
+    )
 
     adapter = OpenAICompatibleAdapter(
         api_key="test-key", base_url="http://localhost", timeout_seconds=7.5
@@ -163,7 +165,7 @@ async def test_live_aembed_batch():
     assert res == [[0.2], [0.1]]
 
 
-@patch("mesa_memory.adapter.live.count_tokens")
+@patch("mesa_memory.adapter.openai_compat.count_tokens")
 def test_live_token_count(mock_count):
     mock_count.return_value = 5
     adapter = OpenAICompatibleAdapter(api_key="test-key")
