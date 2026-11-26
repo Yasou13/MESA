@@ -20,7 +20,7 @@ eliminate WAL contention under concurrent async readers/writers:
     PRAGMA synchronous=FULL;      — durable synchronization for canonical writes
     PRAGMA cache_size=-64000;     — 64 MB page cache (negative = KiB)
     PRAGMA foreign_keys=ON;       — referential integrity enforcement
-    PRAGMA busy_timeout=5000;     — 5s busy retry for transient WAL locks
+    PRAGMA busy_timeout=15000;    — 15s busy retry for transient WAL/FTS5 locks
     PRAGMA temp_store=MEMORY;     — in-memory temporary tables
 
 Connection Pooling:
@@ -99,7 +99,7 @@ def configure_sqlite_connection(
     *,
     synchronous_mode: str | None = None,
     journal_mode: str = "",
-    busy_timeout_ms: int = 5000,
+    busy_timeout_ms: int = 15000,
 ) -> None:
     """Apply durability without changing an existing journal mode by default."""
     sync_mode = _validate_synchronous_mode(
@@ -119,7 +119,7 @@ _PRAGMA_INIT: list[str] = [
     "PRAGMA journal_mode=WAL;",
     "PRAGMA cache_size=-64000;",
     "PRAGMA foreign_keys=ON;",
-    "PRAGMA busy_timeout=5000;",
+    "PRAGMA busy_timeout=15000;",
     "PRAGMA temp_store=MEMORY;",
     # Purge must not leave deleted text in free page space (D20).
     "PRAGMA secure_delete=ON;",

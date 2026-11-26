@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Increased the SQLite `PRAGMA busy_timeout` default from 5 s to 15 s
+  (`mesa_storage/sqlite_engine.py`) so transient WAL checkpoint or FTS5 merge
+  pauses at 100k+ chunks and under parallel writers wait rather than returning
+  HTTP 503, while keeping `PRAGMA synchronous=FULL` and `PRAGMA secure_delete=ON`
+  unchanged (D112).
+
 ### Added
 
 - Native Windows 10/11 and macOS (Apple silicon) support on Python 3.12–3.14
