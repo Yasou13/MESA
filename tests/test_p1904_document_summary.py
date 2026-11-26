@@ -462,3 +462,34 @@ async def test_summary_sdk_cli_and_mcp_surfaces(monkeypatch, capsys) -> None:
     v4_svc._http_client = MagicMock(summarize_document=AsyncMock(return_value=expected))
     adapter = MesaMCPAdapter(AsyncMock(), MCPSettings(api_key="test"), v4_svc)
     assert await adapter.mesa_summarize({"document_id": "doc-1", "revision_id": "rev-1"}) == expected
+
+
+@pytest.mark.asyncio
+async def test_summary_sdk_waits_for_multi_part_llm_calls() -> None:
+    # A long document takes up to nine LLM calls; the SDK default (10 s) and
+    # the MCP client (8 s) must not time out before the server replies.
+    seen: list[float | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.extensions["timeout"]["read"])
+        return httpx.Response(200, json={"summary": "s"})
+
+    sync_client = MesaV4Client(base_url="http://mesa.invalid", api_key="k")
+    sync_client._client = httpx.Client(
+        base_url="http://mesa.invalid", transport=httpx.MockTransport(handler)
+    )
+    sync_client.summarize_document(
+        tenant_id="t1", workspace_id="ws1", dataset_id="ds1", document_id="doc-1"
+    )
+    sync_client.close()
+
+    mcp_client = MesaHttpV4Service(MCPSettings(api_key="k"))._http_client
+    mcp_client._client = httpx.AsyncClient(
+        base_url="http://mesa.invalid", transport=httpx.MockTransport(handler)
+    )
+    await mcp_client.summarize_document(
+        tenant_id="t1", workspace_id="ws1", dataset_id="ds1", document_id="doc-1"
+    )
+    await mcp_client.aclose()
+
+    assert seen == [600.0, 600.0]

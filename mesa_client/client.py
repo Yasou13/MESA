@@ -24,7 +24,7 @@ from mesa_storage.temporal import normalize_temporal_metadata
 
 logger = logging.getLogger(__name__)
 
-# ask runs retrieval plus one or two LLM calls on the server; the default 10 s
+# ask and summary run one to nine LLM calls on the server; the default 10 s
 # client timeout is shorter than one LLM call (MESA_LLM_TIMEOUT_SECONDS = 60).
 _LLM_REQUEST_TIMEOUT_SECONDS = 600.0
 
@@ -1134,6 +1134,7 @@ class MesaV4Client(MesaClient):
             "POST",
             f"/v4/documents/{quote(document_id, safe='')}/summary",
             json=payload,
+            timeout=_LLM_REQUEST_TIMEOUT_SECONDS,
         )
 
     def wait_until_revision_active(
@@ -1777,6 +1778,7 @@ class AsyncMesaV4Client(AsyncMesaClient):
             "POST",
             f"/v4/documents/{quote(document_id, safe='')}/summary",
             json=payload,
+            timeout=_LLM_REQUEST_TIMEOUT_SECONDS,
         )
 
     async def wait_until_revision_active(
