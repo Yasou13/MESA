@@ -509,3 +509,17 @@ def test_release_workflow_waits_for_reusable_ci_workflow() -> None:
     publish_job = release_workflow["jobs"]["publish"]
     assert publish_job["needs"] == "build"
     assert publish_job["permissions"] == {"id-token": "write"}
+
+
+def test_ci_includes_native_windows_and_macos_jobs() -> None:
+    ci_workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    )
+    jobs = ci_workflow["jobs"]
+    assert jobs["windows-native"]["runs-on"] == "windows-latest"
+    assert jobs["macos-native"]["runs-on"] == "macos-latest"
+    for job_name in ("windows-native", "macos-native"):
+        text = yaml.safe_dump(jobs[job_name])
+        assert "mesa_memory-*.whl" in text
+        assert "/health" in text
+        assert "test_single_writer_contract.py" in text

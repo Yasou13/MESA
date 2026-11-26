@@ -2,7 +2,7 @@ name: MESA CI
 
 on:
   push:
-    branches: [audit/production-readiness, benchmark/**, feature/mesa-law-readiness, loggin/**, main]
+    branches: [audit/production-readiness, benchmark/**, feature/mesa-law-readiness, loggin/**, main, mvp/**]
     tags: ["v*"]
   pull_request:
     branches: [audit/production-readiness, benchmark/**, feature/mesa-law-readiness, loggin/**, main]
@@ -569,3 +569,335 @@ jobs:
         run: >-
           uv run python -m pytest -q
           -m "(optional_provider or optional_mcp) and not live_external"
+
+  windows-native:
+    needs: quality
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - name: Install pinned uv
+        run: python -m pip install "uv==0.13.1"
+      - name: Build wheel and verify native wheel install, mesa start, ingest, search, and mesa-mcp
+        run: |
+          uv build --wheel --out-dir dist .
+          uv export --quiet --frozen --no-dev --no-emit-project --no-hashes --output-file dist/runtime-requirements.txt
+          python - <<'PY'
+          import json
+          import os
+          import socket
+          import subprocess
+          import sys
+          import tempfile
+          import time
+          import urllib.request
+          from pathlib import Path
+
+          venv_dir = Path("wheel-venv").resolve()
+          subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
+          bin_dir = venv_dir / ("Scripts" if sys.platform == "win32" else "bin")
+          py_bin = bin_dir / ("python.exe" if sys.platform == "win32" else "python")
+          mesa_bin = bin_dir / ("mesa.exe" if sys.platform == "win32" else "mesa")
+          mcp_bin = bin_dir / ("mesa-mcp.exe" if sys.platform == "win32" else "mesa-mcp")
+
+          wheel = next(Path("dist").glob("mesa_memory-*.whl"))
+          subprocess.run(
+              [str(py_bin), "-m", "pip", "install", "--only-binary", ":all:", "-r", "dist/runtime-requirements.txt"],
+              check=True,
+          )
+          subprocess.run([str(py_bin), "-m", "pip", "install", "--no-deps", str(wheel)], check=True)
+          subprocess.run([str(py_bin), "-m", "pip", "check"], check=True)
+
+          with tempfile.TemporaryDirectory(prefix="mesa-native-smoke-") as td:
+              home = Path(td) / "home"
+              with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                  s.bind(("127.0.0.1", 0))
+                  port = s.getsockname()[1]
+
+              clean_env = {k: v for k, v in os.environ.items() if not k.startswith("MESA_")}
+              clean_env["MESA_HOME"] = str(home)
+              clean_env["MESA_PORT"] = str(port)
+              clean_env["MESA_MODEL_ENABLED"] = "false"
+              clean_env["MESA_EXTERNAL_PROVIDER_ENABLED"] = "false"
+              clean_env["PYTHONUTF8"] = "1"
+
+              log_path = Path(td) / "server.log"
+              with log_path.open("w", encoding="utf-8") as log_file:
+                  server = subprocess.Popen(
+                      [str(mesa_bin), "start", "--home", str(home), "--port", str(port)],
+                      env=clean_env,
+                      stdout=log_file,
+                      stderr=subprocess.STDOUT,
+                  )
+              try:
+                  deadline = time.monotonic() + 60
+                  init_ok = False
+                  while time.monotonic() < deadline:
+                      if server.poll() is not None:
+                          raise RuntimeError(
+                              f"mesa start exited early ({server.returncode}):\n"
+                              + log_path.read_text(encoding="utf-8", errors="replace")
+                          )
+                      try:
+                          with urllib.request.urlopen(f"http://127.0.0.1:{port}/health/init", timeout=3) as r:
+                              if r.status == 200:
+                                  init_ok = True
+                                  break
+                      except Exception:
+                          time.sleep(0.5)
+                  assert init_ok, "timed out waiting for /health/init:\n" + log_path.read_text(encoding="utf-8", errors="replace")
+
+                  creds = json.loads((home / "credentials.json").read_text(encoding="utf-8"))
+                  req = urllib.request.Request(
+                      f"http://127.0.0.1:{port}/health",
+                      headers={"X-API-Key": creds["api_key"]},
+                  )
+                  with urllib.request.urlopen(req, timeout=5) as r:
+                      health = json.loads(r.read().decode("utf-8"))
+                  assert health.get("status") == "healthy", health
+
+                  sample = Path(td) / "sample.txt"
+                  sample.write_text("Tebligat Kanunu Madde 21 — İstanbul şubesi teslim kaydı.\n", encoding="utf-8")
+                  subprocess.run([str(mesa_bin), "add", str(sample)], env=clean_env, check=True)
+                  search = subprocess.run(
+                      [str(mesa_bin), "search", "Tebligat", "--json"],
+                      env=clean_env,
+                      capture_output=True,
+                      text=True,
+                      encoding="utf-8",
+                      check=True,
+                  )
+                  hits = json.loads(search.stdout)
+                  assert hits and any("Tebligat" in (h.get("evidence_span") or h.get("content") or "") for h in hits), hits
+
+                  mcp_cfg = subprocess.run(
+                      [str(mesa_bin), "mcp", "config", "claude-desktop"],
+                      env=clean_env,
+                      capture_output=True,
+                      text=True,
+                      encoding="utf-8",
+                      check=True,
+                  )
+                  parsed_cfg = json.loads(mcp_cfg.stdout)
+                  assert Path(parsed_cfg["mcpServers"]["mesa"]["command"]).name.startswith("mesa-mcp")
+
+                  mcp_proc = subprocess.Popen(
+                      [str(mcp_bin)],
+                      env=clean_env,
+                      stdin=subprocess.PIPE,
+                      stdout=subprocess.PIPE,
+                      stderr=subprocess.PIPE,
+                      text=True,
+                      encoding="utf-8",
+                  )
+                  try:
+                      init_req = {
+                          "jsonrpc": "2.0",
+                          "id": 1,
+                          "method": "initialize",
+                          "params": {
+                              "protocolVersion": "2024-11-05",
+                              "capabilities": {},
+                              "clientInfo": {"name": "ci-smoke", "version": "0.1"},
+                          },
+                      }
+                      assert mcp_proc.stdin is not None and mcp_proc.stdout is not None
+                      mcp_proc.stdin.write(json.dumps(init_req) + "\n")
+                      mcp_proc.stdin.flush()
+                      resp = json.loads(mcp_proc.stdout.readline())
+                      assert resp.get("id") == 1 and "result" in resp, resp
+                  finally:
+                      mcp_proc.terminate()
+                      mcp_proc.wait(timeout=10)
+              finally:
+                  server.terminate()
+                  try:
+                      server.wait(timeout=15)
+                  except subprocess.TimeoutExpired:
+                      server.kill()
+                      server.wait(timeout=5)
+          print("Native wheel smoke passed on", sys.platform)
+          PY
+      - name: Install locked dev environment
+        run: uv sync --locked --extra dev
+      - name: Run Windows native fast test subset
+        run: >-
+          uv run python -m pytest -q
+          tests/test_single_writer_contract.py
+          tests/test_recovery_contract.py
+          tests/test_p403_local_cli.py
+          tests/test_p1906_setup.py
+          tests/test_p1801_session_optional.py
+          tests/test_p1806_document_upload.py
+          tests/test_p1902_ask.py
+          tests/test_mcp_v4_service.py
+
+  macos-native:
+    needs: quality
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - name: Install pinned uv
+        run: python -m pip install "uv==0.13.1"
+      - name: Build wheel and verify native wheel install, mesa start, ingest, search, and mesa-mcp
+        run: |
+          uv build --wheel --out-dir dist .
+          uv export --quiet --frozen --no-dev --no-emit-project --no-hashes --output-file dist/runtime-requirements.txt
+          python - <<'PY'
+          import json
+          import os
+          import socket
+          import subprocess
+          import sys
+          import tempfile
+          import time
+          import urllib.request
+          from pathlib import Path
+
+          venv_dir = Path("wheel-venv").resolve()
+          subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
+          bin_dir = venv_dir / "bin"
+          py_bin = bin_dir / "python"
+          mesa_bin = bin_dir / "mesa"
+          mcp_bin = bin_dir / "mesa-mcp"
+
+          wheel = next(Path("dist").glob("mesa_memory-*.whl"))
+          subprocess.run(
+              [str(py_bin), "-m", "pip", "install", "--only-binary", ":all:", "-r", "dist/runtime-requirements.txt"],
+              check=True,
+          )
+          subprocess.run([str(py_bin), "-m", "pip", "install", "--no-deps", str(wheel)], check=True)
+          subprocess.run([str(py_bin), "-m", "pip", "check"], check=True)
+
+          with tempfile.TemporaryDirectory(prefix="mesa-native-smoke-") as td:
+              home = Path(td) / "home"
+              with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                  s.bind(("127.0.0.1", 0))
+                  port = s.getsockname()[1]
+
+              clean_env = {k: v for k, v in os.environ.items() if not k.startswith("MESA_")}
+              clean_env["MESA_HOME"] = str(home)
+              clean_env["MESA_PORT"] = str(port)
+              clean_env["MESA_MODEL_ENABLED"] = "false"
+              clean_env["MESA_EXTERNAL_PROVIDER_ENABLED"] = "false"
+
+              log_path = Path(td) / "server.log"
+              with log_path.open("w", encoding="utf-8") as log_file:
+                  server = subprocess.Popen(
+                      [str(mesa_bin), "start", "--home", str(home), "--port", str(port)],
+                      env=clean_env,
+                      stdout=log_file,
+                      stderr=subprocess.STDOUT,
+                  )
+              try:
+                  deadline = time.monotonic() + 60
+                  init_ok = False
+                  while time.monotonic() < deadline:
+                      if server.poll() is not None:
+                          raise RuntimeError(
+                              f"mesa start exited early ({server.returncode}):\n"
+                              + log_path.read_text(encoding="utf-8", errors="replace")
+                          )
+                      try:
+                          with urllib.request.urlopen(f"http://127.0.0.1:{port}/health/init", timeout=3) as r:
+                              if r.status == 200:
+                                  init_ok = True
+                                  break
+                      except Exception:
+                          time.sleep(0.5)
+                  assert init_ok, "timed out waiting for /health/init:\n" + log_path.read_text(encoding="utf-8", errors="replace")
+
+                  creds = json.loads((home / "credentials.json").read_text(encoding="utf-8"))
+                  req = urllib.request.Request(
+                      f"http://127.0.0.1:{port}/health",
+                      headers={"X-API-Key": creds["api_key"]},
+                  )
+                  with urllib.request.urlopen(req, timeout=5) as r:
+                      health = json.loads(r.read().decode("utf-8"))
+                  assert health.get("status") == "healthy", health
+
+                  sample = Path(td) / "sample.txt"
+                  sample.write_text("Tebligat Kanunu Madde 21 — İstanbul şubesi teslim kaydı.\n", encoding="utf-8")
+                  subprocess.run([str(mesa_bin), "add", str(sample)], env=clean_env, check=True)
+                  search = subprocess.run(
+                      [str(mesa_bin), "search", "Tebligat", "--json"],
+                      env=clean_env,
+                      capture_output=True,
+                      text=True,
+                      encoding="utf-8",
+                      check=True,
+                  )
+                  hits = json.loads(search.stdout)
+                  assert hits and any("Tebligat" in (h.get("evidence_span") or h.get("content") or "") for h in hits), hits
+
+                  mcp_cfg = subprocess.run(
+                      [str(mesa_bin), "mcp", "config", "claude-desktop"],
+                      env=clean_env,
+                      capture_output=True,
+                      text=True,
+                      encoding="utf-8",
+                      check=True,
+                  )
+                  parsed_cfg = json.loads(mcp_cfg.stdout)
+                  assert Path(parsed_cfg["mcpServers"]["mesa"]["command"]).name == "mesa-mcp"
+
+                  mcp_proc = subprocess.Popen(
+                      [str(mcp_bin)],
+                      env=clean_env,
+                      stdin=subprocess.PIPE,
+                      stdout=subprocess.PIPE,
+                      stderr=subprocess.PIPE,
+                      text=True,
+                      encoding="utf-8",
+                  )
+                  try:
+                      init_req = {
+                          "jsonrpc": "2.0",
+                          "id": 1,
+                          "method": "initialize",
+                          "params": {
+                              "protocolVersion": "2024-11-05",
+                              "capabilities": {},
+                              "clientInfo": {"name": "ci-smoke", "version": "0.1"},
+                          },
+                      }
+                      assert mcp_proc.stdin is not None and mcp_proc.stdout is not None
+                      mcp_proc.stdin.write(json.dumps(init_req) + "\n")
+                      mcp_proc.stdin.flush()
+                      resp = json.loads(mcp_proc.stdout.readline())
+                      assert resp.get("id") == 1 and "result" in resp, resp
+                  finally:
+                      mcp_proc.terminate()
+                      mcp_proc.wait(timeout=10)
+              finally:
+                  server.terminate()
+                  try:
+                      server.wait(timeout=15)
+                  except subprocess.TimeoutExpired:
+                      server.kill()
+                      server.wait(timeout=5)
+          print("Native wheel smoke passed on", sys.platform)
+          PY
+      - name: Install locked dev environment
+        run: uv sync --locked --extra dev
+      - name: Run macOS native fast test subset
+        run: >-
+          uv run python -m pytest -q
+          tests/test_single_writer_contract.py
+          tests/test_recovery_contract.py
+          tests/test_p403_local_cli.py
+          tests/test_p1906_setup.py
+          tests/test_p1801_session_optional.py
+          tests/test_p1806_document_upload.py
+          tests/test_p1902_ask.py
+          tests/test_mcp_v4_service.py

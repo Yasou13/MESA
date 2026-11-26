@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Native Windows 10/11 and macOS (Apple silicon) support on Python 3.12–3.14
+  without WSL or Docker (D111): `mesa_storage/writer_lock.py` uses
+  `msvcrt.locking` on Windows and `fcntl.flock` elsewhere, `mesa start` runs
+  natively on Windows, SQLite read-only URIs and Alembic URLs handle Windows
+  paths cleanly, and CI runs `windows-latest` and `macos-latest` wheel smoke
+  and fast-subset jobs.
 - `mesa setup` configures and verifies embeddings and chat, saves settings for
   `mesa start`, and offers the offline rebuild when an existing vector store
   needs a new embedding space (D107).

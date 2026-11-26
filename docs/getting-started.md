@@ -7,11 +7,12 @@ them. The V4 runtime is a release candidate. Production qualification remains
 
 ## Installation
 
-On Linux or macOS, use a Python 3.11+ environment and run
-`pip install mesa-memory` for the published package. On Windows, use WSL or
-Docker. The model setup and built-in answering examples below use this
-checkout. From the checkout, install it in your environment with
-`pip install -e .`, or run `uv sync --locked` and activate `.venv`.
+On Linux, macOS (Apple silicon), or Windows 10/11, use a Python 3.12–3.14
+environment (Python 3.11+ on Linux) and run `pip install mesa-memory` for the
+published package — no WSL or Docker required. The model setup and built-in
+answering examples below use this checkout. From the checkout, install it in
+your environment with `pip install -e .`, or run `uv sync --locked` and activate
+`.venv`.
 
 ## Quickstart
 
