@@ -493,3 +493,40 @@ async def test_summary_sdk_waits_for_multi_part_llm_calls() -> None:
     await mcp_client.aclose()
 
     assert seen == [600.0, 600.0]
+
+
+@pytest.mark.asyncio
+async def test_summary_malformed_llm_response_is_503_like_ask(summary_runtime) -> None:
+    def handler(
+        _path: str, _headers: dict[str, str], _body: dict[str, Any]
+    ) -> tuple[int, dict[str, Any]]:
+        return 200, {"id": "x", "object": "chat.completion", "model": "m", "choices": []}
+
+    with FakeOpenAIServer(handler) as fake_llm:
+        async with summary_runtime(
+            llm_model="fake-sum-llm", llm_base_url=fake_llm.base_url
+        ) as rt:
+            client = rt["client"]
+            r_doc = await client.post(
+                "/v4/documents",
+                headers=rt["owner_headers"],
+                json={
+                    "tenant_id": "t1",
+                    "workspace_id": "ws1",
+                    "dataset_id": "ds1",
+                    "document_id": "doc-bad-llm",
+                    "title": "Doc",
+                    "source_ref": "file://bad-llm.txt",
+                    "content": "Article 1: Text.",
+                },
+            )
+            assert r_doc.status_code == 202
+            await _drain_all_work(rt["dao"])
+
+            resp = await client.post(
+                "/v4/documents/doc-bad-llm/summary",
+                headers=rt["reader_headers"],
+                json={"tenant_id": "t1", "workspace_id": "ws1", "dataset_id": "ds1"},
+            )
+            assert resp.status_code == 503
+            assert "malformed response" in resp.json()["detail"]
