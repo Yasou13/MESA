@@ -354,6 +354,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
         rerank_depth=config.rerank_depth,
     )
     await state.dao.initialize()
+    app.state.dao = state.dao
     if runtime.profile is RuntimeProfile.COMBINED:
         await state.dao.recover_processing_raw_logs()
         await state.dao.recover_in_flight_projection_and_dispatch()
@@ -465,6 +466,7 @@ async def _runtime_lifespan(app: FastAPI, runtime: RuntimeProfileConfig):
 async def _close_runtime_storage_resources() -> None:
     """Best-effort fallback for partial startup and exceptional shutdown."""
     state.is_ready = False
+    app.state.dao = None
     supervisor = getattr(state, "worker_supervisor", None)
     if supervisor is not None:
         try:
@@ -606,13 +608,42 @@ async def unhandled_exception_response(request: Request, exc: Exception) -> Resp
 
 
 from slowapi.errors import RateLimitExceeded
-from slowapi.middleware import SlowAPIMiddleware
+from slowapi.util import get_remote_address
 
-from mesa_memory.api.middleware import limiter, rate_limit_exceeded_handler
+from mesa_memory.api.middleware import (
+    auth_failure_limiter,
+    check_rate_limits,
+    get_minute_rate_limit,
+    is_rate_limiting_enabled,
+    limiter,
+    rate_limit_exceeded_handler,
+)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # type: ignore[arg-type]
-app.add_middleware(SlowAPIMiddleware)
+
+
+@app.middleware("http")
+async def enforce_unauthenticated_ip_rate_limit(request: Request, call_next):
+    """Throttle repeated unauthenticated 401 probes by process-local IP when enabled."""
+    if not is_rate_limiting_enabled() or request.url.path == "/health/init":
+        return await call_next(request)
+    per_minute = get_minute_rate_limit()
+    ip_subject = f"ip:{get_remote_address(request)}"
+    limited, retry_after = auth_failure_limiter.is_limited(ip_subject, per_minute)
+    if limited:
+        return JSONResponse(
+            status_code=429,
+            content=_canonical_error_body(
+                429, f"Rate limit exceeded ({per_minute} failed auth requests/minute)."
+            ),
+            headers={"Retry-After": str(retry_after)},
+        )
+    response = await call_next(request)
+    if response.status_code == 401:
+        auth_failure_limiter.record(ip_subject)
+    return response
+
 
 # type: ignore[no-untyped-def]
 
@@ -669,9 +700,7 @@ def get_mcp_control() -> ControlPlaneMiddleware:
     return control
 
 
-from mesa_memory.api.middleware import check_daily_limit
-
-router_dependencies = [Depends(get_api_key), Depends(check_daily_limit)]
+router_dependencies = [Depends(get_api_key), Depends(check_rate_limits)]
 v4_router = create_v4_router(
     get_dao=get_dao,
     get_access_control=get_access_control,
@@ -686,7 +715,7 @@ chat_router = create_chat_router(
 )
 app.include_router(
     chat_router,
-    dependencies=[Depends(get_openai_compat_api_key), Depends(check_daily_limit)],
+    dependencies=[Depends(get_openai_compat_api_key), Depends(check_rate_limits)],
 )
 app.include_router(
     create_control_router(
