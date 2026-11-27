@@ -23,10 +23,48 @@
   providers through `MESA_LLM_BASE_URL` and `MESA_LLM_MODEL`, including a
   local Ollama endpoint. Applications can use `POST /v1/chat/completions`
   for OpenAI-compatible chat. [Model configuration](configuration.md#chat-models)
-- Search and grounded answers default to `expand=none` and
+- The Python SDK provides OpenAI-format tool definitions for `search`,
+  `read_text` and `list_documents`.
+- Grounded answers and session context default to `expand=none` and
   `retrieval_mode=single`. Passage expansion and adaptive retrieval are
   opt-in. Expanded passages merge overlapping source spans to avoid repeating
   text in context. [Retrieval options](retrieval-and-graph.md)
+
+## Collections and first run
+
+- Creating a collection with `POST /v4/catalog/datasets` gives the caller
+  `PURGE` and `ROLLBACK` on it, so the creator can delete its documents.
+  Posting an existing collection again grants nothing.
+- `mesa start` creates the `default` workspace and collection, also in homes
+  made by earlier versions, so `GET /v4/catalog/datasets` lists `default`.
+- An uploaded file's `source_ref` is also stored on the document
+  (`external_ref`), including documents whose ingest failed.
+- `mesa setup --embedding local` downloads `BAAI/bge-m3` into the Hugging Face
+  cache when it is missing. The server still loads models offline only.
+
+## Security and operation
+
+- Uploaded file names are reduced to their base name; control characters and
+  `.`/`..` are rejected.
+- Logs redact MESA API keys and the configured `MESA_API_KEY`,
+  `MESA_LLM_API_KEY` and `MESA_EMBEDDING_API_KEY` values.
+- Rate limits (per minute, per day, and repeated failed logins per IP) are
+  controlled by `MESA_RATE_LIMIT_ENABLED`: off for a local `mesa start`, on in
+  the Docker profile. [Security](security-and-privacy.md)
+- SQLite now waits up to 15 seconds for a busy database instead of 5, which
+  removes the occasional HTTP 503 during large ingests.
+- Locked dependencies were updated; `pip-audit` reports no known
+  vulnerabilities.
+
+## Breaking changes
+
+- Chat models use one OpenAI-compatible adapter. The separate Claude and
+  native Ollama adapters and the `anthropic` and `ollama` dependencies are
+  removed. Set `MESA_LLM_MODEL` and, for local or custom endpoints,
+  `MESA_LLM_BASE_URL`. Old `provider:model` values still work with a warning.
+  `MESA_LLM_PROVIDER` is ignored with a warning.
+- The `adapters` extra is empty and kept only so existing install commands
+  keep working.
 
 ## Installation, operation, and upgrades
 
