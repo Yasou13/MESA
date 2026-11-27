@@ -563,7 +563,8 @@ class _OpenAICompatibleEmbeddingBackend:
         except ImportError as exc:
             label = "Ollama" if identity.provider.lower() == "ollama" else "OpenAI-compatible"
             raise EmbeddingCompositionError(
-                f'{label} embedding support requires: pip install "mesa-memory[adapters]"'
+                f"{label} embedding requires the openai dependency. "
+                "Repair the mesa-memory installation to restore it."
             ) from exc
         api_key = (
             getattr(config, "embedding_api_key", None)

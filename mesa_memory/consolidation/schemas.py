@@ -1,14 +1,9 @@
 """
 P0-A: Pydantic V2 schemas for structured batch extraction output.
 
-These schemas are passed to LLM adapters via the existing ``schema`` kwarg on
-``complete()`` / ``acomplete()``, enforcing structured JSON array responses
-without any adapter modifications.
-
-- OllamaAdapter: Routes to ``outlines.generate.json(llm, schema)`` for
-  grammar-constrained decoding.
-- ClaudeAdapter: Calls ``schema.model_validate_json(text)`` for post-hoc
-  Pydantic validation.
+Callers pass these schemas to ``complete()`` or ``acomplete()``. The
+OpenAI-compatible adapter requests a JSON Schema response when the endpoint
+supports it and validates the returned JSON with Pydantic.
 """
 
 from __future__ import annotations

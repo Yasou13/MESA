@@ -40,9 +40,11 @@ uv run ruff check .
 uv run mypy mesa_memory mesa_storage mesa_workers mesa_api mesa_client \
   --ignore-missing-imports --explicit-package-bases --follow-imports=skip
 make test-local
-# Adapter-inclusive ayrı gate: dev + adapters kurulumu sonrası make test-all
 uv build --wheel
 ```
+
+`adapters` extra’sı kullanımdan kaldırılmaktadır ve eski kurulum komutlarıyla
+uyumluluk için tutulur. OpenAI istemcisi temel paket bağımlılığıdır.
 
 Compose sözleşmeleri:
 

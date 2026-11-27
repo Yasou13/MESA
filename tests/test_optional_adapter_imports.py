@@ -52,7 +52,7 @@ from mesa_memory.embedding.service import _OpenAICompatibleEmbeddingBackend, Emb
 try:
     _OpenAICompatibleEmbeddingBackend(EmbeddingIdentity(provider="ollama", model="bge-m3", dimension=1024))
 except EmbeddingCompositionError as exc:
-    assert 'pip install "mesa-memory[adapters]"' in str(exc), f"Wrong message: {exc}"
+    assert 'Ollama embedding requires the openai dependency' in str(exc), str(exc)
 else:
     raise AssertionError("must raise on missing dependency")
 
@@ -60,7 +60,7 @@ else:
 try:
     _OpenAICompatibleEmbeddingBackend(EmbeddingIdentity(provider="openai_compatible", model="text-embedding-3-small", dimension=1536))
 except EmbeddingCompositionError as exc:
-    assert 'pip install "mesa-memory[adapters]"' in str(exc), f"Wrong message: {exc}"
+    assert 'OpenAI-compatible embedding requires the openai dependency' in str(exc), str(exc)
 else:
     raise AssertionError("must raise on missing dependency")
 """

@@ -603,7 +603,7 @@ class MesaConfig(BaseSettings):
     # v0.7.1: Zero-Cost Mode
     # When MESA_ZERO_COST_MODE=true, the system reconfigures itself to use
     # exclusively local resources:
-    #   - LLM provider  → OllamaAdapter (localhost:11434)
+    #   - LLM provider  → Ollama's OpenAI-compatible endpoint by default
     #   - Embeddings    → configured local EmbeddingService model (no fallback)
     #   - Validation    → preserves the explicitly selected assurance mode;
     #                      Mode 2 still requires two distinct validators.
@@ -611,7 +611,7 @@ class MesaConfig(BaseSettings):
     # -----------------------------------------------------------------------
     zero_cost_mode: bool = Field(False, validation_alias="MESA_ZERO_COST_MODE")
 
-    # Ollama connection URL (used by OllamaAdapter and zero-cost mode)
+    # Ollama base URL for embeddings and the default zero-cost chat endpoint.
     ollama_url: str = Field(
         "http://localhost:11434", validation_alias="MESA_OLLAMA_URL"
     )
@@ -744,7 +744,8 @@ class MesaConfig(BaseSettings):
         fully local, zero-API-cost operation.
 
         Overrides:
-          - llm_model           → "ollama:qwen3:8b"
+          - llm_model           → "qwen3:8b"
+          - llm_base_url        → Ollama's /v1 endpoint when unset
           - extraction_thinking → False
           - Leaves validation policy and validator identities unchanged
         """
@@ -768,7 +769,7 @@ class MesaConfig(BaseSettings):
             ollama_v1 = ollama_base if ollama_base.endswith("/v1") else f"{ollama_base}/v1"
             object.__setattr__(self, "llm_base_url", ollama_v1)
         object.__setattr__(self, "extraction_thinking", False)
-        # Ensure the OLLAMA_URL env var is set for embedding and legacy callers
+        # Share the configured Ollama URL with embedding and legacy callers.
         os.environ.setdefault("MESA_OLLAMA_URL", self.ollama_url)
         return self
 
