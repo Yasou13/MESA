@@ -109,3 +109,35 @@ async def test_scrypt_runs_off_event_loop(tmp_path) -> None:
     assert verified.principal_id == "principal-test"
     assert ticks_during_digest > 0, "Event loop was blocked during scrypt digest"
 
+
+@pytest.mark.asyncio
+async def test_scrypt_uses_bounded_worker_pool(tmp_path) -> None:
+    import asyncio
+    import threading
+    import time
+
+    from mesa_memory.security.api_keys import _SCRYPT_MAX_WORKERS
+
+    store = APIKeyStore(str(tmp_path / "rbac.db"))
+    await store.initialize()
+    key = await store.issue_key(principal_id="principal-pool")
+
+    seen_threads: set[str] = set()
+    lock = threading.Lock()
+    orig_digest = store._digest
+
+    def tracking_digest(secret: str, salt: bytes) -> bytes:
+        with lock:
+            seen_threads.add(threading.current_thread().name)
+        time.sleep(0.01)
+        return orig_digest(secret, salt)
+
+    store._digest = tracking_digest  # type: ignore[assignment]
+
+    results = await asyncio.gather(*(store.verify(key) for _ in range(12)))
+    assert all(item is not None and item.principal_id == "principal-pool" for item in results)
+    assert seen_threads
+    assert len(seen_threads) <= _SCRYPT_MAX_WORKERS
+    assert all(name.startswith("mesa-scrypt") for name in seen_threads)
+
+

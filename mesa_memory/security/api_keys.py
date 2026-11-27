@@ -11,11 +11,13 @@ import asyncio
 import base64
 import hashlib
 import os
+import queue
 import secrets
+import threading
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import AsyncIterator
+from typing import Any, AsyncIterator, Callable
 
 import aiosqlite
 
@@ -25,7 +27,76 @@ _SCRYPT_N = 2**14
 _SCRYPT_R = 8
 _SCRYPT_P = 1
 _DKLEN = 32
+_SCRYPT_MAX_WORKERS = 2
 DEFAULT_API_KEY_TTL_SECONDS = 90 * 24 * 60 * 60
+
+
+class _BoundedDaemonPool:
+    """Small fixed-size daemon thread pool for scrypt work buffers.
+
+    Each scrypt call allocates a 16 MiB work buffer (128 * N * r). Running it
+    on a dedicated small pool prevents glibc per-thread arenas from retaining
+    one 16 MiB buffer per thread across Python's larger default asyncio thread
+    pool, while daemon threads avoid keeping short-lived CLI/test processes
+    alive at exit.
+    """
+
+    def __init__(self, max_workers: int, prefix: str) -> None:
+        self._max_workers = max_workers
+        self._prefix = prefix
+        self._queue: queue.SimpleQueue[
+            tuple[asyncio.AbstractEventLoop, asyncio.Future[Any], Callable[[], Any]]
+        ] = queue.SimpleQueue()
+        self._lock = threading.Lock()
+        self._workers: list[threading.Thread] = []
+
+    def _ensure_workers(self) -> None:
+        if len(self._workers) >= self._max_workers:
+            return
+        with self._lock:
+            while len(self._workers) < self._max_workers:
+                idx = len(self._workers)
+                thread = threading.Thread(
+                    target=self._run,
+                    name=f"{self._prefix}_{idx}",
+                    daemon=True,
+                )
+                thread.start()
+                self._workers.append(thread)
+
+    def _run(self) -> None:
+        while True:
+            loop, fut, fn = self._queue.get()
+            if fut.cancelled():
+                continue
+            try:
+                result = fn()
+            except BaseException as exc:
+                if not loop.is_closed():
+                    loop.call_soon_threadsafe(self._set_exception, fut, exc)
+            else:
+                if not loop.is_closed():
+                    loop.call_soon_threadsafe(self._set_result, fut, result)
+
+    @staticmethod
+    def _set_result(fut: asyncio.Future[Any], value: Any) -> None:
+        if not fut.done():
+            fut.set_result(value)
+
+    @staticmethod
+    def _set_exception(fut: asyncio.Future[Any], exc: BaseException) -> None:
+        if not fut.done():
+            fut.set_exception(exc)
+
+    async def run(self, fn: Callable[[], Any]) -> Any:
+        self._ensure_workers()
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[Any] = loop.create_future()
+        self._queue.put((loop, fut, fn))
+        return await fut
+
+
+_SCRYPT_POOL = _BoundedDaemonPool(_SCRYPT_MAX_WORKERS, prefix="mesa-scrypt")
 
 
 @dataclass(frozen=True)
@@ -74,6 +145,9 @@ class APIKeyStore:
             p=_SCRYPT_P,
             dklen=_DKLEN,
         )
+
+    async def _digest_async(self, secret: str, salt: bytes) -> bytes:
+        return bytes(await _SCRYPT_POOL.run(lambda: self._digest(secret, salt)))
 
     async def issue_key(
         self,
@@ -142,7 +216,7 @@ class APIKeyStore:
         expires_at: str | None,
     ) -> None:
         salt = os.urandom(16)
-        digest = await asyncio.to_thread(self._digest, secret, salt)
+        digest = await self._digest_async(secret, salt)
         statement = "INSERT OR REPLACE" if replace else "INSERT"
         async with self._connect() as db:
             await db.execute(
@@ -182,7 +256,7 @@ class APIKeyStore:
             return None
         salt = base64.b64decode(row["salt_b64"])
         expected = base64.b64decode(row["digest_b64"])
-        actual = await asyncio.to_thread(self._digest, secret, salt)
+        actual = await self._digest_async(secret, salt)
         if not secrets.compare_digest(expected, actual):
             return None
         return VerifiedAPIKey(
@@ -218,7 +292,7 @@ class APIKeyStore:
         replacement_secret = secrets.token_urlsafe(32)
         replacement_expiry = _expiry_timestamp(DEFAULT_API_KEY_TTL_SECONDS)
         salt = os.urandom(16)
-        digest = await asyncio.to_thread(self._digest, replacement_secret, salt)
+        digest = await self._digest_async(replacement_secret, salt)
         async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bounded `APIKeyStore` `scrypt` verification to a dedicated 2-worker thread
+  pool (`mesa_memory/security/api_keys.py`) so 16 MiB scrypt work buffers do
+  not inflate glibc per-thread arenas across the default asyncio thread pool
+  under sustained load (D113).
 - Updated `mesa_evals/soak_test.py` for models-off chunk retrieval recall checks
   and remote `/metrics` drain measurability, and added measured minimum hardware
   requirements to `docs/getting-started.md` (D113).
