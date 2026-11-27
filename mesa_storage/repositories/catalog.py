@@ -35,7 +35,7 @@ class CatalogRepositoryPort(Protocol):
         tenant_name: str | None = None,
         workspace_name: str | None = None,
         dataset_name: str | None = None,
-    ) -> None: ...
+    ) -> bool: ...
 
     async def resolve_id_in_tx(
         self,
