@@ -263,6 +263,7 @@ combined model flag, or set `MESA_EMBEDDING_ENABLED=true` directly. Allocate
 at least **4 GB RAM** for models-off containers up to 100k chunks, **6 GB RAM**
 with external 1024-dim embeddings, or **8 GB RAM** (16 GB recommended at 100k)
 for in-process `local:BAAI/bge-m3` (`MESA_EXTRAS=ml`).
+[Install on your own server (Docker)](self-hosted-docker.md) ·
 [Docker configuration](../docker-compose.v4.yml) ·
 [Model configuration](configuration.md)
 

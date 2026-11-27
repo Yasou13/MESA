@@ -44,6 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Self-hosted Docker Compose production profile (`docker-compose.v4.yml`),
+  plain-English server install/backup/upgrade guide (`docs/self-hosted-docker.md`),
+  and `docker-smoke` CI job verifying one-command startup, non-root execution,
+  one-time bootstrap API key output, rate limits enabled by default, `/health`,
+  and persistent restart behavior (D115).
 - Native Windows 10/11 and macOS (Apple silicon) support on Python 3.12–3.14
   without WSL or Docker (D111): `mesa_storage/writer_lock.py` uses
   `msvcrt.locking` on Windows and `fcntl.flock` elsewhere, `mesa start` runs

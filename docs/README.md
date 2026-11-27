@@ -9,6 +9,7 @@ Paket sürümü 0.9.6; V4 güncel API'dir.
 | Amacınız | Okuyacağınız belge |
 |---|---|
 | MESA'yı kurup ilk örneği çalıştırmak | [Kurulum ve ilk çalıştırma](getting-started.md) |
+| MESA'yı kendi sunucunuzda Docker ile çalıştırmak | [Kendi sunucunuzda kurulum (Docker)](self-hosted-docker.md) |
 | Model, provider, port veya kapasite ayarlamak | [Yapılandırma](configuration.md) |
 | HTTP, Python SDK veya terminal komutlarıyla kullanmak | [API, SDK ve CLI](api-reference.md) |
 | Kaynaklı yanıt, belge özeti veya sohbet uç noktasını kullanmak | [Yanıt ve özet API'si](api-reference.md#llm-answers-and-summaries) |

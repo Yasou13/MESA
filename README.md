@@ -15,7 +15,7 @@ Package version: **0.9.6**. V4 is the current API. Production qualification rema
 pip install mesa-memory
 ```
 
-Supported on Linux and macOS natively. On Windows, run via Docker or WSL. Install this checkout with `pip install -e .` to try the Round 26 model features.
+Supported natively on Linux, macOS (Apple silicon), and Windows 10/11 (Python 3.12–3.14), with no WSL or Docker required. Install this checkout with `pip install -e .` to try unreleased features.
 
 ## Start the server
 
@@ -74,13 +74,13 @@ model.
 
 ## Docker
 
-Run MESA in a single-user local container (D32):
+Run MESA on your own server with one command (non-root container, persistent volume, rate limits enabled by default, bootstrap API key printed once on first boot):
 
 ```bash
 docker compose -f docker-compose.v4.yml up --build -d
 ```
 
-Credentials are written to `/var/lib/mesa/credentials.json` in the container volume:
+Read the one-time bootstrap key from first-start logs (`docker compose -f docker-compose.v4.yml logs mesa-v4`) or `/var/lib/mesa/credentials.json` in the persistent volume:
 
 ```bash
 docker compose -f docker-compose.v4.yml exec mesa-v4 cat /var/lib/mesa/credentials.json
@@ -88,7 +88,7 @@ docker compose -f docker-compose.v4.yml exec -T mesa-v4 mesa add - --source file
 docker compose -f docker-compose.v4.yml exec mesa-v4 mesa search "your query"
 ```
 
-No variables are required; models and external providers default off. If you set `MESA_API_KEY` and `MESA_PRINCIPAL_ID` for existing HTTP clients, the server accepts that key too, and the `mesa` commands inside the container use it first; add `-e MESA_API_KEY=` after `exec` to use the local credentials instead. Build with `--build-arg MESA_EXTRAS=ml` to add local sentence-transformers. Ollama defaults to `http://host.docker.internal:11434` (the Docker host).
+No variables are required; models and external providers default off. See [Install on your own server](docs/self-hosted-docker.md) for hardware minimums, optional embedding/LLM environment settings, TLS reverse proxy setup, backups, and upgrades. If you set `MESA_API_KEY` and `MESA_PRINCIPAL_ID` for existing HTTP clients, the server accepts that key too, and the `mesa` commands inside the container use it first; add `-e MESA_API_KEY=` after `exec` to use the local credentials instead. Build with `--build-arg MESA_EXTRAS=ml` to add local sentence-transformers. Ollama defaults to `http://host.docker.internal:11434` (the Docker host).
 
 ## Google Colab
 
@@ -106,6 +106,7 @@ See [testing](https://github.com/Yasou13/MESA/blob/main/docs/testing.md) for loc
 ## Documentation
 
 - [Getting Started Guide](docs/getting-started.md)
+- [Install on Your Own Server (Docker)](docs/self-hosted-docker.md)
 - [Configuration Reference](docs/configuration.md)
 - [API Reference](docs/api-reference.md)
 - [MCP Integration Guide](README_MCP.md)
