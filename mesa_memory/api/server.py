@@ -608,41 +608,15 @@ async def unhandled_exception_response(request: Request, exc: Exception) -> Resp
 
 
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 
 from mesa_memory.api.middleware import (
-    auth_failure_limiter,
     check_rate_limits,
-    get_minute_rate_limit,
-    is_rate_limiting_enabled,
     limiter,
     rate_limit_exceeded_handler,
 )
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # type: ignore[arg-type]
-
-
-@app.middleware("http")
-async def enforce_unauthenticated_ip_rate_limit(request: Request, call_next):
-    """Throttle repeated unauthenticated 401 probes by process-local IP when enabled."""
-    if not is_rate_limiting_enabled() or request.url.path == "/health/init":
-        return await call_next(request)
-    per_minute = get_minute_rate_limit()
-    ip_subject = f"ip:{get_remote_address(request)}"
-    limited, retry_after = auth_failure_limiter.is_limited(ip_subject, per_minute)
-    if limited:
-        return JSONResponse(
-            status_code=429,
-            content=_canonical_error_body(
-                429, f"Rate limit exceeded ({per_minute} failed auth requests/minute)."
-            ),
-            headers={"Retry-After": str(retry_after)},
-        )
-    response = await call_next(request)
-    if response.status_code == 401:
-        auth_failure_limiter.record(ip_subject)
-    return response
 
 
 # type: ignore[no-untyped-def]

@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from mesa_api.document_files import DocumentFileError, extract_document_file
 from mesa_memory.api import server
-from mesa_memory.api.middleware import auth_failure_limiter, minute_limiter
+from mesa_memory.api.middleware import minute_limiter
 from mesa_memory.observability.logger import setup_logging
 from tests.fake_openai_server import FakeOpenAIServer, chat_completion_payload
 
@@ -57,7 +57,6 @@ def _start_server_env(
     else:
         monkeypatch.delenv("MESA_LLM_API_KEY", raising=False)
     minute_limiter.reset()
-    auth_failure_limiter.reset()
 
 
 def test_api_key_scrypt_storage_and_revocation_contract(
@@ -305,7 +304,7 @@ def test_cors_defaults_deny_cross_origin_requests(
         assert "access-control-allow-credentials" not in health.headers
 
 
-def test_rate_limits_enforced_when_enabled_for_minute_daily_and_brute_force(
+def test_rate_limits_enforced_when_enabled_for_minute_and_daily(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _start_server_env(
@@ -384,18 +383,22 @@ def test_rate_limits_enforced_when_enabled_for_minute_daily_and_brute_force(
         assert daily_limited.status_code == 429
         assert "Daily request limit" in daily_limited.json()["detail"]
 
-        # Unauthenticated brute-force 401s get throttled by IP without persisting IP to SQLite.
-        auth_failure_limiter.reset()
+        # Many wrong keys from the same IP never block a valid key (owner, R27:
+        # no per-IP failed-login throttle) and never persist an IP subject.
+        minute_limiter.reset()
         monkeypatch.setenv("MESA_RATE_LIMIT_PER_MINUTE", "2")
-        for _ in range(2):
+        monkeypatch.setenv("MESA_DAILY_REQUEST_LIMIT", "100")
+        for _ in range(20):
             assert (
                 client.get("/v4/catalog/workspaces", headers={"X-API-Key": "bad"}).status_code
                 == 401
             )
-        brute_limited = client.get(
-            "/v4/catalog/workspaces", headers={"X-API-Key": "bad"}
+        valid_after_wrong = client.get(
+            "/v4/catalog/workspaces",
+            headers=headers,
+            params={"tenant_id": "local"},
         )
-        assert brute_limited.status_code == 429
+        assert valid_after_wrong.status_code == 200
 
         conn = sqlite3.connect(tmp_path / "storage" / "mesa.db")
         subjects = [row[0] for row in conn.execute("SELECT subject_id FROM daily_limits")]

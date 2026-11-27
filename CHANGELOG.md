@@ -12,8 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - Enforced per-minute (`MESA_RATE_LIMIT_PER_MINUTE`, default `60`), SQLite-backed
-  daily (`MESA_DAILY_REQUEST_LIMIT`, default `10000`), and per-IP 401 brute-force
-  rate limits on `/v4/*`, `/v1/chat/completions`, and `/control/*` when
+  daily (`MESA_DAILY_REQUEST_LIMIT`, default `10000`) rate limits per
+  authenticated principal on `/v4/*`, `/v1/chat/completions`, and `/control/*` when
   `MESA_RATE_LIMIT_ENABLED=true` (on by default in the Docker profile), and wired
   `app.state.dao` so daily limits persist properly (D114).
 - Hardened uploaded filename handling in `mesa_api/document_files.py` to reject

@@ -48,9 +48,10 @@
   `.`/`..` are rejected.
 - Logs redact MESA API keys and the configured `MESA_API_KEY`,
   `MESA_LLM_API_KEY` and `MESA_EMBEDDING_API_KEY` values.
-- Rate limits (per minute, per day, and repeated failed logins per IP) are
+- Per-minute and per-day rate limits for each API key's principal are
   controlled by `MESA_RATE_LIMIT_ENABLED`: off for a local `mesa start`, on in
-  the Docker profile. [Security](security-and-privacy.md)
+  the Docker profile. Wrong keys never block valid keys from the same address.
+  [Security](security-and-privacy.md)
 - SQLite now waits up to 15 seconds for a busy database instead of 5, which
   removes the occasional HTTP 503 during large ingests.
 - Locked dependencies were updated; `pip-audit` reports no known

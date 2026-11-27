@@ -26,9 +26,11 @@ from rate limiting. OpenAPI, Swagger and Redoc are not protected by the
 memory-router authentication dependency. Cross-origin browser access (CORS) is
 disabled by default (no `Access-Control-Allow-Origin` header is emitted).
 Per-minute (`MESA_RATE_LIMIT_PER_MINUTE`, default `60`), SQLite-backed daily
-(`MESA_DAILY_REQUEST_LIMIT`, default `10000`), and per-IP failed-auth (401)
-rate limits are enforced whenever `MESA_RATE_LIMIT_ENABLED=true` (enabled by
-default in `docker-compose.v4.yml`). Configure an authenticated reverse proxy,
+(`MESA_DAILY_REQUEST_LIMIT`, default `10000`) rate limits per authenticated
+principal are enforced whenever `MESA_RATE_LIMIT_ENABLED=true` (enabled by
+default in `docker-compose.v4.yml`). Failed logins are not throttled per IP, so
+wrong keys from a shared proxy address never block valid keys; add IP limits at
+the reverse proxy if needed. Configure an authenticated reverse proxy,
 TLS and access policy for nonlocal deployments.
 Compose publishes loopback only; the normal runtime launcher binds `0.0.0.0`
 inside the process/container. Do not expose its port without a network boundary.

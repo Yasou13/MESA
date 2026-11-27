@@ -54,9 +54,13 @@ content, claim tokens, or production data.
   clients are required.
 - **Rate limits**: Per-minute (`MESA_RATE_LIMIT_PER_MINUTE`, default `60`) and
   SQLite-backed daily (`MESA_DAILY_REQUEST_LIMIT`, default `10000`) rate limits
-  plus process-local per-IP throttling on repeated HTTP 401 probes are governed
-  by `MESA_RATE_LIMIT_ENABLED` (`false` for localhost `mesa start`, `true` by
-  default in `docker-compose.v4.yml`).
+  per authenticated principal are governed by `MESA_RATE_LIMIT_ENABLED`
+  (`false` for localhost `mesa start`, `true` by default in
+  `docker-compose.v4.yml`). There is no per-IP throttle on failed logins: behind
+  a reverse proxy all clients share one IP, so such a throttle would let anyone
+  lock out valid keys. Keys are 256-bit random secrets stored as scrypt digests,
+  and scrypt work runs on a small fixed pool, which makes guessing impractical.
+  Add connection or IP limits at your reverse proxy if you need them.
 - **File uploads**: `POST /v4/documents/upload` enforces a 50 MB upload cap, a
   5,000,000 UTF-8 byte extracted-text cap, pre-parse ZIP expansion checks
   (50 MB max total uncompressed size for DOCX/XLSX/UDF), rejection of encrypted

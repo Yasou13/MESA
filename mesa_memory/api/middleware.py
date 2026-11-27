@@ -84,45 +84,12 @@ class _SlidingMinuteWindow:
             bucket.append(now)
             return True, 0
 
-    def is_limited(self, subject: str, limit: int) -> tuple[bool, int]:
-        """Return ``(limited, retry_after_seconds)`` without recording."""
-        if limit <= 0:
-            return False, 0
-        now = time.monotonic()
-        cutoff = now - self._window
-        with self._lock:
-            bucket = self._buckets.get(subject)
-            if bucket is None:
-                return False, 0
-            self._prune(bucket, cutoff)
-            if not bucket:
-                self._buckets.pop(subject, None)
-                return False, 0
-            if len(bucket) >= limit:
-                retry_after = max(1, int(math.ceil(self._window - (now - bucket[0]))))
-                return True, retry_after
-            return False, 0
-
-    def record(self, subject: str) -> None:
-        now = time.monotonic()
-        cutoff = now - self._window
-        with self._lock:
-            bucket = self._buckets.get(subject)
-            if bucket is None:
-                self._evict_if_full(cutoff)
-                bucket = deque()
-                self._buckets[subject] = bucket
-            else:
-                self._prune(bucket, cutoff)
-            bucket.append(now)
-
     def reset(self) -> None:
         with self._lock:
             self._buckets.clear()
 
 
 minute_limiter = _SlidingMinuteWindow()
-auth_failure_limiter = _SlidingMinuteWindow()
 
 
 @dataclass(frozen=True)
