@@ -1,0 +1,57 @@
+{
+  "version": "0.9.5",
+  "schema": "a0d1e2f3a4b5",
+  "sha256": "329b7f4cc1bdeb8ff0d6355ba2c3c880953877c1c3055bd2f0bbc77efa5a8349",
+  "chunks": 3,
+  "search_settings": {
+    "MESA_RRF_ASSERTION_WEIGHT": "0.0"
+  },
+  "results": {
+    "harbor permit": [
+      {
+        "document_id": "port-permit",
+        "assertion_id": "eae27604-2b43-508d-893c-d621882e6919",
+        "evidence_span": "The harbor permit lasts for twelve months.",
+        "final_score": 0.01639344262295082,
+        "revision_id": "rev-288dc2a4ea9ac5a80c2593445da1324d",
+        "chunk_id": "rev-288dc2a4ea9ac5a80c2593445da1324d-c00000"
+      },
+      {
+        "document_id": "port-fee",
+        "assertion_id": "1a067673-0110-5441-9c36-7ceccfcbb399",
+        "evidence_span": "The harbor permit fee is forty silver coins.",
+        "final_score": 0.016129032258064516,
+        "revision_id": "rev-4d857925132668319d7be9cae39e9a5c",
+        "chunk_id": "rev-4d857925132668319d7be9cae39e9a5c-c00000"
+      },
+      {
+        "document_id": "port-appeal",
+        "assertion_id": "9bf99957-5b3c-5b2d-b493-e83eebebd6ac",
+        "evidence_span": "The harbor appeal hearing begins on Tuesday.",
+        "final_score": 0.015873015873015872,
+        "revision_id": "rev-e7eb0e901243dd8fdf11cb06d61006c2",
+        "chunk_id": "rev-e7eb0e901243dd8fdf11cb06d61006c2-c00000"
+      }
+    ],
+    "appeal hearing": [
+      {
+        "document_id": "port-appeal",
+        "assertion_id": "9bf99957-5b3c-5b2d-b493-e83eebebd6ac",
+        "evidence_span": "The harbor appeal hearing begins on Tuesday.",
+        "final_score": 0.01639344262295082,
+        "revision_id": "rev-e7eb0e901243dd8fdf11cb06d61006c2",
+        "chunk_id": "rev-e7eb0e901243dd8fdf11cb06d61006c2-c00000"
+      }
+    ],
+    "silver coins": [
+      {
+        "document_id": "port-fee",
+        "assertion_id": "1a067673-0110-5441-9c36-7ceccfcbb399",
+        "evidence_span": "The harbor permit fee is forty silver coins.",
+        "final_score": 0.01639344262295082,
+        "revision_id": "rev-4d857925132668319d7be9cae39e9a5c",
+        "chunk_id": "rev-4d857925132668319d7be9cae39e9a5c-c00000"
+      }
+    ]
+  }
+}

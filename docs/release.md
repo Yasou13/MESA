@@ -108,6 +108,32 @@ Release artifact’ları şunları birlikte taşır:
 - v4 API/OpenAPI, SDK/MCP contract test sonuçları;
 - benchmark ve soak evidence.
 
+## 0.9.3–0.9.5 sürümlerinden yükseltme
+
+1. MESA sunucusunu ve aynı depoya yazan worker süreçlerini durdurun. MESA
+   home dizininin ve ayrı yapılandırılmışsa `MESA_STORAGE_ROOT` dizininin
+   tamamını yedekleyin. Yedek, SQLite veritabanı ve erişim politikasıyla
+   birlikte yapılandırmayı ve varsa projeksiyon dosyalarını da içermeli.
+2. Kullanacağınız Python ortamına yeni wheel'i kurun. `mesa start --home`
+   komutunu önceki home diziniyle ve aynı depolama ayarlarıyla çalıştırın.
+   Başlatma sırasında bekleyen Alembic migration'ları uygulanır.
+3. `/health/init` yanıtını ve başlangıç günlüklerini kontrol edin. Modelleri
+   kapatıp aynı tarihsiz sorguları deneyin. Sonuç sırasını, belge ve sürüm
+   kimliklerini, alıntıları ve skorları aynı arama ayarlarıyla önceki
+   kayıtlarla karşılaştırın. 0.9.3'ün varsayılan assertion ağırlığı `1.0`,
+   sonraki sürümlerin varsayılanı `0.0` idi. 0.9.3 sıralamasını korumak için
+   mevcut `MESA_RRF_ASSERTION_WEIGHT` ayarını `1.0` olarak taşıyın. Kaldırılan
+   `MESA_GRAPH_ENABLED` ve `MESA_RRF_GRAPH_WEIGHT` ayarları uyarıyla yok
+   sayılır. Eski Kùzu dosyalarını yedekte tutabilirsiniz.
+4. Geri dönüş gerekirse yeni süreci durdurun, önceki wheel'i kurun ve
+   yükseltme öncesindeki yedeği ayrı bir dizine geri yükleyin. Eski sürümü
+   geri yüklenen depoyla başlatın.
+
+`scripts/build_upgrade_fixtures.py`, PyPI'daki 0.9.3, 0.9.4 ve 0.9.5
+wheel'leriyle oluşturulan küçük SQLite depolarını yeniden üretir. Sıkıştırılmış
+fixture'lar ve eski sürümün arama sonuçları `tests/fixtures/upgrade/` altında
+tutulur. Yükseltme testi bu dosyaları kullanır ve PyPI erişimi gerektirmez.
+
 Restore mevcut hedefi asla ezmez. Parity veya health kapısı başarısızsa cutover
 yapılmaz. Geri dönüş için önceki storage yedeği ile uyumlu kod ve yapılandırma
 korunur.
