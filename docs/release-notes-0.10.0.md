@@ -1,4 +1,6 @@
-# MESA 0.10.0 release notes (draft)
+# MESA 0.10.0 release notes
+
+This release includes the changes prepared for the unpublished 0.9.6 candidate.
 
 ## Upload, search, and citations
 

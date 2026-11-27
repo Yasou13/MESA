@@ -7,7 +7,7 @@
 
 MESA stores source documents and finds passages an application is authorized to read. Every search hit links to its document, revision and location. Ingestion and BM25 search work without models. Add an embedding model for semantic search or a chat model for answers with citations and document summaries.
 
-Package version: **0.9.6**. V4 is the current API. Production qualification remains at the release candidate stage: **NO-GO** until the [release gates](https://github.com/Yasou13/MESA/blob/main/docs/release.md) pass.
+Package version: **0.10.0**. V4 is the current API. Production qualification remains at the release candidate stage: **NO-GO** until the [release gates](https://github.com/Yasou13/MESA/blob/main/docs/release.md) pass.
 
 ## Installation
 

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-28
+
+[Release notes](docs/release-notes-0.10.0.md)
+
 ### Security
 
 - Enforced per-minute (`MESA_RATE_LIMIT_PER_MINUTE`, default `60`), SQLite-backed
@@ -116,7 +120,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.6] - 2026-11-25
 
-[Release notes](docs/release-notes-0.9.6.md)
+Unpublished candidate. These changes are included in 0.10.0. [Release notes](docs/release-notes-0.9.6.md)
 
 ### Added
 
@@ -1036,6 +1040,7 @@ for missing run output or a signed-tag verification.
 - **Test Suite**: 159+ tests covering unit, integration, P0 hotfixes, and performance benchmarks.
 - **CI Pipeline**: GitHub Actions workflow with Black, Ruff, mypy, pytest + coverage, and Codecov upload.
 
+[0.10.0]: https://github.com/Yasou13/MESA/compare/v0.9.5...v0.10.0
 [0.9.6]: https://github.com/Yasou13/MESA/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/Yasou13/MESA/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/Yasou13/MESA/compare/v0.9.3...v0.9.4

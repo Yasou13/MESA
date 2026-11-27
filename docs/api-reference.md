@@ -2,7 +2,7 @@
 
 V4 provides tenant- and dataset-scoped routes for document ingestion, search
 and agent memory. The optional chat adapter serves grounded answers and
-summaries. Package version 0.9.6 is subject to the release gates.
+summaries. Package version 0.10.0 is subject to the release gates.
 
 Versioned memory, health ve metrics çağrıları `X-API-Key` ister. `/health/init`, OpenAPI, Swagger ve Redoc public yüzeylerdir; ağ/reverse-proxy politikası gerekir. V4 anahtarı
 `mesa-v4-admin issue-key` ile üretilir; yalnız saltlı scrypt özeti saklanır.
