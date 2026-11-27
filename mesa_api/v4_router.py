@@ -1206,7 +1206,7 @@ def create_v4_router(
         )
         await _require_mutation_admission(dao)
         try:
-            await dao.ensure_v4_catalog_scope(
+            created = await dao.ensure_v4_catalog_scope(
                 tenant_id=payload.tenant_id,
                 workspace_id=payload.workspace_id,
                 dataset_id=payload.dataset_id,
@@ -1216,6 +1216,15 @@ def create_v4_router(
             )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
+        if created is True:
+            creator_principal = _active_principal(request).principal_id
+            for permission in ("PURGE", "ROLLBACK"):
+                await access_control.grant_dataset_permission(
+                    creator_principal,
+                    tenant_id=payload.tenant_id,
+                    dataset_id=payload.dataset_id,
+                    permission=permission,
+                )
         return payload.model_dump()
 
     @router.get("/catalog/datasets")

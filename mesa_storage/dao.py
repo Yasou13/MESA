@@ -824,8 +824,8 @@ class MemoryDAO:
         tenant_name: str | None = None,
         workspace_name: str | None = None,
         dataset_name: str | None = None,
-    ) -> None:
-        await self._catalog.ensure_scope(
+    ) -> bool:
+        return await self._catalog.ensure_scope(
             tenant_id=tenant_id,
             workspace_id=workspace_id,
             dataset_id=dataset_id,

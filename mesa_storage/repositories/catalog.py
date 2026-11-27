@@ -172,8 +172,12 @@ class CatalogRepository:
         tenant_name: str | None = None,
         workspace_name: str | None = None,
         dataset_name: str | None = None,
-    ) -> None:
-        """Idempotently provision one tenant/workspace/dataset hierarchy."""
+    ) -> bool:
+        """Idempotently provision one tenant/workspace/dataset hierarchy.
+
+        Returns ``True`` when the dataset row was newly created by this call,
+        or ``False`` when the dataset already existed.
+        """
         if not tenant_id or not workspace_id or not dataset_id:
             raise ValueError("tenant, workspace and dataset identifiers are required")
         external_workspace_id = workspace_id
@@ -213,7 +217,7 @@ class CatalogRepository:
                 workspace = await cursor.fetchone()
             if workspace is None or workspace[0] != tenant_id:
                 raise ValueError("workspace identity collides with another tenant")
-            await db.execute(
+            insert_cursor = await db.execute(
                 "INSERT OR IGNORE INTO datasets "
                 "(dataset_id, tenant_id, workspace_id, name) VALUES (?, ?, ?, ?)",
                 (
@@ -223,6 +227,7 @@ class CatalogRepository:
                     dataset_name or external_dataset_id,
                 ),
             )
+            dataset_created = bool(insert_cursor.rowcount == 1)
             async with db.execute(
                 "SELECT tenant_id, workspace_id FROM datasets WHERE dataset_id = ?",
                 (dataset_id,),
@@ -231,3 +236,4 @@ class CatalogRepository:
             if row is None or row[0] != tenant_id or row[1] != workspace_id:
                 raise ValueError("dataset identity collides with another catalog scope")
             await db.commit()
+        return dataset_created
