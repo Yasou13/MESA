@@ -369,6 +369,58 @@ def test_fresh_mesa_home_lists_default_dataset_without_500(
         assert unknown.json() == {"datasets": []}
 
 
+def test_existing_home_without_catalog_scope_lists_default_after_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A home made by an older `mesa start` (credentials, schema, no catalog rows)."""
+    import asyncio
+    import sqlite3
+
+    from mesa_mcp.local_cli import _issue_or_reuse_credentials
+    from mesa_storage.schemas import initialize_schema
+    from mesa_storage.sqlite_engine import AsyncEngine
+
+    home = tmp_path / "old_home"
+    storage = home / "data"
+
+    async def _old_start() -> dict[str, Any]:
+        creds = await _issue_or_reuse_credentials(home, storage, 8797)
+        engine = AsyncEngine(str(storage / "mesa.db"))
+        await engine.initialize()
+        try:
+            await initialize_schema(engine)
+        finally:
+            await engine.close()
+        return creds
+
+    old_creds = asyncio.run(_old_start())
+    with sqlite3.connect(storage / "mesa.db") as db:
+        assert db.execute("SELECT COUNT(*) FROM datasets").fetchone()[0] == 0
+
+    creds = asyncio.run(provision_credentials(home, storage, port=8797))
+    assert creds["api_key"] == old_creds["api_key"]
+
+    monkeypatch.setenv("MESA_STORAGE_ROOT", str(storage))
+    monkeypatch.setenv("MESA_RUNTIME_PROFILE", "combined")
+    monkeypatch.setenv("MESA_LOAD_DOTENV", "false")
+    monkeypatch.setenv("MESA_MODEL_ENABLED", "false")
+    monkeypatch.setenv("MESA_EMBEDDING_ENABLED", "false")
+    monkeypatch.setenv("MESA_EXTRACTION_ENABLED", "false")
+    monkeypatch.setenv("MESA_EXTERNAL_PROVIDER_ENABLED", "false")
+    monkeypatch.setenv("MESA_RATE_LIMIT_ENABLED", "false")
+    monkeypatch.delenv("MESA_API_KEY", raising=False)
+    monkeypatch.delenv("MESA_PRINCIPAL_ID", raising=False)
+
+    with TestClient(server.app) as client:
+        resp = client.get(
+            "/v4/catalog/datasets",
+            headers={"X-API-Key": creds["api_key"]},
+            params={"tenant_id": "local", "workspace_id": "default"},
+        )
+    assert resp.status_code == 200, resp.text
+    assert "default" in [d["dataset_id"] for d in resp.json()["datasets"]]
+
+
 def test_upload_stores_source_ref_on_document_external_ref_across_restart_failure_and_existing_ref(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

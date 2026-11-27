@@ -37,10 +37,43 @@ def resolve_local_paths(
     return resolved_home, resolved_storage, resolved_port
 
 
+async def _ensure_local_catalog_scope(storage_root: Path) -> None:
+    """Create the local workspace and `default` dataset if missing (D120 c).
+
+    Runs at every start so stores made by an older `mesa start`, which never
+    created them, list `default` too. `ensure_scope` is idempotent.
+    """
+    from mesa_storage.repositories.catalog import CatalogRepository
+    from mesa_storage.schemas import initialize_schema
+    from mesa_storage.sqlite_engine import AsyncEngine
+
+    engine = AsyncEngine(str(storage_root / "mesa.db"))
+    await engine.initialize()
+    try:
+        await initialize_schema(engine)
+        await CatalogRepository(engine).ensure_scope(
+            tenant_id="local",
+            workspace_id="default",
+            dataset_id="default",
+        )
+    finally:
+        await engine.close()
+
+
 async def provision_credentials(
     home: Path,
     storage_root: Path,
     port: int = 8000,
+) -> dict[str, Any]:
+    creds = await _issue_or_reuse_credentials(home, storage_root, port)
+    await _ensure_local_catalog_scope(storage_root)
+    return creds
+
+
+async def _issue_or_reuse_credentials(
+    home: Path,
+    storage_root: Path,
+    port: int,
 ) -> dict[str, Any]:
     creds_path = home / "credentials.json"
     policy_path = storage_root / "rbac_policy.db"
@@ -89,27 +122,6 @@ async def provision_credentials(
     await access.grant_dataset_permission(
         "local-admin", tenant_id="local", dataset_id="default", permission="ROLLBACK"
     )
-
-    # Ensure the local catalog scope written into credentials.json exists on a
-    # fresh store so GET /v4/catalog/datasets lists `default` immediately (D120).
-    # Leave existing stores untouched.
-    db_path = storage_root / "mesa.db"
-    if not db_path.exists():
-        from mesa_storage.repositories.catalog import CatalogRepository
-        from mesa_storage.schemas import initialize_schema
-        from mesa_storage.sqlite_engine import AsyncEngine
-
-        engine = AsyncEngine(str(db_path))
-        await engine.initialize()
-        try:
-            await initialize_schema(engine)
-            await CatalogRepository(engine).ensure_scope(
-                tenant_id="local",
-                workspace_id="default",
-                dataset_id="default",
-            )
-        finally:
-            await engine.close()
 
     creds = {
         "base_url": f"http://127.0.0.1:{port}",

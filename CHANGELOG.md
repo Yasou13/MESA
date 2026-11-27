@@ -49,8 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (re-posting an existing dataset grants nothing), `mesa setup --embedding local`
   automatically downloads a missing `BAAI/bge-m3` cache via `huggingface_hub`
   before verifying offline while server runtime loading remains `local_files_only`,
-  `mesa start` provisions the `local`/`default`/`default` catalog scope on fresh
-  homes so `GET /v4/catalog/datasets` lists `default` immediately without HTTP 500,
+  `mesa start` ensures the `local`/`default`/`default` catalog scope at every
+  start (also on homes made by earlier versions) so `GET /v4/catalog/datasets`
+  lists `default` without HTTP 500,
   and `POST /v4/documents/upload` persists `source_ref` onto the document's
   `external_ref` without overwriting a caller-supplied value (D120).
 - Self-hosted Docker Compose production profile (`docker-compose.v4.yml`),
