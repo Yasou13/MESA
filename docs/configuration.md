@@ -291,6 +291,9 @@ See `mesa_memory/config.py` and `MesaConfig` for field declarations.
 | `readiness_cleanup_backlog_max` | `MESA_READINESS_CLEANUP_BACKLOG_MAX` | `1000` |
 | `readiness_cleanup_blocked_max` | `MESA_READINESS_CLEANUP_BLOCKED_MAX` | `0` |
 | `readiness_orphan_registry_max` | `MESA_READINESS_ORPHAN_REGISTRY_MAX` | `0` |
+| — | `MESA_RATE_LIMIT_ENABLED` | `false` (`true` in `docker-compose.v4.yml`) |
+| — | `MESA_RATE_LIMIT_PER_MINUTE` | `60` |
+| — | `MESA_DAILY_REQUEST_LIMIT` | `10000` |
 
 ### MCP and operator variables
 

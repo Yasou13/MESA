@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Enforced per-minute (`MESA_RATE_LIMIT_PER_MINUTE`, default `60`), SQLite-backed
+  daily (`MESA_DAILY_REQUEST_LIMIT`, default `10000`), and per-IP 401 brute-force
+  rate limits on `/v4/*`, `/v1/chat/completions`, and `/control/*` when
+  `MESA_RATE_LIMIT_ENABLED=true` (on by default in the Docker profile), and wired
+  `app.state.dao` so daily limits persist properly (D114).
+- Hardened uploaded filename handling in `mesa_api/document_files.py` to reject
+  control characters/null bytes and ignore directory traversal prefixes across
+  POSIX and Windows separators (D114).
+- Extended log redaction in `mesa_memory/observability/logger.py` to redact
+  `mk_*.*` MESA API keys and exact configured `MESA_API_KEY`,
+  `MESA_LLM_API_KEY`, and `MESA_EMBEDDING_API_KEY` values (D114).
+- Upgraded `setuptools` (`83.0.0` → `84.2.1`, `GHSA-xmj3-9gf7-h52w`) and
+  `multidict` (`6.7.1` → `6.9.1`, `PYSEC-2026-4244`) in `uv.lock` so `pip-audit`
+  reports 0 known vulnerabilities across runtime, `ml`, and `dev` lock exports,
+  and updated `SECURITY.md` (D114).
+
 ### Changed
 
 - Bounded `APIKeyStore` `scrypt` verification to a dedicated 2-worker thread

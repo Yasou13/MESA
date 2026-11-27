@@ -32,8 +32,41 @@ responsibility.
 The versioned v4 API resolves authorization as
 principal → tenant → workspace → dataset → agent → server-created session.
 Agent IDs are compute/persona context and are not standalone tenant
-credentials. Purge and rollback require explicit dataset permissions.
+credentials. Sessionless search, document ingest, upload, `/v4/ask`, and
+`/v1/chat/completions` require both the dataset role (`READER` or `WRITER`) and
+explicit `SESSION_CREATE` permission for the target `agent_id` (default
+`local-agent`). Purge and rollback require explicit dataset permissions.
 
-V4 API credentials are issued as `key_id.secret`; only salted scrypt digests
-are stored. Plaintext is displayed once by `mesa-v4-admin`. Reports must never
-include credentials, source content, claim tokens or production data.
+V4 API credentials are issued as `key_id.secret`; only salted `scrypt` digests
+are stored and compared in constant time (`secrets.compare_digest`) with
+immediate revocation and expiry enforcement. Plaintext is displayed once by
+`mesa-v4-admin` (or once on first boot of the Docker Compose production profile
+when `MESA_API_KEY` is unset). Structured logs redact bearer tokens, `sk-*` and
+`mk_*.*` keys, and configured `MESA_API_KEY` / `MESA_LLM_API_KEY` /
+`MESA_EMBEDDING_API_KEY` values. Reports must never include credentials, source
+content, claim tokens, or production data.
+
+### Network, CORS, rate limits, uploads, and LLM prompts
+
+- **CORS**: Cross-origin browser access is disabled by default (no
+  `Access-Control-Allow-Origin` header is sent). Expose MESA behind an
+  authenticated TLS reverse proxy and configure CORS policy there if browser
+  clients are required.
+- **Rate limits**: Per-minute (`MESA_RATE_LIMIT_PER_MINUTE`, default `60`) and
+  SQLite-backed daily (`MESA_DAILY_REQUEST_LIMIT`, default `10000`) rate limits
+  plus process-local per-IP throttling on repeated HTTP 401 probes are governed
+  by `MESA_RATE_LIMIT_ENABLED` (`false` for localhost `mesa start`, `true` by
+  default in `docker-compose.v4.yml`).
+- **File uploads**: `POST /v4/documents/upload` enforces a 50 MB upload cap, a
+  5,000,000 UTF-8 byte extracted-text cap, pre-parse ZIP expansion checks
+  (50 MB max total uncompressed size for DOCX/XLSX/UDF), rejection of encrypted
+  archives/PDFs and UDF XML `DOCTYPE` declarations, and basename-only filename
+  sanitization (uploaded filenames are never opened as filesystem paths).
+- **Untrusted evidence wrapping**: `/v4/ask`, `/v4/documents/{id}/summary`, and
+  `/v1/chat/completions` enclose all retrieved source text inside
+  `<UNTRUSTED_MEMORY_EVIDENCE>...</UNTRUSTED_MEMORY_EVIDENCE>` and neutralize
+  embedded closing delimiters. Prompt wrapping reduces prompt-injection risk
+  but cannot guarantee downstream model compliance.
+- **Encryption at rest**: Embedded SQLite and LanceDB files are not encrypted
+  by MESA Core; operators deploying on shared or self-hosted servers must use
+  encrypted storage volumes, restricted file permissions, and TLS termination.

@@ -20,10 +20,16 @@ absolute guarantee against every possible leak.
 
 ## Network and authentication
 
-Versioned memory routes, `/health` and `/metrics` require an API
-key. `/health/init` is a public readiness probe. OpenAPI, Swagger and Redoc are
-not protected by the memory-router authentication dependency. Configure an
-authenticated reverse proxy, TLS and access policy for nonlocal deployments.
+Versioned memory routes, `/v1/chat/completions`, `/health` and `/metrics`
+require an API key. `/health/init` is a public readiness probe and is exempt
+from rate limiting. OpenAPI, Swagger and Redoc are not protected by the
+memory-router authentication dependency. Cross-origin browser access (CORS) is
+disabled by default (no `Access-Control-Allow-Origin` header is emitted).
+Per-minute (`MESA_RATE_LIMIT_PER_MINUTE`, default `60`), SQLite-backed daily
+(`MESA_DAILY_REQUEST_LIMIT`, default `10000`), and per-IP failed-auth (401)
+rate limits are enforced whenever `MESA_RATE_LIMIT_ENABLED=true` (enabled by
+default in `docker-compose.v4.yml`). Configure an authenticated reverse proxy,
+TLS and access policy for nonlocal deployments.
 Compose publishes loopback only; the normal runtime launcher binds `0.0.0.0`
 inside the process/container. Do not expose its port without a network boundary.
 

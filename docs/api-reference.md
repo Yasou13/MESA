@@ -375,9 +375,12 @@ SDK sync/async client timeout default 10s ve max_retries 3; yalnız güvenli
 network retry boundary geçerlidir. API HTTP hata yanıtları `MesaAPIError`,
 network `MesaNetworkError`, SDK schema `MesaValidationError` olur. Status
 400/401/403/404/409/413/422/429/503 endpoint'e göre değişir; OpenAPI ve contract
-testleri kaynak otoritesidir. Queue saturation/rebuild maintenance için
-Retry-After dikkate alınır. Dakikalık (60/minute) ve günlük (10000) istek limitleri
-bu sürümde uygulanmamaktadır (per-minute and daily limits are not enforced in this version).
+testleri kaynak otoritesidir. Queue saturation, rebuild maintenance, and rate limiting return `Retry-After`.
+Per-minute (`MESA_RATE_LIMIT_PER_MINUTE`, default `60`) and daily
+(`MESA_DAILY_REQUEST_LIMIT`, default `10000`) request limits are enforced on
+`/v4/*`, `/v1/chat/completions`, and `/control/*` when
+`MESA_RATE_LIMIT_ENABLED=true` (off by default for localhost `mesa start`; on
+by default in `docker-compose.v4.yml`).
 
 ### Whole documents: `POST /v4/documents`
 
