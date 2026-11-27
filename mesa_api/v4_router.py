@@ -1235,9 +1235,12 @@ def create_v4_router(
         dao: MemoryDAO = Depends(get_dao),
         access_control: AccessControl = Depends(get_access_control),
     ) -> dict:
-        datasets = await dao.list_v4_datasets(
-            tenant_id=tenant_id, workspace_id=workspace_id
-        )
+        try:
+            datasets = await dao.list_v4_datasets(
+                tenant_id=tenant_id, workspace_id=workspace_id
+            )
+        except CatalogIdentityNotFoundError:
+            return {"datasets": []}
         visible = []
         for dataset in datasets:
             try:
@@ -1950,7 +1953,14 @@ def create_v4_router(
                 "content": content,
             }
         )
-        return await _ingest_document(request, payload, dao, resolved_scope, locations)
+        return await _ingest_document(
+            request,
+            payload,
+            dao,
+            resolved_scope,
+            locations,
+            default_external_ref=payload.source_ref,
+        )
 
     async def _ingest_document(
         request: Request,
@@ -1958,6 +1968,8 @@ def create_v4_router(
         dao: MemoryDAO,
         resolved_scope: tuple[str, str, str, list[str], str],
         source_locations: DocumentLocations | None = None,
+        *,
+        default_external_ref: str | None = None,
     ) -> dict:
         tenant_id, workspace_id, agent_id, _datasets, effective_session_id = resolved_scope
         await _require_mutation_admission(dao, require_projection_consumer=True)
@@ -1977,7 +1989,10 @@ def create_v4_router(
         async with document_admission_lock:
             try:
                 document = await dao.create_v4_document(
-                    **scope, document_id=payload.document_id, title=payload.title
+                    **scope,
+                    document_id=payload.document_id,
+                    title=payload.title,
+                    default_external_ref=default_external_ref,
                 )
                 if document["status"] == "PURGED":
                     raise ValueError("document is purged")

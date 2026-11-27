@@ -323,3 +323,213 @@ def test_setup_local_embedding_without_ml_extra_prints_install_hint_and_does_not
         _run_setup(monkeypatch, tmp_path, "--embedding", "local")
     assert downloads == []
     assert not (tmp_path / ".env").exists()
+
+
+def test_fresh_mesa_home_lists_default_dataset_without_500(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+
+    home = tmp_path / "fresh_home"
+    storage = home / "data"
+    creds = asyncio.run(provision_credentials(home, storage, port=8799))
+
+    monkeypatch.setenv("MESA_STORAGE_ROOT", str(storage))
+    monkeypatch.setenv("MESA_RUNTIME_PROFILE", "combined")
+    monkeypatch.setenv("MESA_LOAD_DOTENV", "false")
+    monkeypatch.setenv("MESA_MODEL_ENABLED", "false")
+    monkeypatch.setenv("MESA_EMBEDDING_ENABLED", "false")
+    monkeypatch.setenv("MESA_EXTRACTION_ENABLED", "false")
+    monkeypatch.setenv("MESA_EXTERNAL_PROVIDER_ENABLED", "false")
+    monkeypatch.setenv("MESA_RATE_LIMIT_ENABLED", "false")
+    monkeypatch.delenv("MESA_API_KEY", raising=False)
+    monkeypatch.delenv("MESA_PRINCIPAL_ID", raising=False)
+
+    headers = {"X-API-Key": creds["api_key"]}
+    with TestClient(server.app) as client:
+        resp = client.get(
+            "/v4/catalog/datasets",
+            headers=headers,
+            params={
+                "tenant_id": creds["tenant_id"],
+                "workspace_id": creds["workspace_id"],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        dataset_ids = [d["dataset_id"] for d in resp.json()["datasets"]]
+        assert "default" in dataset_ids
+
+        # Unknown workspace returns empty list, never 500.
+        unknown = client.get(
+            "/v4/catalog/datasets",
+            headers=headers,
+            params={"tenant_id": creds["tenant_id"], "workspace_id": "nonexistent"},
+        )
+        assert unknown.status_code == 200
+        assert unknown.json() == {"datasets": []}
+
+
+def test_upload_stores_source_ref_on_document_external_ref_across_restart_failure_and_existing_ref(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+
+    home = tmp_path / "upload_home"
+    storage = home / "data"
+    creds = asyncio.run(provision_credentials(home, storage, port=8798))
+
+    monkeypatch.setenv("MESA_STORAGE_ROOT", str(storage))
+    monkeypatch.setenv("MESA_RUNTIME_PROFILE", "combined")
+    monkeypatch.setenv("MESA_LOAD_DOTENV", "false")
+    monkeypatch.setenv("MESA_MODEL_ENABLED", "false")
+    monkeypatch.setenv("MESA_EMBEDDING_ENABLED", "false")
+    monkeypatch.setenv("MESA_EXTRACTION_ENABLED", "false")
+    monkeypatch.setenv("MESA_EXTERNAL_PROVIDER_ENABLED", "false")
+    monkeypatch.setenv("MESA_RATE_LIMIT_ENABLED", "false")
+    monkeypatch.delenv("MESA_API_KEY", raising=False)
+    monkeypatch.delenv("MESA_PRINCIPAL_ID", raising=False)
+
+    headers = {"X-API-Key": creds["api_key"]}
+    base_params = {
+        "tenant_id": "local",
+        "workspace_id": "default",
+        "dataset_id": "default",
+    }
+
+    with TestClient(server.app) as client:
+        # 1. Normal upload sets document.external_ref from source_ref.
+        up = client.post(
+            "/v4/documents/upload",
+            headers=headers,
+            files={"file": ("lease.txt", b"Article 1: Lease term is one year.", "text/plain")},
+            data={
+                **base_params,
+                "document_id": "doc-uploaded",
+                "title": "Lease Agreement",
+                "source_ref": "file:///cases/lease.txt",
+            },
+        )
+        assert up.status_code == 202, up.text
+        mut_id = up.json()["mutation_ids"][0]
+        for _ in range(60):
+            if client.get(f"/v4/mutations/{mut_id}", headers=headers).json().get("state") == "COMMITTED":
+                break
+            time.sleep(0.05)
+
+        doc_status = client.get("/v4/documents/doc-uploaded", headers=headers, params=base_params)
+        assert doc_status.status_code == 200
+        assert doc_status.json()["external_ref"] == "file:///cases/lease.txt"
+
+        doc_list = client.get("/v4/catalog/documents", headers=headers, params=base_params)
+        assert doc_list.status_code == 200
+        by_id = {d["document_id"]: d for d in doc_list.json()["documents"]}
+        assert by_id["doc-uploaded"]["external_ref"] == "file:///cases/lease.txt"
+
+        # 2. Pre-created document with caller-set external_ref must NOT be overwritten.
+        pre = client.post(
+            "/v4/catalog/documents",
+            headers=headers,
+            json={
+                **base_params,
+                "document_id": "doc-caller-ref",
+                "title": "Caller Ref Doc",
+                "external_ref": "custom://caller-owned-ref",
+            },
+        )
+        assert pre.status_code == 201
+        up2 = client.post(
+            "/v4/documents/upload",
+            headers=headers,
+            files={"file": ("override.txt", b"Uploaded content body.", "text/plain")},
+            data={
+                **base_params,
+                "document_id": "doc-caller-ref",
+                "title": "Caller Ref Doc",
+                "source_ref": "file:///cases/override.txt",
+            },
+        )
+        assert up2.status_code == 202, up2.text
+        mut2 = up2.json()["mutation_ids"][0]
+        for _ in range(60):
+            if client.get(f"/v4/mutations/{mut2}", headers=headers).json().get("state") == "COMMITTED":
+                break
+            time.sleep(0.05)
+
+        caller_doc = client.get("/v4/documents/doc-caller-ref", headers=headers, params=base_params).json()
+        assert caller_doc["external_ref"] == "custom://caller-owned-ref"
+
+        # Chunk still retains the upload's source_ref.
+        search = client.post(
+            "/v4/memory/search",
+            headers=headers,
+            json={
+                "tenant_id": "local",
+                "workspace_id": "default",
+                "dataset_ids": ["default"],
+                "document_ids": ["doc-caller-ref"],
+                "query": "Uploaded content body",
+            },
+        )
+        assert search.status_code == 200
+        hits = search.json()["results"]
+        assert hits
+        assert hits[0]["provenance"][0]["source_ref"] == "file:///cases/override.txt"
+
+        # 3. Document whose revision later fails still keeps its uploaded external_ref.
+        up_fail = client.post(
+            "/v4/documents/upload",
+            headers=headers,
+            files={"file": ("broken.txt", b"Text for a failing revision.", "text/plain")},
+            data={
+                **base_params,
+                "document_id": "doc-failed",
+                "title": "Failing Doc",
+                "source_ref": "file:///cases/broken.txt",
+            },
+        )
+        assert up_fail.status_code == 202, up_fail.text
+        fail_mut_id = up_fail.json()["mutation_ids"][0]
+        for _ in range(60):
+            if client.get(f"/v4/mutations/{fail_mut_id}", headers=headers).json().get("state") == "COMMITTED":
+                break
+            time.sleep(0.05)
+
+        async def _force_failed_state() -> None:
+            async with server.state.sqlite_engine.transaction() as db:
+                await db.execute(
+                    "UPDATE memory_mutations SET state = 'DEAD_LETTER', failure_class = 'ProjectionError' "
+                    "WHERE mutation_id = ?",
+                    (fail_mut_id,),
+                )
+                await db.execute(
+                    "UPDATE document_revisions SET status = 'PENDING' "
+                    "WHERE revision_id = (SELECT revision_id FROM memory_mutations WHERE mutation_id = ?)",
+                    (fail_mut_id,),
+                )
+                await db.commit()
+
+        client.portal.call(_force_failed_state)
+        failed_doc = client.get("/v4/documents/doc-failed", headers=headers, params=base_params).json()
+        assert failed_doc["external_ref"] == "file:///cases/broken.txt"
+        assert failed_doc["revisions"][0]["stage"] == "failed"
+
+    # 4. Restart server and verify external_ref persists for all uploaded documents.
+    with TestClient(server.app) as restarted:
+        after_upload = restarted.get(
+            "/v4/documents/doc-uploaded", headers=headers, params=base_params
+        ).json()
+        assert after_upload["external_ref"] == "file:///cases/lease.txt"
+
+        after_failed = restarted.get(
+            "/v4/documents/doc-failed", headers=headers, params=base_params
+        ).json()
+        assert after_failed["external_ref"] == "file:///cases/broken.txt"
+
+        after_list = restarted.get(
+            "/v4/catalog/documents", headers=headers, params=base_params
+        ).json()["documents"]
+        refs = {d["document_id"]: d["external_ref"] for d in after_list}
+        assert refs["doc-uploaded"] == "file:///cases/lease.txt"
+        assert refs["doc-failed"] == "file:///cases/broken.txt"
+        assert refs["doc-caller-ref"] == "custom://caller-owned-ref"
+

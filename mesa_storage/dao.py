@@ -842,12 +842,16 @@ class MemoryDAO:
         document_id: str,
         title: str,
         external_ref: str | None = None,
+        default_external_ref: str | None = None,
     ) -> dict[str, Any]:
         """Create an immutable dataset-owned document identity."""
         if not tenant_id or not dataset_id or not document_id or not title:
             raise ValueError("complete document identity is required")
         external_dataset_id = dataset_id
         external_document_id = document_id
+        initial_external_ref = (
+            external_ref if external_ref is not None else default_external_ref
+        )
         async with self._sql.transaction() as db:
             dataset_id = await self._catalog.resolve_id_in_tx(
                 db,
@@ -873,7 +877,7 @@ class MemoryDAO:
                 "INSERT OR IGNORE INTO documents "
                 "(document_id, tenant_id, dataset_id, external_ref, title) "
                 "VALUES (?, ?, ?, ?, ?)",
-                (document_id, tenant_id, dataset_id, external_ref, title),
+                (document_id, tenant_id, dataset_id, initial_external_ref, title),
             )
             async with db.execute(
                 "SELECT * FROM documents WHERE document_id = ?",
@@ -888,6 +892,19 @@ class MemoryDAO:
                 raise ValueError("document identity collides with another dataset")
             if external_ref and row["external_ref"] not in (None, external_ref):
                 raise ValueError("document external_ref is immutable")
+            if default_external_ref and not row["external_ref"]:
+                await db.execute(
+                    "UPDATE documents SET external_ref = ? "
+                    "WHERE document_id = ? AND (external_ref IS NULL OR external_ref = '')",
+                    (default_external_ref, document_id),
+                )
+                async with db.execute(
+                    "SELECT * FROM documents WHERE document_id = ?",
+                    (document_id,),
+                ) as cursor:
+                    updated_row = await cursor.fetchone()
+                if updated_row is not None:
+                    row = updated_row
             await db.commit()
         result = dict(row)
         result["dataset_id"] = external_dataset_id

@@ -90,6 +90,27 @@ async def provision_credentials(
         "local-admin", tenant_id="local", dataset_id="default", permission="ROLLBACK"
     )
 
+    # Ensure the local catalog scope written into credentials.json exists on a
+    # fresh store so GET /v4/catalog/datasets lists `default` immediately (D120).
+    # Leave existing stores untouched.
+    db_path = storage_root / "mesa.db"
+    if not db_path.exists():
+        from mesa_storage.repositories.catalog import CatalogRepository
+        from mesa_storage.schemas import initialize_schema
+        from mesa_storage.sqlite_engine import AsyncEngine
+
+        engine = AsyncEngine(str(db_path))
+        await engine.initialize()
+        try:
+            await initialize_schema(engine)
+            await CatalogRepository(engine).ensure_scope(
+                tenant_id="local",
+                workspace_id="default",
+                dataset_id="default",
+            )
+        finally:
+            await engine.close()
+
     creds = {
         "base_url": f"http://127.0.0.1:{port}",
         "api_key": credential,
