@@ -44,6 +44,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `POST /v4/catalog/datasets` now grants `PURGE` and `ROLLBACK` on the new
+  dataset to the calling principal when the dataset did not previously exist
+  (re-posting an existing dataset grants nothing), and `mesa setup --embedding local`
+  automatically downloads a missing `BAAI/bge-m3` cache via `huggingface_hub`
+  before verifying offline while server runtime loading remains `local_files_only`
+  (D120).
 - Self-hosted Docker Compose production profile (`docker-compose.v4.yml`),
   plain-English server install/backup/upgrade guide (`docs/self-hosted-docker.md`),
   and `docker-smoke` CI job verifying one-command startup, non-root execution,

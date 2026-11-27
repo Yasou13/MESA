@@ -24,7 +24,10 @@ choose `none` for either. Embedding choices are local `BAAI/bge-m3`, Ollama,
 and an OpenAI-compatible API. Chat uses an OpenAI-compatible endpoint. Setup
 checks each enabled model once, then saves the settings in `$MESA_HOME/.env`
 (`~/.mesa/.env` by default) with owner-only permissions. For local BGE-M3,
-install `mesa-memory[ml]` and cache `BAAI/bge-m3` before running setup.
+install `mesa-memory[ml]` and run `mesa setup --embedding local`: setup
+downloads `BAAI/bge-m3` into the local Hugging Face cache when it is missing
+(without prompting when `--non-interactive` is passed), while server runtime
+loading stays offline (`local_files_only`).
 
 For scripts, add `--non-interactive` and select modes with `--embedding` and
 `--llm`. Omitted modes default to `none`. Use `--embedding-model` and

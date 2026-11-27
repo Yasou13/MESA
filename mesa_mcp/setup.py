@@ -24,6 +24,17 @@ from .local_cli import resolve_local_paths
 _EMBEDDING_MODES = ("none", "local", "ollama", "openai-compatible")
 _LLM_MODES = ("none", "openai-compatible")
 _LOCAL_MODEL = "local:BAAI/bge-m3"
+_LOCAL_MODEL_IGNORE_PATTERNS = (
+    "*.onnx",
+    "*.onnx_data",
+    "onnx/*",
+    "*.msgpack",
+    "*.h5",
+    "*.ot",
+    "imgs/*",
+    "colbert_linear.pt",
+    "sparse_linear.pt",
+)
 _REBUILD_GUIDE = "docs/v4-rebuild-runbook.md"
 
 
@@ -216,8 +227,31 @@ def _model_settings(
     return settings
 
 
+def _download_local_embedding_model(
+    model_name: str, *, revision: str | None = None
+) -> None:
+    """Download only the files needed by the local SentenceTransformer loader."""
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        raise SetupError(
+            'Could not complete embedding verification (install mesa-memory[ml]: pip install "mesa-memory[ml]").'
+        ) from None
+
+    print(f"Downloading {model_name} to the local Hugging Face cache...", flush=True)
+    snapshot_download(
+        repo_id=model_name,
+        revision=revision or None,
+        ignore_patterns=list(_LOCAL_MODEL_IGNORE_PATTERNS),
+    )
+    print(f"Downloaded {model_name}.", flush=True)
+
+
 def _verify_models(
-    environment: dict[str, str], settings: dict[str, str]
+    environment: dict[str, str],
+    settings: dict[str, str],
+    *,
+    non_interactive: bool = True,
 ) -> dict[str, Any] | None:
     from mesa_memory.adapter.factory import AdapterFactory
     from mesa_memory.config import config, refresh_config_from_environment
@@ -240,12 +274,41 @@ def _verify_models(
         refresh_config_from_environment()
         if probe_embedding:
             stage = "embedding verification"
-            if settings["MESA_EMBEDDING_MODEL"].startswith("local:"):
-                stage += ' (install mesa-memory[ml] and cache BAAI/bge-m3 first)'
+            is_local = settings["MESA_EMBEDDING_MODEL"].startswith("local:")
             # The dimension probe is also the one real verification request.
-            identity = get_embedding_service(
-                allow_model_loading=True, force_refresh=True, detect_dimension=True
-            ).identity()
+            try:
+                identity = get_embedding_service(
+                    allow_model_loading=True, force_refresh=True, detect_dimension=True
+                ).identity()
+            except Exception:
+                if not is_local:
+                    raise
+                try:
+                    import sentence_transformers  # noqa: F401
+                except ImportError:
+                    raise SetupError(
+                        'Could not complete embedding verification (install mesa-memory[ml]: pip install "mesa-memory[ml]").'
+                    ) from None
+                model_name = settings["MESA_EMBEDDING_MODEL"].split(":", 1)[1].strip()
+                if not non_interactive:
+                    answer = (
+                        input(
+                            f"Local cache for {model_name} is missing. Download now? [Y/n]: "
+                        )
+                        .strip()
+                        .lower()
+                    )
+                    if answer not in {"", "y", "yes"}:
+                        raise SetupError("Local embedding model download declined.")
+                stage = f"download of {model_name}"
+                _download_local_embedding_model(
+                    model_name,
+                    revision=settings.get("MESA_EMBEDDING_MODEL_REVISION") or None,
+                )
+                stage = "embedding verification"
+                identity = get_embedding_service(
+                    allow_model_loading=True, force_refresh=True, detect_dimension=True
+                ).identity()
         if probe_llm:
             stage = "chat verification"
             result = AdapterFactory.get_adapter().chat(
@@ -253,6 +316,8 @@ def _verify_models(
             )
             if not result.text.strip():
                 raise ValueError("empty chat result")
+    except SetupError:
+        raise
     except Exception:
         raise SetupError(f"Could not complete {stage}.") from None
     finally:
@@ -331,7 +396,9 @@ def setup_command(args: argparse.Namespace) -> None:
             environment = dict(os.environ) | {
                 name: value for name, value in staged_settings.items() if value is not None
             }
-            target = _verify_models(environment, settings)
+            target = _verify_models(
+                environment, settings, non_interactive=bool(args.non_interactive)
+            )
             if target is not None:
                 dimension = str(target["dimension"])
                 set_key(staged_path, "MESA_EMBEDDING_DIMENSION", dimension)
