@@ -61,6 +61,12 @@ _SECRET_PATTERNS = (
         r"(?i)\b(api[_-]?key|authorization|password|secret|token)\s*[:=]\s*[^\s,;]+"
     ),
     re.compile(r"\bsk-[A-Za-z0-9_-]{8,}\b"),
+    re.compile(r"\bmk_[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{16,}\b"),
+)
+_ENV_SECRET_NAMES = (
+    "MESA_API_KEY",
+    "MESA_LLM_API_KEY",
+    "MESA_EMBEDDING_API_KEY",
 )
 
 
@@ -86,6 +92,10 @@ def _resolve_format(explicit_json: bool | None) -> str:
 
 def _redact_string(value: str) -> str:
     redacted = value
+    for env_name in _ENV_SECRET_NAMES:
+        secret_value = os.environ.get(env_name, "").strip()
+        if len(secret_value) >= 8 and secret_value in redacted:
+            redacted = redacted.replace(secret_value, _REDACTED)
     for pattern in _SECRET_PATTERNS:
         redacted = pattern.sub(_REDACTED, redacted)
     return redacted

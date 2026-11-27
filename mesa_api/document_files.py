@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import PurePath
+import re
 from typing import BinaryIO
 from xml.etree import ElementTree
 from zipfile import ZipFile
@@ -18,6 +19,7 @@ from mesa_storage.document_locations import DocumentLocations
 
 MAX_FILE_BYTES = 50_000_000
 MAX_DOCUMENT_BYTES = 5_000_000
+_FILENAME_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
 class DocumentFileError(ValueError):
@@ -119,11 +121,23 @@ def _extract_segments(
     return "".join(parts), locations
 
 
+def _sanitize_upload_filename(filename: str) -> str:
+    """Validate and extract only the safe basename of an uploaded filename."""
+    if not filename or _FILENAME_CONTROL_RE.search(filename):
+        raise DocumentFileError("Invalid file name.")
+    # Normalize both POSIX and Windows separators; never trust directory segments.
+    basename = filename.replace("\\", "/").rsplit("/", 1)[-1].strip()
+    if not basename or basename in {".", ".."}:
+        raise DocumentFileError("Invalid file name.")
+    return basename
+
+
 def extract_document_file(
     file: BinaryIO, filename: str
 ) -> tuple[str, DocumentLocations]:
     """Extract text without changing the original file or retaining its bytes."""
-    extension = PurePath(filename).suffix.lower()
+    safe_name = _sanitize_upload_filename(filename)
+    extension = PurePath(safe_name).suffix.lower()
     if extension not in {".pdf", ".docx", ".udf", ".xlsx", ".txt", ".md"}:
         raise DocumentFileError(
             "Supported files are PDF, DOCX, UDF, XLSX, TXT, and MD."
