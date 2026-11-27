@@ -943,6 +943,7 @@ jobs:
           docker image inspect "$image_ref" --format 'Image size bytes: {{.Size}}'
 
           # One-command start with zero required env vars (rate limits ON by default).
+          unset MESA_API_KEY MESA_PRINCIPAL_ID
           "${compose[@]}" up -d --wait --wait-timeout 180
 
           # Confirm non-root user inside the running container.
