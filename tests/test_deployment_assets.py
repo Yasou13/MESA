@@ -523,3 +523,32 @@ def test_ci_includes_native_windows_and_macos_jobs() -> None:
         assert "mesa_memory-*.whl" in text
         assert "/health" in text
         assert "test_single_writer_contract.py" in text
+
+
+def test_self_hosted_docker_compose_and_ci_smoke_job_match_d115() -> None:
+    compose = yaml.safe_load(
+        (ROOT / "docker-compose.v4.yml").read_text(encoding="utf-8")
+    )
+    service = compose["services"]["mesa-v4"]
+    env = service["environment"]
+    assert env["MESA_RATE_LIMIT_ENABLED"] == "${MESA_RATE_LIMIT_ENABLED:-true}"
+    assert env["MESA_RATE_LIMIT_PER_MINUTE"] == "${MESA_RATE_LIMIT_PER_MINUTE:-60}"
+    assert env["MESA_DAILY_REQUEST_LIMIT"] == "${MESA_DAILY_REQUEST_LIMIT:-10000}"
+    assert "mesa-v4-data:/var/lib/mesa" in service["volumes"]
+    assert service["read_only"] is True
+    assert "healthcheck" in service
+    entrypoint_text = " ".join(service["entrypoint"])
+    assert "MESA bootstrap API key (printed once; save it now): " in entrypoint_text
+    assert "exec mesa start --host 0.0.0.0" in entrypoint_text
+
+    ci_workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    )
+    docker_smoke = "\n".join(
+        str(step.get("run", ""))
+        for step in ci_workflow["jobs"]["docker-smoke"]["steps"]
+    )
+    assert "docker-compose.v4.yml" in docker_smoke
+    assert "/health" in docker_smoke
+    assert "MESA_RATE_LIMIT_ENABLED" in docker_smoke
+    assert "MESA bootstrap API key (printed once; save it now): " in docker_smoke

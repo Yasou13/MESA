@@ -915,3 +915,91 @@ jobs:
           tests/test_p1806_document_upload.py
           tests/test_p1902_ask.py
           tests/test_mcp_v4_service.py
+
+  docker-smoke:
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build and verify self-hosted Docker Compose install (D115)
+        run: |
+          set -euo pipefail
+          project="mesa-docker-smoke-${GITHUB_RUN_ID}"
+          compose=(docker compose -f docker-compose.v4.yml -p "$project")
+          cleanup() {
+            status=$?
+            "${compose[@]}" ps -a || true
+            "${compose[@]}" logs --no-color || true
+            "${compose[@]}" down --remove-orphans -v || true
+            return "$status"
+          }
+          trap cleanup EXIT
+
+          "${compose[@]}" config --quiet
+          test "$("${compose[@]}" config --services)" = "mesa-v4"
+          "${compose[@]}" build
+          image_ref="$("${compose[@]}" config --images | head -n 1)"
+          docker image inspect "$image_ref" --format 'Image size bytes: {{.Size}}'
+
+          # One-command start with zero required env vars (rate limits ON by default).
+          "${compose[@]}" up -d --wait --wait-timeout 180
+
+          # Confirm non-root user inside the running container.
+          uid="$("${compose[@]}" exec -T mesa-v4 id -u)"
+          test "$uid" != "0"
+          user_name="$("${compose[@]}" exec -T mesa-v4 id -un)"
+          test "$user_name" = "mesa"
+
+          # Confirm rate limits default on in the container environment.
+          rl_enabled="$("${compose[@]}" exec -T mesa-v4 sh -c 'printf %s "$MESA_RATE_LIMIT_ENABLED"')"
+          test "$rl_enabled" = "true"
+
+          # Confirm bootstrap API key was printed once on first boot.
+          first_logs="$("${compose[@]}" logs --no-color mesa-v4)"
+          bootstrap_count="$(printf '%s\n' "$first_logs" | grep -c 'MESA bootstrap API key (printed once; save it now): ')"
+          test "$bootstrap_count" = "1"
+          api_key="$(printf '%s\n' "$first_logs" | sed -n 's/.*MESA bootstrap API key (printed once; save it now): //p' | head -n 1 | tr -d '\r\n')"
+          test -n "$api_key"
+
+          # Verify /health/init, /health (401 unauthenticated, 200 authenticated), and container_health inside the container.
+          "${compose[@]}" exec -T mesa-v4 python -m mesa_memory.container_health
+          "${compose[@]}" exec -T -e CHECK_API_KEY="$api_key" mesa-v4 python - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+
+          with urllib.request.urlopen("http://127.0.0.1:8000/health/init", timeout=10) as r:
+              assert r.status == 200, r.status
+              assert json.loads(r.read().decode())["status"] == "ready"
+
+          try:
+              urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=10)
+              raise AssertionError("unauthenticated /health must return 401")
+          except urllib.error.HTTPError as exc:
+              assert exc.code == 401, exc.code
+
+          req = urllib.request.Request(
+              "http://127.0.0.1:8000/health",
+              headers={"X-API-Key": os.environ["CHECK_API_KEY"]},
+          )
+          with urllib.request.urlopen(req, timeout=10) as r:
+              assert r.status == 200, r.status
+              body = json.loads(r.read().decode())
+              assert body["status"] == "healthy", body
+              assert body.get("version"), body
+          print("In-container /health check passed:", body)
+          PY
+
+          # Verify restart preserves the volume and does NOT print the bootstrap key again.
+          "${compose[@]}" restart mesa-v4
+          for _ in $(seq 1 60); do
+            if "${compose[@]}" exec -T mesa-v4 python -m mesa_memory.container_health; then
+              break
+            fi
+            sleep 2
+          done
+          after_restart_count="$("${compose[@]}" logs --no-color mesa-v4 | grep -c 'MESA bootstrap API key (printed once; save it now): ')"
+          test "$after_restart_count" = "1"
+          echo "Self-hosted Docker Compose smoke passed."
