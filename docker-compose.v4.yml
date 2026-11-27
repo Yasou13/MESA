@@ -23,9 +23,7 @@ x-mesa-v4-runtime: &mesa-v4-runtime
     - /bin/sh
     - -c
     - |
-      if [ -z "$${MESA_API_KEY:-}" ] && [ ! -f "$${MESA_HOME}/credentials.json" ]; then
-        python -c 'import asyncio, os; from pathlib import Path; from mesa_mcp.local_cli import provision_credentials; c = asyncio.run(provision_credentials(Path(os.environ["MESA_HOME"]), Path(os.environ["MESA_STORAGE_ROOT"]), int(os.environ.get("MESA_PORT", "8000")))); print("MESA bootstrap API key (printed once; save it now): " + c["api_key"], flush=True)'
-      fi
+      python -c 'import asyncio, os; from pathlib import Path; from mesa_mcp.local_cli import provision_credentials; home = Path(os.environ["MESA_HOME"]); storage = Path(os.environ["MESA_STORAGE_ROOT"]); port = int(os.environ.get("MESA_PORT", "8000")); (print("MESA bootstrap API key (printed once; save it now): " + asyncio.run(provision_credentials(home, storage, port))["api_key"], flush=True) if not os.environ.get("MESA_API_KEY") and not (home / "credentials.json").is_file() else None)'
       exec mesa start --host 0.0.0.0
   environment:
     MESA_API_KEY: ${MESA_API_KEY:-}
