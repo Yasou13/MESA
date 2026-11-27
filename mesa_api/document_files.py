@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from pathlib import PurePath
-import re
 from typing import BinaryIO
 from xml.etree import ElementTree
 from zipfile import ZipFile
