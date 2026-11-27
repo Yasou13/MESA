@@ -19,6 +19,14 @@ x-mesa-v4-runtime: &mesa-v4-runtime
     options:
       max-size: "10m"
       max-file: "5"
+  entrypoint:
+    - /bin/sh
+    - -c
+    - |
+      if [ -z "$${MESA_API_KEY:-}" ] && [ ! -f "$${MESA_HOME}/credentials.json" ]; then
+        python -c 'import asyncio, os; from pathlib import Path; from mesa_mcp.local_cli import provision_credentials; c = asyncio.run(provision_credentials(Path(os.environ["MESA_HOME"]), Path(os.environ["MESA_STORAGE_ROOT"]), int(os.environ.get("MESA_PORT", "8000")))); print("MESA bootstrap API key (printed once; save it now): " + c["api_key"], flush=True)'
+      fi
+      exec mesa start --host 0.0.0.0
   environment:
     MESA_API_KEY: ${MESA_API_KEY:-}
     MESA_PRINCIPAL_ID: ${MESA_PRINCIPAL_ID:-}
@@ -28,6 +36,9 @@ x-mesa-v4-runtime: &mesa-v4-runtime
     MESA_HOME: /var/lib/mesa
     MESA_RUNTIME_PROFILE: combined
     MESA_LOAD_DOTENV: "false"
+    MESA_RATE_LIMIT_ENABLED: ${MESA_RATE_LIMIT_ENABLED:-true}
+    MESA_RATE_LIMIT_PER_MINUTE: ${MESA_RATE_LIMIT_PER_MINUTE:-60}
+    MESA_DAILY_REQUEST_LIMIT: ${MESA_DAILY_REQUEST_LIMIT:-10000}
     MESA_MODEL_ENABLED: ${MESA_MODEL_ENABLED:-false}
     MESA_EMBEDDING_ENABLED: ${MESA_EMBEDDING_ENABLED:-${MESA_MODEL_ENABLED:-false}}
     MESA_EXTRACTION_ENABLED: ${MESA_EXTRACTION_ENABLED:-false}
